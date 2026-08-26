@@ -38,7 +38,7 @@ export function revokeAllUserSessions(userId: string): void {
 // Simple TOTP verification helper (RFC 6238 compatible or 6-digit code validation)
 export function generate2FASecret(): { secret: string; otpAuthUrl: string } {
   const secret = crypto.randomBytes(20).toString('hex').substring(0, 16).toUpperCase();
-  const otpAuthUrl = `otpauth://totp/USDTFund:${encodeURIComponent('User')}?secret=${secret}&issuer=USDTFund`;
+  const otpAuthUrl = `otpauth://totp/FINEXJ:${encodeURIComponent('User')}?secret=${secret}&issuer=FINEXJ`;
   return { secret, otpAuthUrl };
 }
 

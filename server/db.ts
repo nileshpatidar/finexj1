@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   withdrawalFeePercentage: 4.0, // Fixed 4%
   accountAgeRequirementDays: 30, // 30 full days
   depositLockPeriodDays: 20, // 20 days lock
-  telegramSupportUrl: 'https://t.me/USDT_FundOfficialSupport',
+  telegramSupportUrl: 'https://t.me/FINEXJ_OfficialSupport',
   operationalWalletAddress: '0x388C818CA8B9251b393131C08a73683246A73121',
   compoundingEnabled: false, // Principal-based by default
   maintenanceMode: false,
@@ -68,7 +68,7 @@ function initializeSeedData(): DatabaseSchema {
   const adminUser: User = {
     id: 'user_admin_001',
     fullName: 'Master Administrator',
-    email: 'admin@usdtfund.com',
+    email: 'admin@finexj.com',
     phone: '+1 (555) 019-2831',
     country: 'United States',
     passwordHash: adminPasswordHash,
@@ -83,7 +83,7 @@ function initializeSeedData(): DatabaseSchema {
   const demoUser: User = {
     id: 'user_demo_001',
     fullName: 'David Sterling',
-    email: 'demo@usdtfund.com',
+    email: 'demo@finexj.com',
     phone: '+1 (555) 342-8901',
     country: 'United Kingdom',
     passwordHash: demoUserPasswordHash,
@@ -99,7 +99,7 @@ function initializeSeedData(): DatabaseSchema {
   const newUser: User = {
     id: 'user_demo_002',
     fullName: 'Elena Rostova',
-    email: 'newuser@usdtfund.com',
+    email: 'newuser@finexj.com',
     phone: '+44 7700 900077',
     country: 'Germany',
     passwordHash: newUserPasswordHash,
@@ -240,7 +240,7 @@ function initializeSeedData(): DatabaseSchema {
       actorEmail: adminUser.email,
       actorRole: adminUser.role,
       timestamp: now.toISOString(),
-      reason: 'USDT Fund Management production database initialized with ledger auditing',
+      reason: 'FINEXJ Platform production database initialized with ledger auditing',
     },
   ];
 
@@ -312,7 +312,17 @@ class Database {
   }
 
   public getUserByEmail(email: string): User | undefined {
-    return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    const target = email.toLowerCase().trim();
+    const alias = target.endsWith('@finexj.com')
+      ? target.replace('@finexj.com', '@usdtfund.com')
+      : target.endsWith('@usdtfund.com')
+        ? target.replace('@usdtfund.com', '@finexj.com')
+        : target;
+
+    return this.data.users.find(u => {
+      const uEmail = u.email.toLowerCase();
+      return uEmail === target || uEmail === alias;
+    });
   }
 
   public addUser(user: User): void {

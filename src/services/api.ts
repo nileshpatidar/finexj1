@@ -13,13 +13,15 @@ import {
 const API_BASE = '';
 
 function getAuthToken(): string | null {
-  return localStorage.getItem('usdt_auth_token');
+  return localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token');
 }
 
 export function setAuthToken(token: string | null) {
   if (token) {
+    localStorage.setItem('finexj_auth_token', token);
     localStorage.setItem('usdt_auth_token', token);
   } else {
+    localStorage.removeItem('finexj_auth_token');
     localStorage.removeItem('usdt_auth_token');
   }
 }

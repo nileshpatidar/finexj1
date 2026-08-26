@@ -66,14 +66,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
       <div className="w-full max-w-md p-6 sm:p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl space-y-6 text-xs">
         {/* Brand Banner */}
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 text-white font-extrabold text-2xl shadow-xl shadow-emerald-500/20">
-            ₮
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 text-white font-black text-2xl shadow-xl shadow-emerald-500/20">
+            F
           </div>
           <h2 className="text-lg font-bold text-slate-100">
-            {mode === 'login' ? 'USDT Fund Sign In' : 'Create Investor Account'}
+            {mode === 'login' ? 'FINEXJ Sign In' : 'Create Investor Account'}
           </h2>
           <p className="text-slate-400 text-[11px]">
-            Institutional BEP-20 Yield & Ledger Architecture
+            Institutional Digital Asset & Yield Management Architecture
           </p>
         </div>
 
@@ -172,7 +172,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="investor@usdtfund.com"
+                placeholder="investor@finexj.com"
                 className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs focus:outline-none focus:border-emerald-500"
               />
             </div>

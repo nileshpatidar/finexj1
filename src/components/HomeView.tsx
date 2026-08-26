@@ -65,7 +65,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             Welcome, {user?.fullName?.split(' ')[0] || 'Investor'}
           </h1>
           <p className="text-xs text-slate-400 dark:text-slate-400 text-slate-500">
-            Institutional USDT BEP-20 Fund Management
+            FINEXJ Institutional Fund & Yield Management
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

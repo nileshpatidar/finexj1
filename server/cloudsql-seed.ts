@@ -26,7 +26,7 @@ export async function seedCloudSqlDatabase() {
     const newCreated = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
 
     const [adminUser] = await db.insert(users).values({
-      email: 'admin@usdtfund.com',
+      email: 'admin@finexj.com',
       passwordHash: adminHash,
       salt: adminSalt,
       role: 'super_admin',
@@ -37,7 +37,7 @@ export async function seedCloudSqlDatabase() {
     }).returning();
 
     const [demoUser] = await db.insert(users).values({
-      email: 'demo@usdtfund.com',
+      email: 'demo@finexj.com',
       passwordHash: demoHash,
       salt: demoSalt,
       role: 'user',
@@ -49,7 +49,7 @@ export async function seedCloudSqlDatabase() {
     }).returning();
 
     const [newUser] = await db.insert(users).values({
-      email: 'newuser@usdtfund.com',
+      email: 'newuser@finexj.com',
       passwordHash: newHash,
       salt: newSalt,
       role: 'user',
@@ -114,8 +114,8 @@ export async function seedCloudSqlDatabase() {
     // Initial audit log
     await db.insert(auditLogs).values({
       action: 'SYSTEM_INITIALIZED',
-      actorEmail: 'admin@usdtfund.com',
-      details: 'Relational Cloud SQL PostgreSQL database seeded with full double-entry ledger auditing',
+      actorEmail: 'admin@finexj.com',
+      details: 'FINEXJ Relational Cloud SQL PostgreSQL database seeded with full double-entry ledger auditing',
       ipAddress: '127.0.0.1',
     });
 

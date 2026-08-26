@@ -197,12 +197,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h1 className="text-base font-bold text-slate-100">Super Admin Financial Portal</h1>
+              <h1 className="text-base font-bold text-slate-100">FINEXJ Master Admin Console</h1>
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
                 {user?.role.toUpperCase()}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Institutional Governance & Ledger Management</p>
+            <p className="text-[11px] text-slate-400">FINEXJ Institutional Governance & Ledger Management</p>
           </div>
         </div>
 

@@ -41,16 +41,16 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center justify-between h-16">
           {/* Logo & App Title */}
           <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onNavigate('home')}>
-            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 text-white font-bold shadow-lg shadow-emerald-500/20">
-              <span className="text-xl tracking-tighter">₮</span>
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 text-white font-extrabold shadow-lg shadow-emerald-500/20">
+              <span className="text-xl tracking-tight font-black">F</span>
               <span className="absolute -bottom-1 -right-1 px-1 py-0.2 text-[9px] font-bold bg-amber-500 text-slate-950 rounded">
                 BSC
               </span>
             </div>
             <div>
               <div className="flex items-center space-x-1.5">
-                <span className="text-base font-bold tracking-tight text-slate-100 dark:text-slate-100 text-slate-900">
-                  USDT FUND
+                <span className="text-base font-extrabold tracking-tight text-slate-100 dark:text-slate-100 text-slate-900">
+                  FINEXJ
                 </span>
                 <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full">
                   BEP-20
@@ -177,7 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
                         <p className="font-medium">Demo User (David)</p>
                         <p className="text-[10px] text-emerald-400">45d Old • Eligible to Withdraw</p>
                       </div>
-                      {user?.email === 'demo@usdtfund.com' && <UserCheck className="w-4 h-4 text-emerald-400" />}
+                      {(user?.email === 'demo@finexj.com' || user?.email === 'demo@usdtfund.com') && <UserCheck className="w-4 h-4 text-emerald-400" />}
                     </button>
 
                     <button
@@ -191,7 +191,7 @@ export const Header: React.FC<HeaderProps> = ({
                         <p className="font-medium">New User (Elena)</p>
                         <p className="text-[10px] text-amber-400">5d Old • 30-Day Lock Active</p>
                       </div>
-                      {user?.email === 'newuser@usdtfund.com' && <UserCheck className="w-4 h-4 text-amber-400" />}
+                      {(user?.email === 'newuser@finexj.com' || user?.email === 'newuser@usdtfund.com') && <UserCheck className="w-4 h-4 text-amber-400" />}
                     </button>
 
                     <button
@@ -206,7 +206,7 @@ export const Header: React.FC<HeaderProps> = ({
                         <p className="font-medium text-amber-400">Master Admin Portal</p>
                         <p className="text-[10px] text-slate-400">Full Financial Controls</p>
                       </div>
-                      {user?.email === 'admin@usdtfund.com' && <ShieldCheck className="w-4 h-4 text-amber-400" />}
+                      {(user?.email === 'admin@finexj.com' || user?.email === 'admin@usdtfund.com') && <ShieldCheck className="w-4 h-4 text-amber-400" />}
                     </button>
                   </div>
                 </div>

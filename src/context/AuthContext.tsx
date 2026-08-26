@@ -19,7 +19,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('usdt_auth_token'));
+  const [token, setToken] = useState<string | null>(localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
 
@@ -37,7 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const refreshUser = async () => {
-    const savedToken = localStorage.getItem('usdt_auth_token');
+    const savedToken = localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token');
     if (!savedToken) {
       setUser(null);
       setIsLoading(false);
@@ -63,13 +63,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     // Initial auto-login to demo user if no token present for seamless preview experience
     const initializeAuth = async () => {
-      const savedToken = localStorage.getItem('usdt_auth_token');
+      const savedToken = localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token');
       if (savedToken) {
         await refreshUser();
       } else {
         // Auto-login to standard demo user for immediate working demo
         try {
-          const res = await api.login({ email: 'demo@usdtfund.com', password: 'UserPass123!' });
+          const res = await api.login({ email: 'demo@finexj.com', password: 'UserPass123!' });
           if (res.token && res.user) {
             setAuthToken(res.token);
             setToken(res.token);
@@ -132,14 +132,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchDemoAccount = async (accountType: 'demo' | 'newuser' | 'admin') => {
     setIsLoading(true);
-    let email = 'demo@usdtfund.com';
+    let email = 'demo@finexj.com';
     let pass = 'UserPass123!';
 
     if (accountType === 'newuser') {
-      email = 'newuser@usdtfund.com';
+      email = 'newuser@finexj.com';
       pass = 'UserPass123!';
     } else if (accountType === 'admin') {
-      email = 'admin@usdtfund.com';
+      email = 'admin@finexj.com';
       pass = 'AdminPass123!';
     }
 

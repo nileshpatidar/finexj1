@@ -8,7 +8,7 @@ interface SupportModalProps {
 }
 
 export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) => {
-  const [telegramUrl, setTelegramUrl] = useState('https://t.me/USDT_FundOfficialSupport');
+  const [telegramUrl, setTelegramUrl] = useState('https://t.me/FINEXJ_OfficialSupport');
 
   useEffect(() => {
     api.getSettings().then(s => {
@@ -27,8 +27,8 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
               <Headphones className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-100">Live Support Desk</h2>
-              <p className="text-[11px] text-slate-400">Official Telegram Representative</p>
+              <h2 className="text-sm font-bold text-slate-100">FINEXJ Support Desk</h2>
+              <p className="text-[11px] text-slate-400">Official Telegram Representative & Desk</p>
             </div>
           </div>
 
@@ -43,10 +43,10 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
         <div className="p-4 rounded-2xl bg-sky-950/30 border border-sky-500/30 space-y-2 text-slate-300">
           <div className="flex items-center space-x-2 text-sky-400 font-semibold">
             <ShieldCheck className="w-4 h-4" />
-            <span>Direct Telegram Channel</span>
+            <span>FINEXJ Official Telegram Channel</span>
           </div>
           <p className="text-[11px] leading-relaxed text-slate-400">
-            For real-time inquiries regarding USDT BEP-20 deposits, blockchain confirmations, withdrawal reviews, or fund policies, connect directly with our 24/7 official Telegram support team.
+            For real-time inquiries regarding FINEXJ BEP-20 deposits, blockchain confirmations, withdrawal reviews, or fund policies, connect directly with our 24/7 official Telegram support team.
           </p>
         </div>
 
