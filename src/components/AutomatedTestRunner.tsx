@@ -205,8 +205,8 @@ export const AutomatedTestRunner: React.FC<AutomatedTestRunnerProps> = ({ isOpen
                 {runnerMode && (
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center space-x-1 ${
                     runnerMode === 'server' 
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                      : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                      : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
                   }`}>
                     {runnerMode === 'server' ? <Server className="w-3 h-3 inline mr-1" /> : <Cpu className="w-3 h-3 inline mr-1" />}
                     {runnerMode === 'server' ? 'Server Engine' : 'Client Invariant Suite'}
@@ -262,9 +262,9 @@ export const AutomatedTestRunner: React.FC<AutomatedTestRunnerProps> = ({ isOpen
                 <p className="text-base font-bold text-slate-100">{testSuite.totalTests}</p>
               </div>
 
-              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-center">
-                <span className="text-[10px] text-emerald-400">Passed</span>
-                <p className="text-base font-bold text-emerald-400">{testSuite.passedTests}</p>
+              <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 text-center">
+                <span className="text-[10px] text-blue-400">Passed</span>
+                <p className="text-base font-bold text-blue-400">{testSuite.passedTests}</p>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
@@ -282,12 +282,12 @@ export const AutomatedTestRunner: React.FC<AutomatedTestRunnerProps> = ({ isOpen
                   key={i}
                   className={`p-3 rounded-xl border flex items-start space-x-3 transition-colors ${
                     r.passed
-                      ? 'bg-emerald-950/20 border-emerald-500/30'
+                      ? 'bg-blue-950/20 border-blue-500/30'
                       : 'bg-red-950/20 border-red-500/30'
                   }`}
                 >
                   {r.passed ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <CheckCircle2 className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
                   ) : (
                     <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
                   )}

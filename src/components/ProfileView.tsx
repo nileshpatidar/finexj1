@@ -3,14 +3,11 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  User,
   Shield,
   KeyRound,
-  QrCode,
   LogOut,
   CheckCircle2,
   AlertTriangle,
-  Clock,
   Loader2,
   Check,
   Copy,
@@ -40,7 +37,7 @@ export const ProfileView: React.FC = () => {
       setShow2FASetup(true);
       setTwoFactorError(null);
       setTwoFactorMessage(null);
-    } catch (err) {
+    } catch {
       setTwoFactorError('Could not generate 2FA secret.');
     }
   };
@@ -108,62 +105,62 @@ export const ProfileView: React.FC = () => {
     <div className="space-y-6 max-w-3xl mx-auto pb-24 text-xs">
       {/* Title */}
       <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-slate-100 dark:text-slate-100 text-slate-900">
+        <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
           User Profile & Security
         </h1>
-        <p className="text-xs text-slate-400 dark:text-slate-400 text-slate-500 mt-1">
+        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
           Manage your account credentials, 2-factor authentication, and active sessions.
         </p>
       </div>
 
       {/* Profile Overview Card */}
-      <div className="rounded-3xl bg-slate-900/80 dark:bg-slate-900/80 bg-white border border-slate-800 dark:border-slate-800 border-slate-200 p-6 shadow-xl space-y-6">
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+      <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-6">
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
           <img
             src={user?.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.fullName || 'User'}`}
             alt="Profile Avatar"
-            className="w-20 h-20 rounded-2xl object-cover border-2 border-blue-500/40 shadow-lg shadow-blue-500/10"
+            className="w-20 h-20 rounded-2xl object-cover border-2 border-blue-500/40 shadow-lg shadow-blue-500/15"
           />
 
-          <div className="flex-1 text-center sm:text-left space-y-1">
+          <div className="flex-1 text-center sm:text-left space-y-1.5">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-              <h2 className="text-lg font-bold text-slate-100 dark:text-slate-100 text-slate-900">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
                 {user?.fullName}
               </h2>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+              <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                 {user?.status.toUpperCase()}
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">
+              <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                 {user?.role.toUpperCase()}
               </span>
             </div>
 
-            <p className="text-slate-400">{user?.email}</p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-slate-600 dark:text-slate-400 font-medium">{user?.email}</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {user?.phone || 'No phone'} • {user?.country || 'International'}
             </p>
           </div>
         </div>
 
         {/* Account Metadata Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-800 dark:border-slate-800 border-slate-200">
-          <div className="p-3 rounded-xl bg-slate-950/60 dark:bg-slate-950/60 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-200">
-            <span className="text-[10px] text-slate-400 uppercase font-bold">Registration Date</span>
-            <p className="font-semibold text-slate-200 dark:text-slate-200 text-slate-800 mt-0.5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Registration Date</span>
+            <p className="font-bold text-slate-900 dark:text-white text-sm mt-0.5">
               {accountCreated.toLocaleDateString()}
             </p>
           </div>
 
-          <div className="p-3 rounded-xl bg-slate-950/60 dark:bg-slate-950/60 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-200">
-            <span className="text-[10px] text-slate-400 uppercase font-bold">Account Age</span>
-            <p className="font-semibold text-emerald-400 mt-0.5">
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Account Age</span>
+            <p className="font-bold text-blue-600 dark:text-blue-400 text-sm mt-0.5">
               {accountAgeDays} Completed Days
             </p>
           </div>
 
-          <div className="p-3 rounded-xl bg-slate-950/60 dark:bg-slate-950/60 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-200">
-            <span className="text-[10px] text-slate-400 uppercase font-bold">30-Day Age Policy</span>
-            <p className={`font-semibold mt-0.5 ${accountAgeDays >= 30 ? 'text-emerald-400' : 'text-amber-400'}`}>
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">30-Day Age Policy</span>
+            <p className={`font-bold text-sm mt-0.5 ${accountAgeDays >= 30 ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}>
               {accountAgeDays >= 30 ? 'Eligible for Payout' : 'Maturity Pending'}
             </p>
           </div>
@@ -171,11 +168,11 @@ export const ProfileView: React.FC = () => {
       </div>
 
       {/* 2-Factor Authentication (TOTP) */}
-      <div className="rounded-3xl bg-slate-900/80 dark:bg-slate-900/80 bg-white border border-slate-800 dark:border-slate-800 border-slate-200 p-6 shadow-xl space-y-4">
+      <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <Shield className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200 dark:text-slate-200 text-slate-800">
+            <Shield className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
               Two-Factor Authentication (2FA)
             </h2>
           </div>
@@ -183,28 +180,28 @@ export const ProfileView: React.FC = () => {
           <span
             className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
               user?.twoFactorEnabled
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                : 'bg-slate-800 text-slate-400'
+                ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
             }`}
           >
             {user?.twoFactorEnabled ? 'ENABLED' : 'DISABLED'}
           </span>
         </div>
 
-        <p className="text-slate-400 leading-relaxed text-[11px]">
+        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
           Protect your account and withdrawal operations using Google Authenticator, Authy, or standard RFC 6238 TOTP apps.
         </p>
 
         {twoFactorMessage && (
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+          <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 flex items-center space-x-2 font-medium">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-blue-500" />
             <span>{twoFactorMessage}</span>
           </div>
         )}
 
         {twoFactorError && (
-          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-400" />
+          <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 flex items-center space-x-2 font-medium">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-500" />
             <span>{twoFactorError}</span>
           </div>
         )}
@@ -215,40 +212,40 @@ export const ProfileView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleStart2FA}
-                className="py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition"
+                className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold transition shadow-md shadow-blue-500/20 cursor-pointer"
               >
                 Enable 2FA Authenticator
               </button>
             ) : (
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-4">
-                <p className="font-semibold text-slate-200">
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+                <p className="font-semibold text-slate-900 dark:text-white">
                   Scan this QR code with Google Authenticator or copy the secret key:
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                  <div className="p-2 bg-white rounded-xl shadow">
+                  <div className="p-2.5 bg-white rounded-xl shadow-md border border-slate-200">
                     <QRCodeSVG value={secretData?.otpAuthUrl || ''} size={120} />
                   </div>
 
                   <div className="space-y-2 flex-1 w-full">
-                    <span className="text-[10px] uppercase font-bold text-slate-400">Secret Key</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Secret Key</span>
                     <div className="flex items-center space-x-2">
                       <input
                         type="text"
                         readOnly
                         value={secretData?.secret || ''}
-                        className="w-full py-1.5 px-3 rounded-lg bg-slate-900 border border-slate-800 font-mono text-xs text-amber-400"
+                        className="w-full py-2 px-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 font-mono text-xs font-bold text-blue-600 dark:text-blue-400"
                       />
                       <button
                         onClick={copySecret}
-                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
+                        className="p-2 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer"
                       >
-                        {copiedSecret ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        {copiedSecret ? <Check className="w-4 h-4 text-blue-600" /> : <Copy className="w-4 h-4" />}
                       </button>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mt-2 mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mt-2 mb-1">
                         Enter 6-digit Code to Confirm:
                       </label>
                       <input
@@ -257,7 +254,7 @@ export const ProfileView: React.FC = () => {
                         value={twoFactorInputCode}
                         onChange={e => setTwoFactorInputCode(e.target.value)}
                         placeholder="123456"
-                        className="w-full py-2 px-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 font-mono tracking-widest text-center"
+                        className="w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono tracking-widest text-center font-bold"
                       />
                     </div>
                   </div>
@@ -267,13 +264,13 @@ export const ProfileView: React.FC = () => {
                   <button
                     onClick={() => handleToggle2FA(true)}
                     disabled={twoFactorInputCode.length !== 6}
-                    className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold"
+                    className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold cursor-pointer"
                   >
                     Verify & Activate 2FA
                   </button>
                   <button
                     onClick={() => setShow2FASetup(false)}
-                    className="py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
+                    className="py-2.5 px-4 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -285,7 +282,7 @@ export const ProfileView: React.FC = () => {
           <button
             type="button"
             onClick={() => handleToggle2FA(false)}
-            className="py-2 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-bold transition"
+            className="py-2 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 font-bold transition cursor-pointer"
           >
             Disable 2FA Authenticator
           </button>
@@ -293,31 +290,31 @@ export const ProfileView: React.FC = () => {
       </div>
 
       {/* Change Password */}
-      <div className="rounded-3xl bg-slate-900/80 dark:bg-slate-900/80 bg-white border border-slate-800 dark:border-slate-800 border-slate-200 p-6 shadow-xl space-y-4">
+      <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-4">
         <div className="flex items-center space-x-2">
-          <KeyRound className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200 dark:text-slate-200 text-slate-800">
+          <KeyRound className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
             Change Password
           </h2>
         </div>
 
         {passMessage && (
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+          <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 flex items-center space-x-2 font-medium">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-blue-500" />
             <span>{passMessage}</span>
           </div>
         )}
 
         {passError && (
-          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-400" />
+          <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 flex items-center space-x-2 font-medium">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-500" />
             <span>{passError}</span>
           </div>
         )}
 
-        <form onSubmit={handleChangePassword} className="space-y-3">
+        <form onSubmit={handleChangePassword} className="space-y-3.5">
           <div>
-            <label className="block font-semibold text-slate-300 dark:text-slate-300 text-slate-700 mb-1">
+            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               Current Password
             </label>
             <input
@@ -325,13 +322,13 @@ export const ProfileView: React.FC = () => {
               value={currentPassword}
               onChange={e => setCurrentPassword(e.target.value)}
               placeholder="Enter current password"
-              className="w-full py-2 px-3 rounded-xl bg-slate-950 dark:bg-slate-950 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-300 text-slate-100 dark:text-slate-100 text-slate-900 focus:outline-none focus:border-emerald-500"
+              className="w-full py-2.5 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition"
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-semibold text-slate-300 dark:text-slate-300 text-slate-700 mb-1">
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 New Password
               </label>
               <input
@@ -339,12 +336,12 @@ export const ProfileView: React.FC = () => {
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
                 placeholder="Min. 8 characters"
-                className="w-full py-2 px-3 rounded-xl bg-slate-950 dark:bg-slate-950 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-300 text-slate-100 dark:text-slate-100 text-slate-900 focus:outline-none focus:border-emerald-500"
+                className="w-full py-2.5 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-300 dark:text-slate-300 text-slate-700 mb-1">
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Confirm New Password
               </label>
               <input
@@ -352,7 +349,7 @@ export const ProfileView: React.FC = () => {
                 value={confirmNewPassword}
                 onChange={e => setConfirmNewPassword(e.target.value)}
                 placeholder="Repeat new password"
-                className="w-full py-2 px-3 rounded-xl bg-slate-950 dark:bg-slate-950 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-300 text-slate-100 dark:text-slate-100 text-slate-900 focus:outline-none focus:border-emerald-500"
+                className="w-full py-2.5 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition"
               />
             </div>
           </div>
@@ -360,7 +357,7 @@ export const ProfileView: React.FC = () => {
           <button
             type="submit"
             disabled={isChangingPass || !currentPassword || !newPassword}
-            className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-100 font-bold transition flex items-center space-x-2"
+            className="py-3 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white font-bold transition flex items-center space-x-2 cursor-pointer shadow-md shadow-blue-500/20"
           >
             {isChangingPass ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             <span>Update Password</span>
@@ -369,10 +366,10 @@ export const ProfileView: React.FC = () => {
       </div>
 
       {/* Session Management & Logout */}
-      <div className="rounded-3xl bg-slate-900/80 dark:bg-slate-900/80 bg-white border border-slate-800 dark:border-slate-800 border-slate-200 p-6 shadow-xl space-y-3">
+      <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-3">
         <div className="flex items-center space-x-2">
-          <LogOut className="w-5 h-5 text-red-400" />
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200 dark:text-slate-200 text-slate-800">
+          <LogOut className="w-5 h-5 text-red-500" />
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
             Session & Logout
           </h2>
         </div>
@@ -380,7 +377,7 @@ export const ProfileView: React.FC = () => {
         <div className="flex flex-wrap gap-3 pt-1">
           <button
             onClick={logout}
-            className="py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition flex items-center space-x-2"
+            className="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold transition flex items-center space-x-2 border border-slate-200 dark:border-slate-700 cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
             <span>Logout Current Session</span>
@@ -388,7 +385,7 @@ export const ProfileView: React.FC = () => {
 
           <button
             onClick={logoutAll}
-            className="py-2 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-bold transition flex items-center space-x-2"
+            className="py-2.5 px-4 rounded-xl bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 font-bold transition flex items-center space-x-2 cursor-pointer"
           >
             <Shield className="w-4 h-4" />
             <span>Logout From All Devices</span>

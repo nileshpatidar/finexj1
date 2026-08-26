@@ -4,16 +4,13 @@ import { useAuth } from '../context/AuthContext';
 import {
   ShieldAlert,
   Users,
-  ArrowDownToLine,
   ArrowUpFromLine,
   TrendingUp,
   Settings,
   ShieldCheck,
   CheckCircle2,
   XCircle,
-  Clock,
   Loader2,
-  Search,
   RefreshCw,
   Sliders,
   DollarSign,
@@ -190,39 +187,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-24 text-xs">
       {/* Admin Top Banner */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-3xl bg-slate-900 border border-amber-500/30">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-5 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-md">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md shadow-blue-500/20">
             <ShieldAlert className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h1 className="text-base font-bold text-slate-100">FINEXJ Master Admin Console</h1>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <h1 className="text-base font-bold text-slate-900 dark:text-white">FINEXJ Master Admin Console</h1>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
                 {user?.role.toUpperCase()}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">FINEXJ Institutional Governance & Ledger Management</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">FINEXJ Institutional Governance & Ledger Management</p>
           </div>
         </div>
 
         <div className="flex items-center space-x-2">
           <button
             onClick={loadAllAdminData}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+            className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
             title="Refresh All Records"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
           <button
             onClick={handleResetData}
-            className="py-1.5 px-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-semibold transition"
+            className="py-2 px-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 font-semibold transition cursor-pointer"
           >
             Reset Demo DB
           </button>
           <button
             onClick={onBackToUser}
-            className="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition"
+            className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-sm cursor-pointer"
           >
             Exit to User View
           </button>
@@ -230,7 +227,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex overflow-x-auto no-scrollbar gap-1.5 p-1.5 rounded-2xl bg-slate-900/60 border border-slate-800">
+      <div className="flex overflow-x-auto no-scrollbar gap-1.5 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
         {[
           { id: 'overview', label: 'Overview', icon: TrendingUp },
           { id: 'users', label: 'Users', icon: Users },
@@ -247,10 +244,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-xl font-semibold whitespace-nowrap transition ${
+              className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 isActive
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -267,15 +264,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
 
       {/* Action Messages */}
       {actionMessage && (
-        <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 flex items-center space-x-2">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+        <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 flex items-center space-x-2 font-medium">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
           <span>{actionMessage}</span>
         </div>
       )}
 
       {actionError && (
-        <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-300 flex items-center space-x-2">
-          <XCircle className="w-4 h-4 flex-shrink-0 text-red-400" />
+        <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 flex items-center space-x-2 font-medium">
+          <XCircle className="w-4 h-4 flex-shrink-0 text-red-600 dark:text-red-400" />
           <span>{actionError}</span>
         </div>
       )}
@@ -284,44 +281,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
       {activeTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-400">Total Confirmed Deposits</span>
-              <p className="text-xl font-bold text-slate-100">
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Total Confirmed Deposits</span>
+              <p className="text-xl font-bold text-slate-900 dark:text-white">
                 ${(stats?.totalConfirmedDeposits || 0).toLocaleString()} USDT
               </p>
-              <span className="text-[10px] text-emerald-400">BEP-20 Verified</span>
+              <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">BEP-20 Verified</span>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-400">Total Earnings Distributed</span>
-              <p className="text-xl font-bold text-teal-400">
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Total Earnings Distributed</span>
+              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
                 +${(stats?.totalEarningsAllocated || 0).toFixed(2)} USDT
               </p>
-              <span className="text-[10px] text-slate-500">Fund Yield Allocations</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">Fund Yield Allocations</span>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-400">Pending Withdrawals</span>
-              <p className="text-xl font-bold text-amber-400">
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Pending Withdrawals</span>
+              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
                 {stats?.pendingWithdrawalsCount || 0} (${(stats?.totalPendingWithdrawalsAmount || 0).toFixed(2)})
               </p>
-              <span className="text-[10px] text-amber-400/80">Requires Approval</span>
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Requires Approval</span>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-400">Withdrawal Fees (4%)</span>
-              <p className="text-xl font-bold text-purple-400">
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Withdrawal Fees (4%)</span>
+              <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
                 ${(stats?.totalWithdrawalFees || 0).toFixed(2)} USDT
               </p>
-              <span className="text-[10px] text-slate-500">Platform Retained</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">Platform Retained</span>
             </div>
           </div>
 
           {/* Quick Daily Allocation Card */}
-          <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+          <div className="p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center space-x-2">
-                <Sliders className="w-4 h-4 text-amber-400" />
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center space-x-2">
+                <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span>Daily Performance Distribution (Profit, Loss, or Safe Day)</span>
               </h2>
               <div className="flex items-center space-x-1.5 text-xs">
@@ -331,7 +328,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                     setPerfRate('0.01');
                     setPerfNotes('Profitable trading day (+1.00%).');
                   }}
-                  className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/20 transition"
+                  className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800/60 transition cursor-pointer"
                 >
                   +1.00% Profit
                 </button>
@@ -341,7 +338,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                     setPerfRate('-0.005');
                     setPerfNotes('Market adjustment / draw-down (-0.50%).');
                   }}
-                  className="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold border border-rose-500/20 transition"
+                  className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-bold border border-rose-200 dark:border-rose-800/60 transition cursor-pointer"
                 >
                   -0.50% Loss
                 </button>
@@ -351,7 +348,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                     setPerfRate('0');
                     setPerfNotes('We are safe today, no investment / trading today (Capital Preserved).');
                   }}
-                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold border border-slate-700 transition"
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 transition cursor-pointer"
                 >
                   0.00% Safe Day
                 </button>
@@ -360,17 +357,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
 
             <form onSubmit={handleApplyPerformance} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
-                <label className="block text-slate-400 text-[11px] mb-1">Performance Date</label>
+                <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">Performance Date</label>
                 <input
                   type="date"
                   value={perfDate}
                   onChange={e => setPerfDate(e.target.value)}
-                  className="w-full py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-semibold"
+                  className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-semibold"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 text-[11px] mb-1">
+                <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">
                   Applicable Rate (e.g. 0.01 = +1%, -0.005 = -0.5%, 0 = 0%)
                 </label>
                 <input
@@ -378,24 +375,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                   step="0.0001"
                   value={perfRate}
                   onChange={e => setPerfRate(e.target.value)}
-                  className={`w-full py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 font-bold ${
+                  className={`w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold ${
                     parseFloat(perfRate) > 0
-                      ? 'text-emerald-400'
+                      ? 'text-blue-600 dark:text-blue-400'
                       : parseFloat(perfRate) < 0
-                      ? 'text-rose-400'
-                      : 'text-slate-300'
+                      ? 'text-rose-600 dark:text-rose-400'
+                      : 'text-slate-700 dark:text-slate-300'
                   }`}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 text-[11px] mb-1">Custom Note / Condition</label>
+                <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">Custom Note / Condition</label>
                 <input
                   type="text"
                   value={perfNotes}
                   onChange={e => setPerfNotes(e.target.value)}
                   placeholder="e.g. We are safe today, no investment today"
-                  className="w-full py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-100"
+                  className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -403,12 +400,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                 <button
                   type="submit"
                   disabled={isDistributing}
-                  className={`w-full py-2.5 px-4 rounded-xl disabled:opacity-50 font-bold transition flex items-center justify-center space-x-2 ${
+                  className={`w-full py-2.5 px-4 rounded-xl disabled:opacity-50 font-bold transition flex items-center justify-center space-x-2 cursor-pointer ${
                     parseFloat(perfRate) > 0
-                      ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20'
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20'
                       : parseFloat(perfRate) < 0
-                      ? 'bg-rose-500 hover:bg-rose-400 text-white shadow-md shadow-rose-500/20'
-                      : 'bg-slate-700 hover:bg-slate-600 text-slate-100'
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-500/20'
+                      : 'bg-slate-700 hover:bg-slate-600 text-white'
                   }`}
                 >
                   {isDistributing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -429,39 +426,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
       {/* TAB 2: USERS */}
       {activeTab === 'users' && (
         <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
             Registered Users & Accounts ({users.length})
           </h2>
           <div className="space-y-2">
             {users.map(u => (
               <div
                 key={u.id}
-                className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm"
               >
                 <div className="flex items-center space-x-3">
                   <img
                     src={u.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.fullName}`}
                     alt="avatar"
-                    className="w-10 h-10 rounded-xl object-cover border border-slate-700"
+                    className="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-slate-700"
                   />
                   <div>
                     <div className="flex items-center space-x-2">
-                      <span className="font-bold text-slate-100 text-sm">{u.fullName}</span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">
+                      <span className="font-bold text-slate-900 dark:text-white text-sm">{u.fullName}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                         {u.role}
                       </span>
                       <span
                         className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                           u.status === 'active'
-                            ? 'bg-emerald-500/20 text-emerald-400'
-                            : 'bg-red-500/20 text-red-400'
+                            ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+                            : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
                         }`}
                       >
                         {u.status}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400">{u.email} • {u.country}</p>
-                    <p className="text-[10px] text-slate-500">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{u.email} • {u.country}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
                       Created: {new Date(u.createdAt).toLocaleDateString()} ({u.balance?.accountAgeDays || 0}d age)
                     </p>
                   </div>
@@ -469,20 +466,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
 
                 <div className="flex items-center space-x-4">
                   <div className="text-right">
-                    <p className="text-sm font-bold text-slate-100">
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">
                       ${u.balance?.availableBalance?.toFixed(2)} USDT
                     </p>
-                    <p className="text-[10px] text-slate-400">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
                       Deposited: ${u.balance?.totalDeposited?.toFixed(2)}
                     </p>
                   </div>
 
                   <button
                     onClick={() => handleToggleUserStatus(u.id, u.status)}
-                    className={`py-1 px-3 rounded-lg font-bold transition text-[11px] ${
+                    className={`py-1.5 px-3 rounded-lg font-bold transition text-[11px] cursor-pointer ${
                       u.status === 'active'
-                        ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30'
-                        : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        ? 'bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60'
+                        : 'bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/60'
                     }`}
                   >
                     {u.status === 'active' ? 'Suspend' : 'Activate'}
@@ -497,12 +494,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
       {/* TAB 3: WITHDRAWALS */}
       {activeTab === 'withdrawals' && (
         <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
             Withdrawal Management & Payouts ({withdrawals.length})
           </h2>
 
           {withdrawals.length === 0 ? (
-            <div className="p-8 text-center rounded-2xl bg-slate-900 border border-slate-800 text-slate-400">
+            <div className="p-8 text-center rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
               No withdrawal requests.
             </div>
           ) : (
@@ -510,33 +507,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
               {withdrawals.map(wd => (
                 <div
                   key={wd.id}
-                  className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm"
                 >
                   <div className="space-y-1">
                     <div className="flex items-center space-x-2">
-                      <span className="font-bold text-slate-100 text-sm">
+                      <span className="font-bold text-slate-900 dark:text-white text-sm">
                         ${wd.requestedAmount.toFixed(2)} USDT
                       </span>
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           wd.status === 'paid'
-                            ? 'bg-emerald-500/20 text-emerald-400'
+                            ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
                             : wd.status === 'rejected'
-                            ? 'bg-red-500/20 text-red-400'
-                            : 'bg-amber-500/20 text-amber-400'
+                            ? 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
+                            : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
                         }`}
                       >
                         {wd.status.toUpperCase()}
                       </span>
-                      <span className="text-[11px] text-slate-400">
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
                         Net: ${wd.netAmount.toFixed(2)} (4% Fee: ${wd.feeAmount.toFixed(2)})
                       </span>
                     </div>
 
-                    <p className="text-[11px] text-slate-300 font-mono break-all">
+                    <p className="text-[11px] text-slate-700 dark:text-slate-300 font-mono break-all">
                       To: {wd.destinationAddress}
                     </p>
-                    <p className="text-[10px] text-slate-500">
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
                       User: {wd.userId} • Ref: {wd.reference} • {new Date(wd.createdAt).toLocaleString()}
                     </p>
                   </div>
@@ -545,13 +542,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => setSelectedWithdrawal(wd)}
-                        className="py-1.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition"
+                        className="py-1.5 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-sm cursor-pointer"
                       >
                         Pay / Complete
                       </button>
                       <button
                         onClick={() => handleWithdrawalAction(wd.id, 'rejected')}
-                        className="py-1.5 px-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-bold transition"
+                        className="py-1.5 px-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 font-bold transition cursor-pointer"
                       >
                         Reject & Refund
                       </button>
@@ -559,9 +556,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                   ) : (
                     <div className="text-right">
                       {wd.txHash && (
-                        <p className="text-[10px] text-emerald-400 font-mono">Tx: {wd.txHash.substring(0, 10)}...</p>
+                        <p className="text-[10px] text-blue-600 dark:text-blue-400 font-mono">Tx: {wd.txHash.substring(0, 10)}...</p>
                       )}
-                      <p className="text-[10px] text-slate-500">{wd.status === 'paid' ? 'Paid on Chain' : 'Resolved'}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500">{wd.status === 'paid' ? 'Paid on Chain' : 'Resolved'}</p>
                     </div>
                   )}
                 </div>
@@ -573,48 +570,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
 
       {/* Payout Completion Modal */}
       {selectedWithdrawal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
-            <h3 className="text-sm font-bold text-slate-100 uppercase">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-md p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-4 shadow-2xl">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase">
               Complete BEP-20 Payout ({selectedWithdrawal.reference})
             </h3>
-            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 space-y-1">
-              <p>Net Payout Amount: <strong className="text-emerald-400">${selectedWithdrawal.netAmount.toFixed(2)} USDT</strong></p>
-              <p className="font-mono text-[10px] break-all">Destination: {selectedWithdrawal.destinationAddress}</p>
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 space-y-1 text-xs">
+              <p>Net Payout Amount: <strong className="text-blue-600 dark:text-blue-400 font-bold">${selectedWithdrawal.netAmount.toFixed(2)} USDT</strong></p>
+              <p className="font-mono text-[10px] break-all text-slate-500 dark:text-slate-400">Destination: {selectedWithdrawal.destinationAddress}</p>
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">BNB Smart Chain Payout Tx Hash</label>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1 text-xs font-medium">BNB Smart Chain Payout Tx Hash</label>
               <input
                 type="text"
                 value={payoutTxHash}
                 onChange={e => setPayoutTxHash(e.target.value)}
                 placeholder="0x..."
-                className="w-full py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono"
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">Admin Internal Note (Optional)</label>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1 text-xs font-medium">Admin Internal Note (Optional)</label>
               <input
                 type="text"
                 value={adminNote}
                 onChange={e => setAdminNote(e.target.value)}
                 placeholder="Payout verified on BSC wallet"
-                className="w-full py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-100"
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs"
               />
             </div>
 
             <div className="flex space-x-2 pt-2">
               <button
                 onClick={() => handleWithdrawalAction(selectedWithdrawal.id, 'paid', payoutTxHash || undefined)}
-                className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold"
+                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition cursor-pointer shadow-md shadow-blue-500/20"
               >
                 Mark as Paid & Notify User
               </button>
               <button
                 onClick={() => setSelectedWithdrawal(null)}
-                className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
+                className="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -626,25 +623,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
       {/* TAB 4: PERFORMANCE HISTORY */}
       {activeTab === 'performance' && (
         <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
             Daily Performance Records ({performances.length})
           </h2>
           <div className="space-y-2">
             {performances.map(p => (
               <div
                 key={p.id}
-                className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between"
+                className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-sm"
               >
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="font-bold text-slate-100">{p.date}</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{p.date}</span>
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         p.applicableRate > 0
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60'
                           : p.applicableRate < 0
-                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                          : 'bg-slate-800 text-slate-300 border border-slate-700'
+                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                       }`}
                     >
                       {p.applicableRate > 0
@@ -654,17 +651,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                         : '0.00% Safe (No Trade)'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">{p.notes}</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{p.notes}</p>
                 </div>
 
                 <div className="text-right">
                   <p
                     className={`text-sm font-bold ${
                       p.totalDistributed > 0
-                        ? 'text-emerald-400'
+                        ? 'text-blue-600 dark:text-blue-400'
                         : p.totalDistributed < 0
-                        ? 'text-rose-400'
-                        : 'text-slate-400'
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-slate-500 dark:text-slate-400'
                     }`}
                   >
                     {p.totalDistributed > 0
@@ -673,7 +670,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                       ? `-$${Math.abs(p.totalDistributed).toFixed(2)} USDT`
                       : '$0.00 USDT (Safe)'}
                   </p>
-                  <p className="text-[10px] text-slate-500">{p.appliedCount} Users Calculated</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.appliedCount} Users Calculated</p>
                 </div>
               </div>
             ))}
@@ -684,18 +681,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
       {/* TAB 5: AUDIT TRAIL */}
       {activeTab === 'audit' && (
         <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
             System Audit Trail ({auditLogs.length})
           </h2>
           <div className="space-y-2 max-h-[500px] overflow-y-auto">
             {auditLogs.map(log => (
-              <div key={log.id} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+              <div key={log.id} className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-amber-400">{log.action}</span>
-                  <span className="text-[10px] text-slate-500">{new Date(log.timestamp).toLocaleString()}</span>
+                  <span className="font-bold text-blue-600 dark:text-blue-400">{log.action}</span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">{new Date(log.timestamp).toLocaleString()}</span>
                 </div>
-                <p className="text-slate-300">{log.reason || 'Action logged'}</p>
-                <p className="text-[10px] text-slate-500">
+                <p className="text-slate-700 dark:text-slate-300">{log.reason || 'Action logged'}</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500">
                   Actor: {log.actorEmail} ({log.actorRole}) {log.targetUserId ? `• Target: ${log.targetUserId}` : ''}
                 </p>
               </div>
@@ -706,17 +703,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
 
       {/* TAB 6: ADJUSTMENTS */}
       {activeTab === 'adjustments' && (
-        <div className="space-y-4 p-6 rounded-3xl bg-slate-900 border border-slate-800">
-          <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+        <div className="space-y-4 p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
             Auditable Balance Adjustment (Super Admin Only)
           </h2>
           <form onSubmit={handleCreateAdjustment} className="space-y-3 max-w-md">
             <div>
-              <label className="block text-slate-400 mb-1">Target User ID / Email</label>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1 text-xs font-medium">Target User ID / Email</label>
               <select
                 value={adjustUserId}
                 onChange={e => setAdjustUserId(e.target.value)}
-                className="w-full py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-100"
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs"
               >
                 <option value="">Select User</option>
                 {users.map(u => (
@@ -728,31 +725,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">Amount (+ to credit, - to debit)</label>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1 text-xs font-medium">Amount (+ to credit, - to debit)</label>
               <input
                 type="number"
                 step="any"
                 value={adjustAmount}
                 onChange={e => setAdjustAmount(e.target.value)}
                 placeholder="+50 or -50"
-                className="w-full py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-bold"
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-bold text-xs"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">Mandatory Reason for Audit Log</label>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1 text-xs font-medium">Mandatory Reason for Audit Log</label>
               <input
                 type="text"
                 value={adjustReason}
                 onChange={e => setAdjustReason(e.target.value)}
                 placeholder="Institutional correction / OTC topup"
-                className="w-full py-2 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-100"
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs"
               />
             </div>
 
             <button
               type="submit"
-              className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
+              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition cursor-pointer"
             >
               Apply Adjustment with Audit Log
             </button>
@@ -762,16 +759,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
 
       {/* TAB 7: DATABASE & SUPABASE MIGRATION */}
       {activeTab === 'database' && (
-        <div className="space-y-6 p-6 rounded-3xl bg-slate-900 border border-slate-800">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div className="space-y-6 p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div>
               <div className="flex items-center space-x-2">
-                <Database className="w-5 h-5 text-emerald-400" />
-                <h2 className="text-base font-bold text-slate-100">
+                <Database className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
                   Supabase & PostgreSQL Database Manager
                 </h2>
               </div>
-              <p className="text-slate-400 text-[11px] mt-0.5">
+              <p className="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">
                 Test connection, execute automated schema migrations, and inspect table readiness.
               </p>
             </div>
@@ -788,9 +785,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                     console.error(e);
                   }
                 }}
-                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold border border-slate-700 transition"
+                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200 dark:border-slate-700 transition cursor-pointer text-xs"
               >
-                {copiedSql ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                {copiedSql ? <Check className="w-4 h-4 text-blue-600 dark:text-blue-400" /> : <Copy className="w-4 h-4" />}
                 <span>{copiedSql ? 'SQL Copied!' : 'Copy Schema SQL'}</span>
               </button>
 
@@ -813,7 +810,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                   }
                 }}
                 disabled={isTestingDb}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition disabled:opacity-50"
+                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition disabled:opacity-50 cursor-pointer text-xs shadow-md shadow-blue-500/20"
               >
                 {isTestingDb ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                 <span>Test Connection & Migrate</span>
@@ -824,48 +821,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
           {dbMessage && (
             <div className={`p-4 rounded-2xl border text-xs font-semibold flex items-center space-x-2 ${
               dbStatus?.postgresPoolReady
-                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-                : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60'
+                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
             }`}>
-              {dbStatus?.postgresPoolReady ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0" />}
+              {dbStatus?.postgresPoolReady ? <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />}
               <span>{dbMessage}</span>
             </div>
           )}
 
           {/* Diagnostic Status Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">Connection Method</span>
-              <span className="text-sm font-bold text-slate-200">
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Connection Method</span>
+              <span className="text-sm font-bold text-slate-900 dark:text-white">
                 {dbStatus?.connectionType || 'Checking...'}
               </span>
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
                 {dbStatus?.connectionType === 'DATABASE_URL' ? 'Direct Pooler URI' : dbStatus?.connectionType === 'HOST_PARAMS' ? 'Direct Host Params' : 'Environment credentials'}
               </p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">PostgreSQL Pool & Schema</span>
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">PostgreSQL Pool & Schema</span>
               <div className="flex items-center space-x-1.5">
-                <span className={`w-2 h-2 rounded-full ${dbStatus?.postgresPoolReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                <span className="text-sm font-bold text-slate-200">
+                <span className={`w-2 h-2 rounded-full ${dbStatus?.postgresPoolReady ? 'bg-blue-600 dark:bg-blue-400' : 'bg-amber-500'}`} />
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
                   {dbStatus?.postgresPoolReady ? 'Ready & Active' : 'Awaiting Config'}
                 </span>
               </div>
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
                 {dbStatus?.tablesFound?.length ? `${dbStatus.tablesFound.length} tables verified` : 'Ready to create tables'}
               </p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">@supabase/server Client</span>
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">@supabase/server Client</span>
               <div className="flex items-center space-x-1.5">
-                <span className={`w-2 h-2 rounded-full ${dbStatus?.supabaseJsReady ? 'bg-emerald-400' : 'bg-slate-500'}`} />
-                <span className="text-sm font-bold text-slate-200">
+                <span className={`w-2 h-2 rounded-full ${dbStatus?.supabaseJsReady ? 'bg-blue-600 dark:bg-blue-400' : 'bg-slate-400'}`} />
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
                   {dbStatus?.supabaseJsReady ? 'Connected' : 'Ready'}
                 </span>
               </div>
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
                 {dbStatus?.latencyMs ? `${dbStatus.latencyMs} ms latency` : 'Supabase JS SDK'}
               </p>
             </div>
@@ -873,7 +870,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
 
           {/* Database Tables Overview */}
           <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Database Table Schemas
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -893,19 +890,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
                     key={table.name}
                     className={`p-3 rounded-2xl border transition ${
                       isCreated
-                        ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
-                        : 'bg-slate-950 border-slate-800 text-slate-300'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300'
+                        : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-mono font-bold text-xs">{table.name}</span>
                       {isCreated ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                       ) : (
-                        <span className="w-2 h-2 rounded-full bg-slate-600" />
+                        <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-600" />
                       )}
                     </div>
-                    <p className="text-[10px] text-slate-500 mt-1">{table.desc}</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">{table.desc}</p>
                   </div>
                 );
               })}
@@ -913,13 +910,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
           </div>
 
           {/* Manual Run Instructions */}
-          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 text-[11px] text-slate-400 leading-relaxed">
-            <div className="flex items-center space-x-2 text-slate-200 font-bold">
-              <Terminal className="w-4 h-4 text-teal-400" />
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+            <div className="flex items-center space-x-2 text-slate-900 dark:text-white font-bold">
+              <Terminal className="w-4 h-4 text-blue-600 dark:text-blue-400" />
               <span>How to Apply Schema in Supabase</span>
             </div>
             <p>
-              <strong>Method 1 (Automatic via App):</strong> Once you save your <code className="text-emerald-400">DATABASE_URL</code> or <code className="text-emerald-400">SUPABASE_URL</code> in your environment, click the <strong>Test Connection & Migrate</strong> button above. The server will run the SQL schema file automatically.
+              <strong>Method 1 (Automatic via App):</strong> Once you save your <code className="text-blue-600 dark:text-blue-400 font-bold">DATABASE_URL</code> or <code className="text-blue-600 dark:text-blue-400 font-bold">SUPABASE_URL</code> in your environment, click the <strong>Test Connection & Migrate</strong> button above. The server will run the SQL schema file automatically.
             </p>
             <p>
               <strong>Method 2 (Supabase Web Dashboard):</strong> Click <strong>Copy Schema SQL</strong>, open your <strong>Supabase Dashboard → SQL Editor</strong>, paste the script, and click <strong>Run</strong>. All tables, relationships, and indexes will be created instantly.
@@ -930,31 +927,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
 
       {/* TAB 8: SETTINGS */}
       {activeTab === 'settings' && (
-        <div className="space-y-4 p-6 rounded-3xl bg-slate-900 border border-slate-800">
-          <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+        <div className="space-y-4 p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
             System & Wallet Configuration
           </h2>
-          <div className="space-y-3 text-slate-300">
+          <div className="space-y-3 text-slate-700 dark:text-slate-300">
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500">BEP-20 Deposit Address</span>
-              <p className="font-mono text-emerald-400">{appSettings?.bep20DepositAddress}</p>
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">BEP-20 Deposit Address</span>
+              <p className="font-mono text-blue-600 dark:text-blue-400 font-semibold">{appSettings?.bep20DepositAddress}</p>
             </div>
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500">USDT Token Contract (BSC)</span>
-              <p className="font-mono text-slate-400">{appSettings?.usdtContractAddress}</p>
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">USDT Token Contract (BSC)</span>
+              <p className="font-mono text-slate-600 dark:text-slate-400">{appSettings?.usdtContractAddress}</p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
               <div>
-                <span className="text-[10px] text-slate-500">Withdrawal Fee</span>
-                <p className="font-bold text-slate-100">{appSettings?.withdrawalFeePercentage}% (Fixed)</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Withdrawal Fee</span>
+                <p className="font-bold text-slate-900 dark:text-white">{appSettings?.withdrawalFeePercentage}% (Fixed)</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500">Account Age Policy</span>
-                <p className="font-bold text-slate-100">{appSettings?.accountAgeRequirementDays} Full Days</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Account Age Policy</span>
+                <p className="font-bold text-slate-900 dark:text-white">{appSettings?.accountAgeRequirementDays} Full Days</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500">Deposit Lock Period</span>
-                <p className="font-bold text-slate-100">{appSettings?.depositLockPeriodDays} Days</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Deposit Lock Period</span>
+                <p className="font-bold text-slate-900 dark:text-white">{appSettings?.depositLockPeriodDays} Days</p>
               </div>
             </div>
           </div>

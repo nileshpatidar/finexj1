@@ -9,9 +9,6 @@ import {
   AlertTriangle,
   ShieldCheck,
   Loader2,
-  Sparkles,
-  ExternalLink,
-  Clock,
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
@@ -56,18 +53,6 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const handleGenerateTestTx = async () => {
-    try {
-      const res = await api.getMockTxHash();
-      setTxHash(res.txHash);
-      setErrorMessage(null);
-    } catch {
-      // Fallback local mock hash generator
-      const mock = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-      setTxHash(mock);
-    }
-  };
-
   const handleVerifyDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!txHash) {
@@ -104,37 +89,37 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
       {/* Title & Network Header */}
       <div>
         <div className="flex items-center space-x-2">
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-100 dark:text-slate-100 text-slate-900">
+          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
             Deposit USDT
           </h1>
-          <span className="px-2.5 py-0.5 text-xs font-bold bg-amber-500 text-slate-950 rounded-md">
-            BEP-20 ONLY
+          <span className="px-2.5 py-0.5 text-xs font-bold bg-blue-600 text-white rounded-md shadow-xs">
+            BEP-20 (BSC)
           </span>
         </div>
-        <p className="text-xs text-slate-400 dark:text-slate-400 text-slate-500 mt-1">
+        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
           Deposit USDT on the BNB Smart Chain network to start earning daily fund performance.
         </p>
       </div>
 
       {/* Critical Network Warning */}
-      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 flex items-start space-x-3 text-xs">
-        <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+      <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-start space-x-3 text-xs shadow-xs">
+        <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <p className="font-bold text-amber-200">Mandatory Network Notice</p>
-          <p className="text-amber-300/90 leading-relaxed">
+          <p className="font-bold text-amber-950 dark:text-amber-100">Mandatory Network Notice</p>
+          <p className="text-amber-900/90 dark:text-amber-200/90 leading-relaxed font-medium">
             Send <strong>USDT only through BNB Smart Chain (BEP-20)</strong>. Sending through ERC-20, TRC-20, Polygon, or other networks will result in irreversible loss of funds.
           </p>
         </div>
       </div>
 
       {/* Deposit QR & Address Box */}
-      <div className="rounded-3xl bg-slate-900/80 dark:bg-slate-900/80 bg-white border border-slate-800 dark:border-slate-800 border-slate-200 p-6 shadow-xl space-y-6">
+      <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-6">
         <div className="flex flex-col sm:flex-row items-center gap-6">
           {/* QR Code */}
-          <div className="p-3 bg-white rounded-2xl shadow-inner border border-slate-200 flex-shrink-0">
+          <div className="p-3.5 bg-white rounded-2xl shadow-md border border-slate-200 flex-shrink-0">
             <QRCodeSVG
               value={depositAddress}
-              size={140}
+              size={135}
               level="H"
               includeMargin={false}
             />
@@ -143,25 +128,25 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
           {/* Address Details & Copy */}
           <div className="flex-1 space-y-3 w-full text-center sm:text-left">
             <div>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Official BEP-20 Deposit Wallet
               </span>
-              <div className="mt-1 p-3 rounded-xl bg-slate-950 dark:bg-slate-950 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-300 break-all font-mono text-xs font-semibold text-emerald-400 dark:text-emerald-400 text-emerald-700">
+              <div className="mt-1.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 break-all font-mono text-xs font-bold text-blue-700 dark:text-blue-400">
                 {depositAddress}
               </div>
             </div>
 
-            <div className="flex items-center justify-center sm:justify-start gap-2">
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
               <button
                 type="button"
                 onClick={handleCopy}
-                className="flex items-center space-x-2 py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition active:scale-95 cursor-pointer"
+                className="flex items-center space-x-2 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs shadow-md shadow-blue-500/25 transition active:scale-95 cursor-pointer"
               >
                 {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copied ? 'Address Copied!' : 'Copy Deposit Address'}</span>
               </button>
 
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                 Min. confirmations: {settings?.requiredConfirmations || 12} blocks
               </span>
             </div>
@@ -169,48 +154,54 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
         </div>
 
         {/* 3 Steps Guidance */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-800 dark:border-slate-800 border-slate-200 text-xs">
-          <div className="p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/60">
-            <span className="text-blue-400 font-bold">1. Transfer USDT</span>
-            <p className="text-slate-400 text-[11px] mt-0.5">Send BEP-20 USDT from your wallet (Trust Wallet, Binance, etc.)</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <span className="text-blue-600 dark:text-blue-400 font-bold block text-sm">1. Transfer USDT</span>
+            <p className="text-slate-600 dark:text-slate-400 text-xs mt-1 leading-relaxed">
+              Send BEP-20 USDT from your wallet (Trust Wallet, Binance, etc.)
+            </p>
           </div>
-          <div className="p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/60">
-            <span className="text-blue-400 font-bold">2. Paste Tx Hash</span>
-            <p className="text-slate-400 text-[11px] mt-0.5">Copy transaction hash from your wallet and paste below</p>
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <span className="text-blue-600 dark:text-blue-400 font-bold block text-sm">2. Paste Tx Hash</span>
+            <p className="text-slate-600 dark:text-slate-400 text-xs mt-1 leading-relaxed">
+              Copy transaction hash from your wallet and paste in the form below
+            </p>
           </div>
-          <div className="p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/60">
-            <span className="text-blue-400 font-bold">3. Verification</span>
-            <p className="text-slate-400 text-[11px] mt-0.5">Backend verifies on BSC and allocates balance immediately</p>
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <span className="text-blue-600 dark:text-blue-400 font-bold block text-sm">3. Verification</span>
+            <p className="text-slate-600 dark:text-slate-400 text-xs mt-1 leading-relaxed">
+              Backend verifies on BSC network and allocates principal immediately
+            </p>
           </div>
         </div>
       </div>
 
       {/* Deposit Verification Form */}
-      <div className="rounded-3xl bg-slate-900/80 dark:bg-slate-900/80 bg-white border border-slate-800 dark:border-slate-800 border-slate-200 p-6 shadow-xl space-y-4">
+      <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300 dark:text-slate-300 text-slate-800 flex items-center space-x-2">
-            <ShieldCheck className="w-4 h-4 text-blue-400" />
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center space-x-2">
+            <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             <span>Verify Blockchain Transaction</span>
           </h2>
         </div>
 
         {errorMessage && (
-          <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs flex items-center space-x-2">
-            <XCircle className="w-4 h-4 flex-shrink-0 text-red-400" />
+          <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 text-xs flex items-center space-x-2 font-medium">
+            <XCircle className="w-4 h-4 flex-shrink-0 text-red-500" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {successMessage && (
-          <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-blue-400" />
+          <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 text-xs flex items-center space-x-2 font-medium">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-blue-500" />
             <span>{successMessage}</span>
           </div>
         )}
 
         <form onSubmit={handleVerifyDeposit} className="space-y-4 text-xs">
           <div>
-            <label className="block font-semibold text-slate-300 dark:text-slate-300 text-slate-700 mb-1">
+            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               Deposit Amount (USDT)
             </label>
             <div className="relative">
@@ -221,14 +212,14 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                 value={amount}
                 onChange={e => setAmount(e.target.value)}
                 placeholder="100"
-                className="w-full py-2.5 px-3 rounded-xl bg-slate-950 dark:bg-slate-950 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-300 text-slate-100 dark:text-slate-100 text-slate-900 font-semibold focus:outline-none focus:border-blue-500"
+                className="w-full py-3 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-semibold text-sm focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition"
               />
-              <span className="absolute right-3 top-2.5 font-bold text-slate-500">USDT</span>
+              <span className="absolute right-3.5 top-3 font-bold text-slate-400">USDT</span>
             </div>
           </div>
 
           <div>
-            <label className="block font-semibold text-slate-300 dark:text-slate-300 text-slate-700 mb-1">
+            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               BNB Smart Chain Transaction Hash (TxID)
             </label>
             <input
@@ -236,7 +227,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
               value={txHash}
               onChange={e => setTxHash(e.target.value)}
               placeholder="0x..."
-              className="w-full py-2.5 px-3 rounded-xl bg-slate-950 dark:bg-slate-950 bg-slate-100 border border-slate-800 dark:border-slate-800 border-slate-300 text-slate-100 dark:text-slate-100 text-slate-900 font-mono text-xs focus:outline-none focus:border-blue-500"
+              className="w-full py-3 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition"
             />
             <p className="text-[11px] text-slate-500 mt-1">
               Paste the 66-character transaction hash from BSCScan or your crypto wallet.
@@ -246,7 +237,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
           <button
             type="submit"
             disabled={isSubmitting || !txHash}
-            className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-sm shadow-lg shadow-blue-500/20 transition flex items-center justify-center space-x-2 cursor-pointer"
+            className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white font-bold text-sm shadow-lg shadow-blue-500/25 transition flex items-center justify-center space-x-2 cursor-pointer"
           >
             {isSubmitting ? (
               <>
@@ -265,34 +256,34 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
       {/* Last Confirmed Deposit Details Receipt */}
       {lastConfirmedDeposit && (
-        <div className="rounded-3xl bg-emerald-950/40 border border-emerald-500/40 p-5 shadow-lg space-y-3 text-xs">
-          <div className="flex items-center space-x-2 text-emerald-400 font-bold text-sm">
+        <div className="rounded-3xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-5 shadow-lg space-y-3 text-xs">
+          <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-400 font-bold text-sm">
             <CheckCircle2 className="w-4 h-4" />
             <span>Deposit Confirmed Successfully</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-slate-300">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-slate-700 dark:text-slate-300">
             <div>
-              <p className="text-[10px] text-slate-400 uppercase">Amount</p>
-              <p className="font-bold text-emerald-400">${lastConfirmedDeposit.amount.toFixed(2)} USDT</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Amount</p>
+              <p className="font-bold text-blue-600 dark:text-blue-400 text-sm">${lastConfirmedDeposit.amount.toFixed(2)} USDT</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 uppercase">Network</p>
-              <p className="font-semibold">BEP-20 (BSC)</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Network</p>
+              <p className="font-semibold text-slate-800 dark:text-slate-200">BEP-20 (BSC)</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 uppercase">Confirmations</p>
-              <p className="font-semibold text-emerald-400">{lastConfirmedDeposit.confirmations} Blocks</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Confirmations</p>
+              <p className="font-semibold text-blue-600 dark:text-blue-400">{lastConfirmedDeposit.confirmations} Blocks</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 uppercase">First Earning Date</p>
-              <p className="font-semibold">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">First Earning Date</p>
+              <p className="font-semibold text-slate-800 dark:text-slate-200">
                 {lastConfirmedDeposit.eligibilityDate ? new Date(lastConfirmedDeposit.eligibilityDate).toLocaleDateString() : 'Next Server Day'}
               </p>
             </div>
           </div>
 
-          <div className="text-[11px] text-slate-400 truncate break-all pt-1 border-t border-emerald-500/20 font-mono">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate break-all pt-1 border-t border-blue-200 dark:border-blue-800 font-mono">
             TxHash: {lastConfirmedDeposit.txHash}
           </div>
         </div>
@@ -300,12 +291,12 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
       {/* Past Deposit History */}
       <div className="space-y-3">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400 text-slate-500">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
           Deposit History
         </h2>
 
         {deposits.length === 0 ? (
-          <div className="p-8 text-center rounded-2xl bg-slate-900/40 border border-slate-800 text-slate-400 text-xs">
+          <div className="p-8 text-center rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs">
             No deposits found.
           </div>
         ) : (
@@ -313,28 +304,28 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
             {deposits.map(dep => (
               <div
                 key={dep.id}
-                className="p-3.5 rounded-2xl bg-slate-900/60 dark:bg-slate-900/60 bg-white border border-slate-800/70 dark:border-slate-800/70 border-slate-200 flex items-center justify-between text-xs"
+                className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs shadow-xs"
               >
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
-                    <span className="font-bold text-sm text-slate-100 dark:text-slate-100 text-slate-900">
+                    <span className="font-bold text-sm text-slate-900 dark:text-white">
                       +${dep.amount.toFixed(2)} USDT
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                       {dep.status.toUpperCase()}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 font-mono truncate max-w-xs sm:max-w-md">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate max-w-xs sm:max-w-md">
                     Tx: {dep.txHash.substring(0, 10)}...{dep.txHash.slice(-8)}
                   </p>
-                  <p className="text-[10px] text-slate-500">
+                  <p className="text-[10px] text-slate-400">
                     {new Date(dep.createdAt).toLocaleString()} • {dep.confirmations} Confirmations
                   </p>
                 </div>
 
                 <div className="text-right text-[11px]">
-                  <p className="text-slate-400">Lock Expiry:</p>
-                  <p className="font-medium text-slate-300">
+                  <p className="text-slate-500 dark:text-slate-400">Lock Expiry:</p>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200">
                     {dep.depositLockEndDate ? new Date(dep.depositLockEndDate).toLocaleDateString() : '20 Days'}
                   </p>
                 </div>
@@ -345,12 +336,12 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
       </div>
 
       {/* Risk Disclaimer in Short Font */}
-      <div className="p-4 rounded-2xl bg-red-950/20 dark:bg-red-950/20 bg-red-50/50 border border-red-500/20 text-slate-400 space-y-1.5 text-xs">
-        <div className="flex items-center space-x-1.5 text-red-400 font-semibold text-[11px]">
+      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 space-y-1.5 text-xs">
+        <div className="flex items-center space-x-1.5 text-amber-600 dark:text-amber-400 font-semibold text-[11px]">
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
           <span>Managed Fund Risk Disclosure</span>
         </div>
-        <p className="text-[10px] leading-relaxed text-slate-400 dark:text-slate-400 text-slate-600">
+        <p className="text-[11px] leading-relaxed">
           <strong>DISCLAIMER:</strong> Deposited funds are pooled and deployed into active algorithmic trading and digital asset liquidity strategies. Cryptocurrency trading involves market volatility and capital risk. Past returns and historical daily performance do not guarantee future earnings. Daily yield rates are variable based on net fund performance and are non-guaranteed. Newly deposited principal is subject to a 20-day liquidity stabilization lock. By submitting a deposit, you confirm acceptance of all governance rules.
         </p>
       </div>

@@ -2,13 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { LedgerItem } from '../types';
 import {
-  History,
   ArrowDownToLine,
   ArrowUpFromLine,
   TrendingUp,
   Wallet,
   Search,
-  Filter,
 } from 'lucide-react';
 
 export const TransactionsView: React.FC = () => {
@@ -53,10 +51,10 @@ export const TransactionsView: React.FC = () => {
     <div className="space-y-6 max-w-3xl mx-auto pb-24 text-xs">
       {/* Title */}
       <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-slate-100 dark:text-slate-100 text-slate-900">
+        <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
           Financial Activity & Ledger
         </h1>
-        <p className="text-xs text-slate-400 dark:text-slate-400 text-slate-500 mt-1">
+        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
           Complete, auditable history of deposits, performance allocations, and withdrawals.
         </p>
       </div>
@@ -64,13 +62,13 @@ export const TransactionsView: React.FC = () => {
       {/* Filters & Search */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search by TxID, description, or reference..."
-            className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900 dark:bg-slate-900 bg-white border border-slate-800 dark:border-slate-800 border-slate-200 text-slate-200 dark:text-slate-200 text-slate-800 text-xs focus:outline-none focus:border-emerald-500"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 shadow-xs"
           />
         </div>
 
@@ -79,10 +77,10 @@ export const TransactionsView: React.FC = () => {
             <button
               key={type}
               onClick={() => setFilterType(type)}
-              className={`px-3 py-2 rounded-xl capitalize font-semibold transition ${
+              className={`px-3.5 py-2 rounded-xl capitalize font-bold text-xs transition cursor-pointer ${
                 filterType === type
-                  ? 'bg-emerald-500 text-slate-950 shadow-md'
-                  : 'bg-slate-900 dark:bg-slate-900 bg-white text-slate-400 hover:text-slate-200 border border-slate-800 dark:border-slate-800 border-slate-200'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  : 'bg-white dark:bg-[#0F172A] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
               }`}
             >
               {type}
@@ -92,15 +90,15 @@ export const TransactionsView: React.FC = () => {
       </div>
 
       {/* Transaction List */}
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {isLoading ? (
           <div className="space-y-2 animate-pulse">
-            <div className="h-16 bg-slate-900/60 rounded-2xl"></div>
-            <div className="h-16 bg-slate-900/60 rounded-2xl"></div>
-            <div className="h-16 bg-slate-900/60 rounded-2xl"></div>
+            <div className="h-16 bg-slate-200 dark:bg-slate-800 rounded-2xl"></div>
+            <div className="h-16 bg-slate-200 dark:bg-slate-800 rounded-2xl"></div>
+            <div className="h-16 bg-slate-200 dark:bg-slate-800 rounded-2xl"></div>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center rounded-2xl bg-slate-900/40 border border-slate-800 text-slate-400">
+          <div className="p-8 text-center rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
             No transactions found matching your criteria.
           </div>
         ) : (
@@ -113,34 +111,34 @@ export const TransactionsView: React.FC = () => {
             return (
               <div
                 key={item.id}
-                className="p-4 rounded-2xl bg-slate-900/60 dark:bg-slate-900/60 bg-white border border-slate-800/70 dark:border-slate-800/70 border-slate-200 flex items-center justify-between gap-3 shadow-sm"
+                className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shadow-xs"
               >
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3.5">
                   <div
                     className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold flex-shrink-0 ${
                       isDeposit
-                        ? 'bg-emerald-500/20 text-emerald-400'
+                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                         : isEarning
-                        ? 'bg-teal-500/20 text-teal-400'
+                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                         : isLoss
-                        ? 'bg-rose-500/20 text-rose-400'
+                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
                         : isWithdrawal
-                        ? 'bg-amber-500/20 text-amber-400'
-                        : 'bg-purple-500/20 text-purple-400'
+                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                        : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
                     }`}
                   >
                     {isDeposit && <ArrowDownToLine className="w-5 h-5" />}
                     {isEarning && <TrendingUp className="w-5 h-5" />}
-                    {isLoss && <TrendingUp className="w-5 h-5 rotate-180 text-rose-400" />}
+                    {isLoss && <TrendingUp className="w-5 h-5 rotate-180 text-rose-500" />}
                     {isWithdrawal && <ArrowUpFromLine className="w-5 h-5" />}
                     {item.type === 'admin_adjustment' && <Wallet className="w-5 h-5" />}
                   </div>
 
                   <div>
-                    <p className="font-bold text-slate-100 dark:text-slate-100 text-slate-900 text-xs sm:text-sm">
+                    <p className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
                       {item.description}
                     </p>
-                    <div className="flex items-center space-x-2 text-[11px] text-slate-400 mt-0.5">
+                    <div className="flex items-center space-x-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                       <span>{new Date(item.createdAt).toLocaleString()}</span>
                       {item.referenceId && (
                         <>
@@ -156,15 +154,15 @@ export const TransactionsView: React.FC = () => {
                   <span
                     className={`font-extrabold text-sm sm:text-base ${
                       isEarning || isDeposit
-                        ? 'text-emerald-400'
+                        ? 'text-blue-600 dark:text-blue-400'
                         : isLoss
-                        ? 'text-rose-400'
-                        : 'text-slate-300 dark:text-slate-300 text-slate-700'
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-slate-900 dark:text-white'
                     }`}
                   >
                     {isEarning || isDeposit ? '+' : isLoss ? '-' : ''}${Math.abs(item.amount).toFixed(2)}
                   </span>
-                  <p className="text-[10px] text-slate-500">USDT</p>
+                  <p className="text-[10px] text-slate-400">USDT</p>
                 </div>
               </div>
             );
