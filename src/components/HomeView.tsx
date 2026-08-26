@@ -171,18 +171,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* Main Balance Hero Card */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 bg-white border border-slate-800 dark:border-slate-800 border-slate-200 p-6 sm:p-8 shadow-xl shadow-slate-950/40">
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 rounded-full bg-teal-500/10 blur-3xl pointer-events-none"></div>
+        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-blue-600/15 blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 rounded-full bg-purple-600/15 blur-3xl pointer-events-none"></div>
 
         <div className="relative z-10 space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
               <span className="text-xs uppercase font-bold tracking-wider text-slate-400 dark:text-slate-400 text-slate-500">
                 Main Balance
               </span>
             </div>
-            <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full">
+            <span className="px-2.5 py-0.5 text-xs font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full">
               USDT (BEP-20)
             </span>
           </div>
@@ -203,14 +203,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="grid grid-cols-2 gap-3 pt-2">
             <button
               onClick={() => onNavigate('deposit')}
-              className="flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
+              className="flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98] cursor-pointer"
             >
               <ArrowDownToLine className="w-4 h-4" />
               <span>Deposit USDT</span>
             </button>
             <button
               onClick={() => onNavigate('withdraw')}
-              className="flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-slate-800 dark:bg-slate-800 bg-slate-100 hover:bg-slate-700 dark:hover:bg-slate-700 hover:bg-slate-200 text-slate-100 dark:text-slate-100 text-slate-900 font-semibold text-sm border border-slate-700 dark:border-slate-700 border-slate-300 transition-all active:scale-[0.98]"
+              className="flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-slate-800 dark:bg-slate-800 bg-slate-100 hover:bg-slate-700 dark:hover:bg-slate-700 hover:bg-slate-200 text-slate-100 dark:text-slate-100 text-slate-900 font-semibold text-sm border border-slate-700 dark:border-slate-700 border-slate-300 transition-all active:scale-[0.98] cursor-pointer"
             >
               <ArrowUpFromLine className="w-4 h-4" />
               <span>Withdraw Funds</span>
@@ -312,7 +312,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </h2>
           <button
             onClick={() => onNavigate('transactions')}
-            className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center space-x-1"
+            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-500 flex items-center space-x-1 cursor-pointer"
           >
             <span>View All</span>
             <ChevronRight className="w-3.5 h-3.5" />

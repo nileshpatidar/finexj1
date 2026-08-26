@@ -33,10 +33,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onNavigate })
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all ${
+              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all cursor-pointer ${
                 isActive
-                  ? 'text-emerald-400 bg-emerald-500/10'
-                  : 'text-slate-400 dark:text-slate-400 text-slate-500 hover:text-slate-200 dark:hover:text-slate-200 hover:text-slate-800'
+                  ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10 font-semibold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50'
               }`}
             >
               <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.75]'}`} />

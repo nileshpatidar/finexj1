@@ -122,7 +122,7 @@ export const ProfileView: React.FC = () => {
           <img
             src={user?.profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.fullName || 'User'}`}
             alt="Profile Avatar"
-            className="w-20 h-20 rounded-2xl object-cover border-2 border-emerald-500/40 shadow-lg shadow-emerald-500/10"
+            className="w-20 h-20 rounded-2xl object-cover border-2 border-blue-500/40 shadow-lg shadow-blue-500/10"
           />
 
           <div className="flex-1 text-center sm:text-left space-y-1">
@@ -130,7 +130,7 @@ export const ProfileView: React.FC = () => {
               <h2 className="text-lg font-bold text-slate-100 dark:text-slate-100 text-slate-900">
                 {user?.fullName}
               </h2>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
                 {user?.status.toUpperCase()}
               </span>
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">

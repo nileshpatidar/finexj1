@@ -48,7 +48,7 @@ export const EarningsView: React.FC = () => {
         </div>
         <button
           onClick={() => setIsPlanModalOpen(true)}
-          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/20 text-xs font-semibold transition"
+          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 text-xs font-semibold transition cursor-pointer"
         >
           <HelpCircle className="w-3.5 h-3.5" />
           <span>Earning Plan</span>
@@ -56,22 +56,22 @@ export const EarningsView: React.FC = () => {
       </div>
 
       {/* Hero Earnings Banner */}
-      <div className="rounded-3xl bg-gradient-to-br from-teal-950 via-slate-900 to-slate-950 border border-teal-500/30 p-6 sm:p-8 shadow-xl space-y-4">
+      <div className="rounded-3xl bg-gradient-to-br from-slate-900 via-blue-950/40 to-slate-950 border border-blue-500/30 p-6 sm:p-8 shadow-xl space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <TrendingUp className="w-5 h-5 text-teal-400" />
-            <span className="text-xs uppercase font-bold tracking-wider text-teal-300">
+            <TrendingUp className="w-5 h-5 text-blue-400" />
+            <span className="text-xs uppercase font-bold tracking-wider text-blue-300">
               Cumulative Yield Distributed
             </span>
           </div>
-          <span className="px-2.5 py-0.5 text-xs font-semibold bg-teal-500/20 text-teal-300 border border-teal-500/30 rounded-full">
+          <span className="px-2.5 py-0.5 text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-full">
             Verified Allocations
           </span>
         </div>
 
         <div>
           <div className="flex items-baseline space-x-2">
-            <span className="text-3xl sm:text-5xl font-extrabold tracking-tight text-teal-400">
+            <span className="text-3xl sm:text-5xl font-extrabold tracking-tight text-blue-400">
               +${totalEarnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             <span className="text-sm font-semibold text-slate-400">USDT</span>

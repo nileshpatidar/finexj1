@@ -109,7 +109,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
           <h1 className="text-xl sm:text-2xl font-bold text-slate-100 dark:text-slate-100 text-slate-900">
             Withdraw USDT
           </h1>
-          <span className="px-2.5 py-0.5 text-xs font-bold bg-emerald-500 text-slate-950 rounded-md">
+          <span className="px-2.5 py-0.5 text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-md">
             BEP-20 (BSC)
           </span>
         </div>
@@ -384,7 +384,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               !destinationAddress ||
               !password
             }
-            className="w-full py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 transition flex items-center justify-center space-x-2"
+            className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm shadow-lg shadow-blue-500/20 transition flex items-center justify-center space-x-2 cursor-pointer"
           >
             {isSubmitting ? (
               <>

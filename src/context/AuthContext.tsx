@@ -12,7 +12,6 @@ interface AuthContextType {
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   refreshUser: () => Promise<void>;
-  switchDemoAccount: (accountType: 'demo' | 'newuser' | 'admin') => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -61,25 +60,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    // Initial auto-login to demo user if no token present for seamless preview experience
     const initializeAuth = async () => {
       const savedToken = localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token');
       if (savedToken) {
         await refreshUser();
       } else {
-        // Auto-login to standard demo user for immediate working demo
-        try {
-          const res = await api.login({ email: 'demo@finexj.com', password: 'UserPass123!' });
-          if (res.token && res.user) {
-            setAuthToken(res.token);
-            setToken(res.token);
-            setUser(res.user);
-          }
-        } catch {
-          // If server not yet running or offline
-        } finally {
-          setIsLoading(false);
-        }
+        setUser(null);
+        setIsLoading(false);
       }
     };
 
@@ -130,31 +117,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const switchDemoAccount = async (accountType: 'demo' | 'newuser' | 'admin') => {
-    setIsLoading(true);
-    let email = 'demo@finexj.com';
-    let pass = 'UserPass123!';
-
-    if (accountType === 'newuser') {
-      email = 'newuser@finexj.com';
-      pass = 'UserPass123!';
-    } else if (accountType === 'admin') {
-      email = 'admin@finexj.com';
-      pass = 'AdminPass123!';
-    }
-
-    try {
-      const res = await api.login({ email, password: pass });
-      if (res.token && res.user) {
-        setAuthToken(res.token);
-        setToken(res.token);
-        setUser(res.user);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <AuthContext.Provider
       value={{
@@ -167,7 +129,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         logoutAll,
         refreshUser,
-        switchDemoAccount,
       }}
     >
       {children}

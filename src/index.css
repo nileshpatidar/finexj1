@@ -1,5 +1,31 @@
 @import "tailwindcss";
 
+:root {
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
+  --primary-light: #3B82F6;
+  --secondary: #7C3AED;
+  --secondary-hover: #6D28D9;
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  --muted: #64748B;
+  --border: #E2E8F0;
+  --card-bg: #FFFFFF;
+}
+
+.dark {
+  --primary: #3B82F6;
+  --primary-hover: #2563EB;
+  --primary-light: #60A5FA;
+  --secondary: #8B5CF6;
+  --secondary-hover: #7C3AED;
+  --background: #0B1120;
+  --foreground: #F8FAFC;
+  --muted: #94A3B8;
+  --border: #1E293B;
+  --card-bg: #0F172A;
+}
+
 @layer base {
   body {
     @apply antialiased text-slate-900 bg-[#F8FAFC] dark:bg-[#0B1120] dark:text-slate-100;

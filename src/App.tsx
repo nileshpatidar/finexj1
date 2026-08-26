@@ -12,17 +12,20 @@ import { WithdrawView } from './components/WithdrawView';
 import { ProfileView } from './components/ProfileView';
 import { TransactionsView } from './components/TransactionsView';
 import { AdminDashboard } from './components/AdminDashboard';
-import { AutomatedTestRunner } from './components/AutomatedTestRunner';
 import { SupportModal } from './components/SupportModal';
 import { AuthModal } from './components/AuthModal';
 
 const AppContent: React.FC = () => {
   const { user, token, isLoading: isAuthLoading } = useAuth();
-  const [currentView, setCurrentView] = useState<string>('home');
+  const [currentView, setCurrentView] = useState<string>(() => {
+    if (window.location.pathname.includes('/admin') || window.location.hash.includes('#admin')) {
+      return 'admin';
+    }
+    return 'home';
+  });
   const [dashboardData, setDashboardData] = useState<DashboardResponse | null>(null);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState<boolean>(true);
   const [isSupportOpen, setIsSupportOpen] = useState<boolean>(false);
-  const [isTestsOpen, setIsTestsOpen] = useState<boolean>(false);
 
   const fetchDashboard = useCallback(async () => {
     if (!token) return;
@@ -47,6 +50,17 @@ const AppContent: React.FC = () => {
     }
   }, [token, fetchDashboard]);
 
+  // Handle URL hash / back navigation
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash === '#admin') {
+        setCurrentView('admin');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   // Handle Android hardware back navigation / view stack
   useEffect(() => {
     const handlePopState = () => {
@@ -59,18 +73,17 @@ const AppContent: React.FC = () => {
   }, [currentView]);
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white transition-colors duration-200">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white transition-colors duration-200">
       {/* Header */}
       <Header
         marketPrices={dashboardData?.marketPrices || null}
         onOpenSupport={() => setIsSupportOpen(true)}
-        onOpenTests={() => setIsTestsOpen(true)}
         currentView={currentView}
         onNavigate={setCurrentView}
       />
 
       {/* Main View Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-20 sm:pb-8">
         {currentView === 'home' && (
           <HomeView
             data={dashboardData}
@@ -104,15 +117,10 @@ const AppContent: React.FC = () => {
         <BottomNav currentView={currentView} onNavigate={setCurrentView} />
       )}
 
-      {/* Modals */}
+      {/* Support Modal */}
       <SupportModal
         isOpen={isSupportOpen}
         onClose={() => setIsSupportOpen(false)}
-      />
-
-      <AutomatedTestRunner
-        isOpen={isTestsOpen}
-        onClose={() => setIsTestsOpen(false)}
       />
 
       {/* Auth Modal if unauthenticated */}
