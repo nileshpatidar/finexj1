@@ -1,0 +1,6 @@
+{
+  "name": "USDT Fund Management",
+  "description": "Premium USDT BEP-20 fund management platform with ledger-based accounting, blockchain verification, daily performance allocations, and strict withdrawal rules.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

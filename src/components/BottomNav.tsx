@@ -1,0 +1,52 @@
+import React from 'react';
+import {
+  LayoutDashboard,
+  ArrowDownToLine,
+  TrendingUp,
+  ArrowUpFromLine,
+  User,
+  History,
+} from 'lucide-react';
+
+interface BottomNavProps {
+  currentView: string;
+  onNavigate: (view: string) => void;
+}
+
+export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onNavigate }) => {
+  const navItems = [
+    { id: 'home', label: 'Home', icon: LayoutDashboard },
+    { id: 'deposit', label: 'Deposit', icon: ArrowDownToLine },
+    { id: 'earnings', label: 'Earnings', icon: TrendingUp },
+    { id: 'withdraw', label: 'Withdraw', icon: ArrowUpFromLine },
+    { id: 'transactions', label: 'Activity', icon: History },
+    { id: 'profile', label: 'Profile', icon: User },
+  ];
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800/80 py-1.5 px-3 shadow-lg transition-colors duration-200">
+      <div className="max-w-md mx-auto grid grid-cols-6 gap-1">
+        {navItems.map(item => {
+          const Icon = item.icon;
+          const isActive = currentView === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all ${
+                isActive
+                  ? 'text-emerald-400 bg-emerald-500/10'
+                  : 'text-slate-400 dark:text-slate-400 text-slate-500 hover:text-slate-200 dark:hover:text-slate-200 hover:text-slate-800'
+              }`}
+            >
+              <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.75]'}`} />
+              <span className="text-[10px] font-medium tracking-tight mt-1 truncate max-w-full">
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+};
