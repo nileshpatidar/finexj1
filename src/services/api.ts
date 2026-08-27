@@ -8,6 +8,8 @@ import {
   AppSettings,
   TestSuiteResponse,
   UserProfile,
+  SystemHealthStats,
+  SystemLogItem,
 } from '../types';
 
 const API_BASE = '';
@@ -206,4 +208,38 @@ export const api = {
     const res = await fetch('/api/admin/db/schema-sql');
     return res.text();
   },
+
+  // Observability & System Health
+  getSystemHealthStats: () => request<SystemHealthStats>('/api/admin/health/stats'),
+  getSystemLogs: (params?: {
+    level?: string;
+    event?: string;
+    errorCode?: string;
+    requestId?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.level) query.set('level', params.level);
+    if (params?.event) query.set('event', params.event);
+    if (params?.errorCode) query.set('errorCode', params.errorCode);
+    if (params?.requestId) query.set('requestId', params.requestId);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    return request<{
+      logs: SystemLogItem[];
+      totalCount: number;
+      limit: number;
+      offset: number;
+    }>(`/api/admin/logs?${query.toString()}`);
+  },
+  forceLogoutAllUsers: (reason?: string) =>
+    request<{ success: boolean; message: string; sessionVersion: number }>('/api/admin/auth/force-logout-all', {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  runStorageCleanup: () =>
+    request<{ success: boolean; report: any }>('/api/admin/health/cleanup', {
+      method: 'POST',
+    }),
 };

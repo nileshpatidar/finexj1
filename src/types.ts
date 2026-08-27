@@ -140,6 +140,47 @@ export interface AppSettings {
   telegramSupportUrl: string;
   operationalWalletAddress?: string;
   compoundingEnabled?: boolean;
+  maintenanceMode?: boolean;
+  registrationEnabled?: boolean;
+  loginEnabled?: boolean;
+  sessionVersion?: number;
+  systemLogRetentionDays?: number;
+  errorLogRetentionDays?: number;
+  notificationRetentionDays?: number;
+}
+
+export interface SystemLogItem {
+  id: string;
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+  event: string;
+  errorCode?: string;
+  message: string;
+  requestId?: string;
+  userId?: string;
+  adminId?: string;
+  route?: string;
+  method?: string;
+  durationMs?: number;
+  metadata?: Record<string, any>;
+  createdAt: string;
+}
+
+export interface SystemHealthStats {
+  totalUsers: number;
+  totalDeposits: number;
+  totalWithdrawals: number;
+  totalLedgerRecords: number;
+  totalAuditLogs: number;
+  totalSystemLogs: number;
+  totalDepositProofs: number;
+  errorsToday: number;
+  warningsToday: number;
+  infoToday: number;
+  retentionSettings: {
+    systemLogRetentionDays: number;
+    errorLogRetentionDays: number;
+    notificationRetentionDays: number;
+  };
 }
 
 export interface DashboardResponse {

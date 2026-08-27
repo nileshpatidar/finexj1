@@ -174,6 +174,12 @@ export interface AppSettings {
   operationalWalletAddress: string;
   compoundingEnabled: boolean;
   maintenanceMode: boolean;
+  registrationEnabled: boolean;
+  loginEnabled: boolean;
+  sessionVersion: number;
+  systemLogRetentionDays: number;
+  errorLogRetentionDays: number;
+  notificationRetentionDays: number;
 }
 
 export interface MarketPrice {

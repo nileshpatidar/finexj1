@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { SystemLogsView } from './SystemLogsView';
+import { SystemSecurityControls } from './SystemSecurityControls';
 import {
   ShieldAlert,
   Users,
@@ -27,6 +29,8 @@ import {
   Image as ImageIcon,
   CheckCircle,
   X,
+  Activity,
+  Lock,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -35,7 +39,7 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'settings' | 'audit' | 'database'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'database' | 'settings'>('overview');
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [deposits, setDeposits] = useState<any[]>([]);
@@ -297,6 +301,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
           { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpFromLine },
           { id: 'users', label: 'Users', icon: Users },
           { id: 'performance', label: 'Daily Performance', icon: Sliders },
+          { id: 'security', label: 'Security & Auth Controls', icon: Lock },
+          { id: 'logs', label: 'System Logs', icon: Activity },
           { id: 'adjustments', label: 'Adjustments', icon: DollarSign },
           { id: 'audit', label: 'Audit Trail', icon: ShieldCheck },
           { id: 'database', label: 'Supabase / DB', icon: Database },
@@ -1361,37 +1367,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
         </div>
       )}
 
+      {/* TAB: SECURITY & AUTH CONTROLS */}
+      {activeTab === 'security' && (
+        <SystemSecurityControls
+          appSettings={appSettings}
+          onSettingsUpdated={() => loadAllAdminData()}
+        />
+      )}
+
+      {/* TAB: SYSTEM LOGS */}
+      {activeTab === 'logs' && <SystemLogsView />}
+
       {/* TAB 8: SETTINGS */}
       {activeTab === 'settings' && (
-        <div className="space-y-4 p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-            System & Wallet Configuration
-          </h2>
-          <div className="space-y-3 text-slate-700 dark:text-slate-300">
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">BEP-20 Deposit Address</span>
-              <p className="font-mono text-blue-600 dark:text-blue-400 font-semibold">{appSettings?.bep20DepositAddress}</p>
-            </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">USDT Token Contract (BSC)</span>
-              <p className="font-mono text-slate-600 dark:text-slate-400">{appSettings?.usdtContractAddress}</p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+        <div className="space-y-6">
+          <SystemSecurityControls
+            appSettings={appSettings}
+            onSettingsUpdated={() => loadAllAdminData()}
+          />
+
+          <div className="space-y-4 p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              System & Wallet Configuration
+            </h2>
+            <div className="space-y-3 text-slate-700 dark:text-slate-300">
               <div>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400">Min Deposit</span>
-                <p className="font-bold text-slate-900 dark:text-white">${appSettings?.minimumDepositAmount || 300} USDT</p>
+                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">BEP-20 Deposit Address</span>
+                <p className="font-mono text-blue-600 dark:text-blue-400 font-semibold">{appSettings?.bep20DepositAddress}</p>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400">Withdrawal Fee</span>
-                <p className="font-bold text-slate-900 dark:text-white">{appSettings?.withdrawalFeePercentage}% (Fixed)</p>
+                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">USDT Token Contract (BSC)</span>
+                <p className="font-mono text-slate-600 dark:text-slate-400">{appSettings?.usdtContractAddress}</p>
               </div>
-              <div>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400">Account Age Policy</span>
-                <p className="font-bold text-slate-900 dark:text-white">{appSettings?.accountAgeRequirementDays} Full Days</p>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400">Deposit Lock Period</span>
-                <p className="font-bold text-slate-900 dark:text-white">{appSettings?.depositLockPeriodDays} Days</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                <div>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">Min Deposit</span>
+                  <p className="font-bold text-slate-900 dark:text-white">${appSettings?.minimumDepositAmount || 300} USDT</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">Withdrawal Fee</span>
+                  <p className="font-bold text-slate-900 dark:text-white">{appSettings?.withdrawalFeePercentage}% (Fixed)</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">Account Age Policy</span>
+                  <p className="font-bold text-slate-900 dark:text-white">{appSettings?.accountAgeRequirementDays} Full Days</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">Deposit Lock Period</span>
+                  <p className="font-bold text-slate-900 dark:text-white">{appSettings?.depositLockPeriodDays} Days</p>
+                </div>
               </div>
             </div>
           </div>

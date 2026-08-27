@@ -8,6 +8,7 @@ import {
   verifySessionToken,
   revokeSessionToken,
   revokeAllUserSessions,
+  forceLogoutAllUsers,
   generate2FASecret,
   verify2FACode,
 } from './server/auth';
@@ -27,31 +28,51 @@ import { runAutomatedTestSuite } from './server/tests';
 import { UserRole, User } from './server/types';
 import { testAndMigrateDatabase } from './server/schema-migrator';
 import { seedCloudSqlDatabase } from './server/cloudsql-seed';
+import { generateRequestId, logger } from './server/logger';
+import { AppError, Errors, centralErrorHandler } from './server/errors';
+import { createRateLimiter } from './server/rateLimit';
+import { cleanupManager } from './server/cleanup';
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
+// Global Request ID & Correlation Tracking Middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const reqId = (req.headers['x-request-id'] as string) || generateRequestId();
+  (req as any).requestId = reqId;
+  (req as any).startTime = Date.now();
+  res.setHeader('X-Request-Id', reqId);
+  next();
+});
+
+// Rate Limiters for Sensitive Endpoints
+const authRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 20, keyPrefix: 'auth' });
+const financialRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30, keyPrefix: 'fin' });
+
 // Helper: Extract Bearer token and authenticate user
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Authentication required. Please login.' });
-    return;
+    return next(Errors.unauthorized('Authentication required. Please login.'));
   }
 
   const token = authHeader.split(' ')[1];
   const session = verifySessionToken(token);
   if (!session) {
-    res.status(401).json({ error: 'Session expired or invalid. Please login again.' });
-    return;
+    return next(Errors.unauthorized('Session expired or invalidated. Please login again.'));
   }
 
   const user = db.getUserById(session.userId);
   if (!user) {
-    res.status(401).json({ error: 'User not found.' });
-    return;
+    return next(Errors.notFound('USER_NOT_FOUND', 'User not found.'));
+  }
+
+  // Maintenance mode guard for non-admins
+  const settings = db.getSettings();
+  if (settings.maintenanceMode && user.role === 'user') {
+    return next(Errors.maintenanceMode('FINEXJ is temporarily under maintenance. Please try again later.'));
   }
 
   (req as any).user = user;
@@ -64,8 +85,7 @@ function adminMiddleware(allowedRoles: UserRole[] = ['super_admin', 'finance_adm
   return (req: Request, res: Response, next: NextFunction) => {
     const user: User = (req as any).user;
     if (!user || !allowedRoles.includes(user.role)) {
-      res.status(403).json({ error: 'Access denied. Insufficient administrative privileges.' });
-      return;
+      return next(Errors.forbidden('Access denied. Insufficient administrative privileges.'));
     }
     next();
   };
@@ -87,10 +107,17 @@ app.get('/api/settings', (req, res) => {
     bep20DepositAddress: settings.bep20DepositAddress,
     usdtContractAddress: settings.usdtContractAddress,
     requiredConfirmations: settings.requiredConfirmations,
+    minimumDepositAmount: settings.minimumDepositAmount,
     withdrawalFeePercentage: settings.withdrawalFeePercentage,
     accountAgeRequirementDays: settings.accountAgeRequirementDays,
     depositLockPeriodDays: settings.depositLockPeriodDays,
     telegramSupportUrl: settings.telegramSupportUrl,
+    registrationEnabled: settings.registrationEnabled !== false,
+    loginEnabled: settings.loginEnabled !== false,
+    maintenanceMode: Boolean(settings.maintenanceMode),
+    systemLogRetentionDays: settings.systemLogRetentionDays || 30,
+    errorLogRetentionDays: settings.errorLogRetentionDays || 90,
+    notificationRetentionDays: settings.notificationRetentionDays || 90,
   });
 });
 
@@ -106,140 +133,150 @@ app.get('/api/blockchain/mock-tx', (req, res) => {
 });
 
 // Registration
-app.post('/api/auth/register', (req, res) => {
-  const { fullName, email, phone, country, password, confirmPassword, profilePictureUrl } = req.body;
+app.post('/api/auth/register', authRateLimiter, (req, res, next) => {
+  try {
+    const settings = db.getSettings();
+    if (settings.registrationEnabled === false) {
+      throw Errors.registrationDisabled('Registration is currently unavailable. Please try again later.');
+    }
 
-  if (!fullName || !email || !password) {
-    res.status(400).json({ error: 'Full name, email, and password are required.' });
-    return;
+    const { fullName, email, phone, country, password, confirmPassword, profilePictureUrl } = req.body;
+
+    if (!fullName || !email || !password) {
+      throw Errors.validation('Full name, email, and password are required.');
+    }
+
+    if (password !== confirmPassword) {
+      throw Errors.validation('Passwords do not match.');
+    }
+
+    if (password.length < 8) {
+      throw Errors.validation('Password must be at least 8 characters with letters and numbers.');
+    }
+
+    const existing = db.getUserByEmail(email);
+    if (existing) {
+      throw Errors.validation('An account with this email address already exists.');
+    }
+
+    const salt = generateSalt();
+    const passwordHash = hashPassword(password, salt);
+    const now = new Date().toISOString();
+
+    const newUser: User = {
+      id: 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      fullName: fullName.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone ? phone.trim() : '',
+      country: country ? country.trim() : 'India',
+      passwordHash,
+      passwordSalt: salt,
+      role: 'user',
+      status: 'active',
+      createdAt: now,
+      twoFactorEnabled: false,
+      loginAttempts: 0,
+      profilePictureUrl: profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName)}`,
+    };
+
+    db.addUser(newUser);
+
+    db.addAuditLog({
+      action: 'USER_REGISTERED',
+      actorId: newUser.id,
+      actorEmail: newUser.email,
+      actorRole: newUser.role,
+      targetUserId: newUser.id,
+      reason: 'New user account created successfully.',
+    });
+
+    const token = createSessionToken(newUser);
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: newUser.id,
+        fullName: newUser.fullName,
+        email: newUser.email,
+        phone: newUser.phone,
+        country: newUser.country,
+        role: newUser.role,
+        status: newUser.status,
+        createdAt: newUser.createdAt,
+        twoFactorEnabled: newUser.twoFactorEnabled,
+        profilePictureUrl: newUser.profilePictureUrl,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
-
-  if (password !== confirmPassword) {
-    res.status(400).json({ error: 'Passwords do not match.' });
-    return;
-  }
-
-  if (password.length < 8) {
-    res.status(400).json({ error: 'Password must be at least 8 characters with letters and numbers.' });
-    return;
-  }
-
-  const existing = db.getUserByEmail(email);
-  if (existing) {
-    res.status(400).json({ error: 'An account with this email address already exists.' });
-    return;
-  }
-
-  const salt = generateSalt();
-  const passwordHash = hashPassword(password, salt);
-  const now = new Date().toISOString();
-
-  const newUser: User = {
-    id: 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-    fullName: fullName.trim(),
-    email: email.trim().toLowerCase(),
-    phone: phone ? phone.trim() : '',
-    country: country ? country.trim() : 'United States',
-    passwordHash,
-    passwordSalt: salt,
-    role: 'user',
-    status: 'active',
-    createdAt: now,
-    twoFactorEnabled: false,
-    loginAttempts: 0,
-    profilePictureUrl: profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName)}`,
-  };
-
-  db.addUser(newUser);
-
-  db.addAuditLog({
-    action: 'USER_REGISTERED',
-    actorId: newUser.id,
-    actorEmail: newUser.email,
-    actorRole: newUser.role,
-    targetUserId: newUser.id,
-    reason: 'New user account created successfully.',
-  });
-
-  const token = createSessionToken(newUser);
-  res.json({
-    success: true,
-    token,
-    user: {
-      id: newUser.id,
-      fullName: newUser.fullName,
-      email: newUser.email,
-      phone: newUser.phone,
-      country: newUser.country,
-      role: newUser.role,
-      status: newUser.status,
-      createdAt: newUser.createdAt,
-      twoFactorEnabled: newUser.twoFactorEnabled,
-      profilePictureUrl: newUser.profilePictureUrl,
-    },
-  });
 });
 
 // Login
-app.post('/api/auth/login', (req, res) => {
-  const { email, password, twoFactorCode } = req.body;
+app.post('/api/auth/login', authRateLimiter, (req, res, next) => {
+  try {
+    const { email, password, twoFactorCode } = req.body;
 
-  if (!email || !password) {
-    res.status(400).json({ error: 'Email and password are required.' });
-    return;
-  }
-
-  const user = db.getUserByEmail(email);
-  if (!user) {
-    res.status(401).json({ error: 'Invalid email or password.' });
-    return;
-  }
-
-  if (user.status === 'suspended') {
-    res.status(403).json({ error: 'Account has been suspended. Please contact support via Telegram.' });
-    return;
-  }
-
-  const computedHash = hashPassword(password, user.passwordSalt);
-  if (computedHash !== user.passwordHash) {
-    user.loginAttempts = (user.loginAttempts || 0) + 1;
-    db.updateUser(user.id, { loginAttempts: user.loginAttempts });
-    res.status(401).json({ error: 'Invalid email or password.' });
-    return;
-  }
-
-  // Check 2FA if enabled
-  if (user.twoFactorEnabled) {
-    if (!twoFactorCode) {
-      res.json({ require2FA: true, message: 'Please provide your 6-digit 2FA authenticator code.' });
-      return;
+    if (!email || !password) {
+      throw Errors.validation('Email and password are required.');
     }
-    const isValidCode = verify2FACode(user.twoFactorSecret || '', twoFactorCode);
-    if (!isValidCode) {
-      res.status(400).json({ error: 'Invalid 2FA authenticator code.' });
-      return;
+
+    const user = db.getUserByEmail(email);
+    if (!user) {
+      throw Errors.invalidCredentials('Invalid email or password.');
     }
+
+    // Global Login Switch check (admins always permitted)
+    const settings = db.getSettings();
+    if (settings.loginEnabled === false && user.role === 'user') {
+      throw Errors.authDisabled('User login is temporarily unavailable. Please try again later.');
+    }
+
+    if (user.status === 'suspended') {
+      throw new AppError('ACCOUNT_SUSPENDED', 'Account has been suspended. Please contact support via Telegram.', 403);
+    }
+
+    const computedHash = hashPassword(password, user.passwordSalt);
+    if (computedHash !== user.passwordHash) {
+      user.loginAttempts = (user.loginAttempts || 0) + 1;
+      db.updateUser(user.id, { loginAttempts: user.loginAttempts });
+      throw Errors.invalidCredentials('Invalid email or password.');
+    }
+
+    // Check 2FA if enabled
+    if (user.twoFactorEnabled) {
+      if (!twoFactorCode) {
+        res.json({ require2FA: true, message: 'Please provide your 6-digit 2FA authenticator code.' });
+        return;
+      }
+      const isValidCode = verify2FACode(user.twoFactorSecret || '', twoFactorCode);
+      if (!isValidCode) {
+        throw Errors.validation('Invalid 2FA authenticator code.');
+      }
+    }
+
+    db.updateUser(user.id, { loginAttempts: 0, lastLoginAt: new Date().toISOString() });
+
+    const token = createSessionToken(user);
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        country: user.country,
+        role: user.role,
+        status: user.status,
+        createdAt: user.createdAt,
+        twoFactorEnabled: user.twoFactorEnabled,
+        profilePictureUrl: user.profilePictureUrl,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
-
-  db.updateUser(user.id, { loginAttempts: 0, lastLoginAt: new Date().toISOString() });
-
-  const token = createSessionToken(user);
-  res.json({
-    success: true,
-    token,
-    user: {
-      id: user.id,
-      fullName: user.fullName,
-      email: user.email,
-      phone: user.phone,
-      country: user.country,
-      role: user.role,
-      status: user.status,
-      createdAt: user.createdAt,
-      twoFactorEnabled: user.twoFactorEnabled,
-      profilePictureUrl: user.profilePictureUrl,
-    },
-  });
 });
 
 // Logout
@@ -733,20 +770,120 @@ app.get('/api/admin/audit-logs', authMiddleware, adminMiddleware(), (req, res) =
 });
 
 // Admin Settings Update
-app.post('/api/admin/settings', authMiddleware, adminMiddleware(['super_admin']), (req, res) => {
+app.post('/api/admin/settings', authMiddleware, adminMiddleware(['super_admin']), (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { reason, ...settingsPayload } = req.body;
+    const previousSettings = { ...db.getSettings() };
+    const newSettings = db.updateSettings(settingsPayload);
+
+    db.addAuditLog({
+      action: 'SETTINGS_UPDATED',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      beforeValue: previousSettings,
+      afterValue: newSettings,
+      reason: reason || 'Super Admin updated application & authentication configurations',
+    });
+
+    logger.info('ADMIN_SETTINGS_UPDATED', 'Super Admin updated application settings', {
+      adminId: admin.id,
+      metadata: { changedKeys: Object.keys(settingsPayload), reason },
+    });
+
+    res.json({ success: true, settings: newSettings });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Emergency Security Action: Force Logout All Users
+app.post('/api/admin/auth/force-logout-all', authMiddleware, adminMiddleware(['super_admin']), (req, res) => {
   const admin: User = (req as any).user;
-  const newSettings = db.updateSettings(req.body);
+  const { reason } = req.body;
+
+  const newVersion = forceLogoutAllUsers();
 
   db.addAuditLog({
-    action: 'SETTINGS_UPDATED',
+    action: 'FORCE_LOGOUT_ALL_USERS',
     actorId: admin.id,
     actorEmail: admin.email,
     actorRole: admin.role,
-    afterValue: newSettings,
-    reason: 'Super Admin updated application & wallet configurations',
+    afterValue: { sessionVersion: newVersion },
+    reason: reason || 'Super Admin performed emergency global session invalidation',
   });
 
-  res.json({ success: true, settings: newSettings });
+  logger.warn('SECURITY_FORCE_LOGOUT_EXECUTED', 'Super Admin invalidated all user sessions', {
+    adminId: admin.id,
+    metadata: { sessionVersion: newVersion, reason },
+  });
+
+  res.json({
+    success: true,
+    message: 'All active user sessions have been successfully terminated.',
+    sessionVersion: newVersion,
+  });
+});
+
+// Admin System Health & Storage Stats
+app.get('/api/admin/health/stats', authMiddleware, adminMiddleware(), (req, res) => {
+  const users = db.getUsers();
+  const deposits = db.getDeposits();
+  const withdrawals = db.getWithdrawals();
+  const ledger = db.getLedger();
+  const auditLogs = db.getAuditLogs();
+  const logStats = logger.getLogStats();
+  const settings = db.getSettings();
+
+  const totalDepositProofs = deposits.filter(d => d.proofPhotoUrl && d.proofPhotoUrl.length > 0).length;
+
+  res.json({
+    totalUsers: users.length,
+    totalDeposits: deposits.length,
+    totalWithdrawals: withdrawals.length,
+    totalLedgerRecords: ledger.length,
+    totalAuditLogs: auditLogs.length,
+    totalSystemLogs: logStats.totalLogs,
+    totalDepositProofs,
+    errorsToday: logStats.errorsToday,
+    warningsToday: logStats.warningsToday,
+    infoToday: logStats.infoToday,
+    retentionSettings: {
+      systemLogRetentionDays: settings.systemLogRetentionDays || 30,
+      errorLogRetentionDays: settings.errorLogRetentionDays || 90,
+      notificationRetentionDays: settings.notificationRetentionDays || 90,
+    },
+  });
+});
+
+// Admin System Logs Viewer (Structured & Paginated)
+app.get('/api/admin/logs', authMiddleware, adminMiddleware(), (req, res) => {
+  const { level, event, errorCode, requestId, userId, startDate, endDate, limit, offset } = req.query;
+
+  const result = logger.getRecentLogs({
+    level: level as string,
+    event: event as string,
+    errorCode: errorCode as string,
+    requestId: requestId as string,
+    userId: userId as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+    limit: limit ? parseInt(limit as string, 10) : 50,
+    offset: offset ? parseInt(offset as string, 10) : 0,
+  });
+
+  res.json(result);
+});
+
+// Admin Trigger Manual Retention & Storage Cleanup
+app.post('/api/admin/health/cleanup', authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+  try {
+    const report = await cleanupManager.runScheduledCleanup();
+    res.json({ success: true, report });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Admin Balance Adjustment
@@ -819,11 +956,17 @@ app.post('/api/tests/run', async (req, res) => {
   }
 });
 
+// Centralized Error Handling Middleware
+app.use(centralErrorHandler);
+
 // ==========================================
 // 4. VITE MIDDLEWARE & SPA FALLBACK
 // ==========================================
 
 async function startServer() {
+  // Start periodic log retention & storage cleanup
+  cleanupManager.startPeriodicCleanup();
+
   // Seed Cloud SQL if configured
   if (process.env.SQL_HOST && process.env.SQL_USER) {
     try {

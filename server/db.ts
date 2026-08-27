@@ -34,6 +34,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   operationalWalletAddress: '0x388C818CA8B9251b393131C08a73683246A73121',
   compoundingEnabled: false, // Principal-based by default
   maintenanceMode: false,
+  registrationEnabled: true,
+  loginEnabled: true,
+  sessionVersion: 1,
+  systemLogRetentionDays: 30,
+  errorLogRetentionDays: 90,
+  notificationRetentionDays: 90,
 };
 
 export function hashPassword(password: string, salt: string): string {
@@ -188,6 +194,44 @@ class Database {
               this.data.withdrawals.push(mappedW);
             }
           }
+        }
+        // Fetch system_settings from Supabase
+        const { data: dbSettings } = await supabase.from('system_settings').select('*');
+        if (dbSettings && dbSettings.length > 0) {
+          const updatedSettings: Partial<AppSettings> = {};
+          for (const item of dbSettings) {
+            if (item.key && item.value !== undefined) {
+              const k = item.key;
+              const v = item.value;
+              if (k === 'bep20DepositAddress') updatedSettings.bep20DepositAddress = v;
+              if (k === 'usdtContractAddress') updatedSettings.usdtContractAddress = v;
+              if (k === 'requiredConfirmations') updatedSettings.requiredConfirmations = Number(v);
+              if (k === 'withdrawalFeePercentage') {
+                const num = Number(v);
+                updatedSettings.withdrawalFeePercentage = num <= 1 && num > 0 ? num * 100 : num;
+              }
+              if (k === 'accountAgeRequirementDays') updatedSettings.accountAgeRequirementDays = Number(v);
+              if (k === 'depositLockPeriodDays') updatedSettings.depositLockPeriodDays = Number(v);
+              if (k === 'telegramSupportUrl') updatedSettings.telegramSupportUrl = v;
+              if (k === 'minimumDepositAmount') updatedSettings.minimumDepositAmount = Number(v);
+              if (k === 'maintenanceMode') updatedSettings.maintenanceMode = v === 'true' || v === true;
+              if (k === 'registrationEnabled') updatedSettings.registrationEnabled = v === 'true' || v === true;
+              if (k === 'loginEnabled') updatedSettings.loginEnabled = v === 'true' || v === true;
+              if (k === 'sessionVersion') updatedSettings.sessionVersion = Number(v);
+              if (k === 'systemLogRetentionDays') updatedSettings.systemLogRetentionDays = Number(v);
+              if (k === 'errorLogRetentionDays') updatedSettings.errorLogRetentionDays = Number(v);
+              if (k === 'notificationRetentionDays') updatedSettings.notificationRetentionDays = Number(v);
+            } else if (item.bep20_deposit_address) {
+              updatedSettings.bep20DepositAddress = item.bep20_deposit_address;
+              updatedSettings.usdtContractAddress = item.usdt_contract_address;
+              updatedSettings.requiredConfirmations = Number(item.required_confirmations || 15);
+              updatedSettings.withdrawalFeePercentage = Number(item.withdrawal_fee_percentage || 4);
+              updatedSettings.accountAgeRequirementDays = Number(item.account_age_requirement_days || 30);
+              updatedSettings.depositLockPeriodDays = Number(item.deposit_lock_period_days || 20);
+              updatedSettings.telegramSupportUrl = item.telegram_support_url;
+            }
+          }
+          this.data.settings = { ...this.data.settings, ...updatedSettings };
         }
       }
     } catch (err) {
@@ -365,6 +409,21 @@ class Database {
 
   public updateSettings(settings: Partial<AppSettings>): AppSettings {
     this.data.settings = { ...this.data.settings, ...settings };
+    
+    // Async persist changed settings to Supabase system_settings
+    if (isServerSupabaseReady()) {
+      const supabase = getServerSupabase();
+      for (const [k, v] of Object.entries(settings)) {
+        if (v !== undefined) {
+          Promise.resolve(
+            supabase
+              .from('system_settings')
+              .upsert({ key: k, value: String(v), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+          ).catch(() => {});
+        }
+      }
+    }
+    
     return this.data.settings;
   }
 
