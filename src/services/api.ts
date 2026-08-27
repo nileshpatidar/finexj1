@@ -224,6 +224,19 @@ export const api = {
     return res.text();
   },
 
+  // User Notifications & Messages
+  getUserMessages: () => request<{ messages: any[]; unreadCount: number }>('/api/user/messages'),
+  markMessageRead: (messageId: string) => request<{ success: boolean }>(`/api/user/messages/${messageId}/read`, { method: 'POST' }),
+
+  // Admin Messages & Deposit Proof URL
+  sendAdminMessage: (payload: { userId: string; depositId?: string; withdrawalId?: string; messageType?: string; subject?: string; body: string }) =>
+    request<{ success: boolean; message: any }>('/api/admin/messages', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getDepositProofUrl: (depositId: string) => request<{ signedUrl: string }>(`/api/admin/deposits/${depositId}/proof-url`),
+  getAdminSystemHealth: () => request<any>('/api/admin/system-health'),
+
   // Observability & System Health
   getSystemHealthStats: () => request<SystemHealthStats>('/api/admin/health/stats'),
   getSystemLogs: (params?: {

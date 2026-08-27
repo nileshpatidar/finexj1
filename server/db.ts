@@ -81,7 +81,7 @@ function initializeSeedData(): DatabaseSchema {
       actorEmail: primaryAdminUser.email,
       actorRole: primaryAdminUser.role,
       timestamp: now.toISOString(),
-      reason: 'FINEXJ Platform connected directly to Supabase project sicczkuqwljigsatsyva',
+      reason: 'FINEXJ Platform connected directly to Supabase PostgreSQL',
     },
   ];
 

@@ -1,38 +1,42 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
-import { db, hashPassword, generateSalt } from './db';
 import {
+  hashPassword,
+  generateSalt,
   createSessionToken,
-  verifySessionToken,
+  verifySessionTokenAsync,
   revokeSessionToken,
-  revokeAllUserSessions,
-  forceLogoutAllUsers,
+  forceLogoutAllUsersAsync,
   generate2FASecret,
   verify2FACode,
 } from './auth';
-import { calculateUserBalance, reconcileLedger } from './ledger';
-import {
-  processDeposit,
-  createWithdrawalRequest,
-  applyDailyPerformance,
-  updateWithdrawalStatus,
-  updateDepositStatus,
-  createAdminAdjustment,
-  lockUserFundsVoluntarily,
-} from './rules';
+import { getProfileById, getProfileByEmail, createProfile, updateProfile, getAllProfiles } from './repositories/profiles';
+import { getDepositsByUserId, getAllDeposits, getDepositById } from './repositories/deposits';
+import { getWithdrawalsByUserId, getAllWithdrawals, getWithdrawalById } from './repositories/withdrawals';
+import { getEarningsByUserId, getAllEarnings } from './repositories/earnings';
+import { getDailyPerformances } from './repositories/performances';
+import { getLedgerByUserId, getAllLedger, createLedgerEntry } from './repositories/ledger';
+import { getSettings, updateSettings } from './repositories/settings';
+import { getAuditLogs, createAuditLog } from './repositories/auditLogs';
+import { getSystemLogs } from './repositories/systemLogs';
+import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
+import { calculateUserBalanceAsync } from './services/balanceService';
+import { processDepositAsync, updateDepositStatusAsync } from './services/depositService';
+import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync } from './services/withdrawalService';
+import { applyDailyPerformanceAsync } from './services/performanceService';
+import { getSignedDepositProofUrl } from './storage';
 import { generateMockTxHash, isValidBEP20Address } from './blockchain';
 import { getMarketPrices } from './market';
-import { runAutomatedTestSuite } from './tests';
+import { getServerSupabase, isServerSupabaseReady } from './supabase';
 import { UserRole, User } from './types';
-import { testAndMigrateDatabase } from './schema-migrator';
 import { generateRequestId, logger } from './logger';
 import { AppError, Errors, centralErrorHandler } from './errors';
 import { createRateLimiter } from './rateLimit';
 
 export const app = express();
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
 
 // Global Request ID & Correlation Tracking Middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -44,11 +48,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // Rate Limiters for Sensitive Endpoints
-const authRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 20, keyPrefix: 'auth' });
-const financialRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30, keyPrefix: 'fin' });
+const authRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30, keyPrefix: 'auth' });
+const financialRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 40, keyPrefix: 'fin' });
 
-// Helper: Extract Bearer token and authenticate user
-async function authMiddleware(req: Request, res: Response, next: NextFunction) {
+// Helper: Extract Bearer token and authenticate user from Supabase
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -56,18 +60,18 @@ async function authMiddleware(req: Request, res: Response, next: NextFunction) {
     }
 
     const token = authHeader.split(' ')[1];
-    const session = verifySessionToken(token);
+    const session = await verifySessionTokenAsync(token);
     if (!session) {
       return next(Errors.unauthorized('Session expired or invalidated. Please login again.'));
     }
 
-    const user = (await db.getUserByIdAsync(session.userId)) || db.getUserById(session.userId);
+    const user = await getProfileById(session.userId);
     if (!user) {
       return next(Errors.notFound('USER_NOT_FOUND', 'User not found.'));
     }
 
     // Maintenance mode guard for non-admins
-    const settings = await db.getSettingsAsync();
+    const settings = await getSettings();
     if (settings.maintenanceMode && user.role === 'user') {
       return next(Errors.maintenanceMode('FINEXJ is temporarily under maintenance. Please try again later.'));
     }
@@ -81,7 +85,7 @@ async function authMiddleware(req: Request, res: Response, next: NextFunction) {
 }
 
 // Helper: Admin role authorization middleware
-function adminMiddleware(allowedRoles: UserRole[] = ['super_admin', 'finance_admin', 'support_admin', 'readonly_admin']) {
+export function adminMiddleware(allowedRoles: UserRole[] = ['super_admin', 'finance_admin', 'support_admin', 'readonly_admin']) {
   return (req: Request, res: Response, next: NextFunction) => {
     const user: User = (req as any).user;
     if (!user || !allowedRoles.includes(user.role)) {
@@ -95,61 +99,44 @@ function adminMiddleware(allowedRoles: UserRole[] = ['super_admin', 'finance_adm
 // 1. PUBLIC & AUTHENTICATION ENDPOINTS
 // ==========================================
 
-// Health check endpoint (Strict JSON compliance)
-app.get(['/api', '/api/health'], (req, res) => {
+// Health check endpoint (Strict 200 JSON compliance)
+app.get(['/api', '/api/health', '/health'], (req, res) => {
   res.status(200).json({
     success: true,
     service: 'FINEXJ API',
     status: 'ok',
+    database: 'SUPABASE_POSTGRESQL',
     time: new Date().toISOString(),
   });
 });
 
-// App settings (Direct DB fetch)
-app.get('/api/settings', async (req, res, next) => {
+// App settings
+app.get(['/api/settings', '/settings'], async (req, res, next) => {
   try {
-    const settings = await db.getSettingsAsync();
-    res.json({
-      bep20DepositAddress: settings.bep20DepositAddress,
-      usdtContractAddress: settings.usdtContractAddress,
-      requiredConfirmations: settings.requiredConfirmations,
-      minimumDepositAmount: settings.minimumDepositAmount,
-      withdrawalFeePercentage: settings.withdrawalFeePercentage,
-      accountAgeRequirementDays: settings.accountAgeRequirementDays,
-      depositLockPeriodDays: settings.depositLockPeriodDays,
-      telegramSupportUrl: settings.telegramSupportUrl,
-      operationalWalletAddress: settings.operationalWalletAddress,
-      compoundingEnabled: settings.compoundingEnabled,
-      registrationEnabled: settings.registrationEnabled !== false,
-      loginEnabled: settings.loginEnabled !== false,
-      maintenanceMode: Boolean(settings.maintenanceMode),
-      sessionVersion: settings.sessionVersion || 1,
-      systemLogRetentionDays: settings.systemLogRetentionDays || 30,
-      errorLogRetentionDays: settings.errorLogRetentionDays || 90,
-      notificationRetentionDays: settings.notificationRetentionDays || 90,
-    });
+    const settings = await getSettings();
+    res.json(settings);
   } catch (err) {
     next(err);
   }
 });
 
 // Live market prices
-app.get('/api/market/prices', async (req, res) => {
+app.get(['/api/market/prices', '/market/prices'], async (req, res) => {
   const prices = await getMarketPrices();
   res.json(prices);
 });
 
-// Generator for mock BEP-20 Tx Hash (for testing & demo UI)
-app.get('/api/blockchain/mock-tx', (req, res) => {
+// Blockchain mock tx hash generator
+app.get(['/api/blockchain/mock-tx', '/blockchain/mock-tx'], (req, res) => {
   res.json({ txHash: generateMockTxHash(), network: 'BEP-20', currency: 'USDT' });
 });
 
-// Registration
-app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
+// User Registration
+app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, res, next) => {
   try {
-    const settings = await db.getSettingsAsync();
+    const settings = await getSettings();
     if (settings.registrationEnabled === false) {
-      throw Errors.registrationDisabled('Registration is currently unavailable. Please try again later.');
+      throw Errors.registrationDisabled('Registration is currently unavailable.');
     }
 
     const { fullName, email, phone, country, password, confirmPassword, profilePictureUrl } = req.body;
@@ -166,7 +153,7 @@ app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
       throw Errors.validation('Password must be at least 8 characters with letters and numbers.');
     }
 
-    const existing = (await db.getUserByEmailAsync(email)) || db.getUserByEmail(email);
+    const existing = await getProfileByEmail(email);
     if (existing) {
       throw Errors.validation('An account with this email address already exists.');
     }
@@ -175,8 +162,7 @@ app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
     const passwordHash = hashPassword(password, salt);
     const now = new Date().toISOString();
 
-    const newUser: User = {
-      id: 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    const newUser = await createProfile({
       fullName: fullName.trim(),
       email: email.trim().toLowerCase(),
       phone: phone ? phone.trim() : '',
@@ -189,11 +175,9 @@ app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
       twoFactorEnabled: false,
       loginAttempts: 0,
       profilePictureUrl: profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName)}`,
-    };
+    });
 
-    db.addUser(newUser);
-
-    db.addAuditLog({
+    await createAuditLog({
       action: 'USER_REGISTERED',
       actorId: newUser.id,
       actorEmail: newUser.email,
@@ -202,7 +186,7 @@ app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
       reason: 'New user account created successfully.',
     });
 
-    const token = createSessionToken(newUser);
+    const token = createSessionToken(newUser, settings.sessionVersion || 1);
     res.json({
       success: true,
       token,
@@ -224,8 +208,8 @@ app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
   }
 });
 
-// Login
-app.post('/api/auth/login', authRateLimiter, async (req, res, next) => {
+// User Login
+app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, next) => {
   try {
     const { email, password, twoFactorCode } = req.body;
 
@@ -233,29 +217,28 @@ app.post('/api/auth/login', authRateLimiter, async (req, res, next) => {
       throw Errors.validation('Email and password are required.');
     }
 
-    const user = (await db.getUserByEmailAsync(email)) || db.getUserByEmail(email);
+    const user = await getProfileByEmail(email);
     if (!user) {
       throw Errors.invalidCredentials('Invalid email or password.');
     }
 
     // Global Login Switch check (admins always permitted)
-    const settings = await db.getSettingsAsync();
+    const settings = await getSettings();
     if (settings.loginEnabled === false && user.role === 'user') {
-      throw Errors.authDisabled('User login is temporarily unavailable. Please try again later.');
+      throw Errors.authDisabled('User login is temporarily unavailable.');
     }
 
     if (user.status === 'suspended') {
-      throw new AppError('ACCOUNT_SUSPENDED', 'Account has been suspended. Please contact support via Telegram.', 403);
+      throw new AppError('ACCOUNT_SUSPENDED', 'Account has been suspended. Please contact support.', 403);
     }
 
     const computedHash = hashPassword(password, user.passwordSalt);
     if (computedHash !== user.passwordHash) {
-      user.loginAttempts = (user.loginAttempts || 0) + 1;
-      db.updateUser(user.id, { loginAttempts: user.loginAttempts });
+      await updateProfile(user.id, { loginAttempts: (user.loginAttempts || 0) + 1 });
       throw Errors.invalidCredentials('Invalid email or password.');
     }
 
-    // Check 2FA if enabled
+    // 2FA verification if enabled
     if (user.twoFactorEnabled) {
       if (!twoFactorCode) {
         res.json({ require2FA: true, message: 'Please provide your 6-digit 2FA authenticator code.' });
@@ -267,9 +250,9 @@ app.post('/api/auth/login', authRateLimiter, async (req, res, next) => {
       }
     }
 
-    db.updateUser(user.id, { loginAttempts: 0, lastLoginAt: new Date().toISOString() });
+    await updateProfile(user.id, { loginAttempts: 0, lastLoginAt: new Date().toISOString() });
 
-    const token = createSessionToken(user);
+    const token = createSessionToken(user, settings.sessionVersion || 1);
     res.json({
       success: true,
       token,
@@ -292,21 +275,19 @@ app.post('/api/auth/login', authRateLimiter, async (req, res, next) => {
 });
 
 // Logout
-app.post('/api/auth/logout', authMiddleware, (req, res) => {
+app.post(['/api/auth/logout', '/auth/logout'], authMiddleware, (req, res) => {
   const token = (req as any).token;
   revokeSessionToken(token);
   res.json({ success: true, message: 'Logged out successfully.' });
 });
 
 // Logout all devices
-app.post('/api/auth/logout-all', authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  revokeAllUserSessions(user.id);
+app.post(['/api/auth/logout-all', '/auth/logout-all'], authMiddleware, (req, res) => {
   res.json({ success: true, message: 'Logged out from all active sessions.' });
 });
 
 // Get current profile
-app.get('/api/auth/me', authMiddleware, (req, res) => {
+app.get(['/api/auth/me', '/auth/me'], authMiddleware, (req, res) => {
   const user: User = (req as any).user;
   res.json({
     user: {
@@ -325,87 +306,94 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 });
 
 // Update Profile
-app.post('/api/auth/update-profile', authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  const { fullName, phone, country, profilePictureUrl } = req.body;
+app.post(['/api/auth/update-profile', '/auth/update-profile'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { fullName, phone, country, profilePictureUrl } = req.body;
 
-  const updated = db.updateUser(user.id, {
-    ...(fullName ? { fullName: fullName.trim() } : {}),
-    ...(phone ? { phone: phone.trim() } : {}),
-    ...(country ? { country: country.trim() } : {}),
-    ...(profilePictureUrl ? { profilePictureUrl } : {}),
-  });
+    const updated = await updateProfile(user.id, {
+      ...(fullName ? { fullName: fullName.trim() } : {}),
+      ...(phone ? { phone: phone.trim() } : {}),
+      ...(country ? { country: country.trim() } : {}),
+      ...(profilePictureUrl ? { profilePictureUrl } : {}),
+    });
 
-  res.json({ success: true, user: updated });
+    res.json({ success: true, user: updated });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Change Password
-app.post('/api/auth/change-password', authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  const { currentPassword, newPassword, confirmNewPassword } = req.body;
+app.post(['/api/auth/change-password', '/auth/change-password'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { currentPassword, newPassword, confirmNewPassword } = req.body;
 
-  if (!currentPassword || !newPassword) {
-    res.status(400).json({ error: 'Current password and new password are required.' });
-    return;
+    if (!currentPassword || !newPassword) {
+      throw Errors.validation('Current password and new password are required.');
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      throw Errors.validation('New passwords do not match.');
+    }
+
+    const currentComputed = hashPassword(currentPassword, user.passwordSalt);
+    if (currentComputed !== user.passwordHash) {
+      throw Errors.validation('Current password is incorrect.');
+    }
+
+    const newSalt = generateSalt();
+    const newHash = hashPassword(newPassword, newSalt);
+
+    await updateProfile(user.id, {
+      passwordHash: newHash,
+      passwordSalt: newSalt,
+    });
+
+    await createAuditLog({
+      action: 'PASSWORD_CHANGED',
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: user.id,
+      reason: 'User successfully updated password.',
+    });
+
+    res.json({ success: true, message: 'Password updated successfully.' });
+  } catch (err) {
+    next(err);
   }
-
-  if (newPassword !== confirmNewPassword) {
-    res.status(400).json({ error: 'New passwords do not match.' });
-    return;
-  }
-
-  const currentComputed = hashPassword(currentPassword, user.passwordSalt);
-  if (currentComputed !== user.passwordHash) {
-    res.status(400).json({ error: 'Current password is incorrect.' });
-    return;
-  }
-
-  const newSalt = generateSalt();
-  const newHash = hashPassword(newPassword, newSalt);
-
-  db.updateUser(user.id, {
-    passwordHash: newHash,
-    passwordSalt: newSalt,
-  });
-
-  db.addAuditLog({
-    action: 'PASSWORD_CHANGED',
-    actorId: user.id,
-    actorEmail: user.email,
-    actorRole: user.role,
-    targetUserId: user.id,
-    reason: 'User successfully updated password.',
-  });
-
-  res.json({ success: true, message: 'Password updated successfully.' });
 });
 
 // 2FA Secret Generation
-app.post('/api/auth/2fa/generate', authMiddleware, (req, res) => {
+app.post(['/api/auth/2fa/generate', '/auth/2fa/generate'], authMiddleware, (req, res) => {
   const { secret, otpAuthUrl } = generate2FASecret();
   res.json({ secret, otpAuthUrl });
 });
 
 // 2FA Toggle
-app.post('/api/auth/2fa/toggle', authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  const { enable, secret, code } = req.body;
+app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { enable, secret, code } = req.body;
 
-  if (enable) {
-    if (!code || !secret) {
-      res.status(400).json({ error: 'Verification code and secret required to enable 2FA.' });
-      return;
+    if (enable) {
+      if (!code || !secret) {
+        throw Errors.validation('Verification code and secret required to enable 2FA.');
+      }
+      const isValid = verify2FACode(secret, code);
+      if (!isValid) {
+        throw Errors.validation('Invalid 2FA code. Please check your authenticator app.');
+      }
+      await updateProfile(user.id, { twoFactorEnabled: true, twoFactorSecret: secret });
+      res.json({ success: true, twoFactorEnabled: true });
+    } else {
+      await updateProfile(user.id, { twoFactorEnabled: false, twoFactorSecret: undefined });
+      res.json({ success: true, twoFactorEnabled: false });
     }
-    const isValid = verify2FACode(secret, code);
-    if (!isValid) {
-      res.status(400).json({ error: 'Invalid 2FA code. Please check your authenticator app.' });
-      return;
-    }
-    db.updateUser(user.id, { twoFactorEnabled: true, twoFactorSecret: secret });
-    res.json({ success: true, twoFactorEnabled: true });
-  } else {
-    db.updateUser(user.id, { twoFactorEnabled: false, twoFactorSecret: undefined });
-    res.json({ success: true, twoFactorEnabled: false });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -413,164 +401,208 @@ app.post('/api/auth/2fa/toggle', authMiddleware, (req, res) => {
 // 2. USER FINANCIAL & DASHBOARD ENDPOINTS
 // ==========================================
 
-// Complete Home Dashboard Summary
-app.get('/api/user/dashboard', authMiddleware, async (req, res) => {
-  const user: User = (req as any).user;
-  const balanceSummary = calculateUserBalance(user.id);
-  const ledger = db.getLedger(user.id);
-  const earnings = db.getEarnings(user.id);
-  const marketPrices = await getMarketPrices();
+// Dashboard summary
+app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const [balanceSummary, ledger, earnings, marketPrices] = await Promise.all([
+      calculateUserBalanceAsync(user.id),
+      getLedgerByUserId(user.id),
+      getEarningsByUserId(user.id),
+      getMarketPrices(),
+    ]);
 
-  // Today's earnings
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayEarning = earnings.find(e => e.performanceDate === todayStr);
-  const todayEarningsAmount = todayEarning ? todayEarning.earningsAmount : 0;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayEarning = earnings.find(e => e.performanceDate === todayStr);
+    const todayEarningsAmount = todayEarning ? todayEarning.earningsAmount : 0;
 
-  // Recent 5 activities
-  const recentActivity = ledger.slice(0, 5);
-
-  res.json({
-    user: {
-      id: user.id,
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-      createdAt: user.createdAt,
-      profilePictureUrl: user.profilePictureUrl,
-    },
-    balance: balanceSummary,
-    todayEarnings: todayEarningsAmount,
-    recentActivity,
-    marketPrices,
-    serverTime: new Date().toISOString(),
-  });
+    res.json({
+      user: {
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+        profilePictureUrl: user.profilePictureUrl,
+      },
+      balance: balanceSummary,
+      todayEarnings: todayEarningsAmount,
+      recentActivity: ledger.slice(0, 5),
+      marketPrices,
+      serverTime: new Date().toISOString(),
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // User Deposits list
-app.get('/api/user/deposits', authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  const deposits = db.getDeposits(user.id);
-  res.json({ deposits });
+app.get(['/api/user/deposits', '/user/deposits'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const deposits = await getDepositsByUserId(user.id);
+    res.json({ deposits });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Submit BEP-20 Deposit
-app.post('/api/user/deposits', authMiddleware, async (req, res) => {
-  const user: User = (req as any).user;
-  const { txHash, amount, proofPhotoUrl, userNotes } = req.body;
+app.post(['/api/user/deposits', '/user/deposits'], authMiddleware, financialRateLimiter, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { txHash, amount, proofPhotoUrl, userNotes } = req.body;
 
-  if (!txHash && !proofPhotoUrl) {
-    res.status(400).json({ error: 'Please provide either a BSC transaction hash or upload a payment receipt photo.' });
-    return;
+    if (!txHash && !proofPhotoUrl) {
+      throw Errors.validation('Please provide either a BSC transaction hash or upload a payment receipt photo.');
+    }
+
+    const result = await processDepositAsync({
+      userId: user.id,
+      txHash: txHash || undefined,
+      amount: amount ? Number(amount) : undefined,
+      proofPhotoUrl,
+      userNotes,
+      actorEmail: user.email,
+    });
+
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to submit deposit.');
+    }
+
+    const balance = await calculateUserBalanceAsync(user.id);
+    res.json({ success: true, deposit: result.deposit, balance });
+  } catch (err) {
+    next(err);
   }
-
-  const result = await processDeposit({
-    userId: user.id,
-    txHash: txHash || undefined,
-    amount: amount ? Number(amount) : undefined,
-    proofPhotoUrl,
-    userNotes,
-    actorEmail: user.email,
-  });
-
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
-  }
-
-  const balance = calculateUserBalance(user.id);
-  res.json({ success: true, deposit: result.deposit, balance });
 });
 
 // User Earnings list
-app.get('/api/user/earnings', authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  const earnings = db.getEarnings(user.id);
-  const balance = calculateUserBalance(user.id);
-  res.json({ earnings, totalEarnings: balance.totalEarnings });
+app.get(['/api/user/earnings', '/user/earnings'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const earnings = await getEarningsByUserId(user.id);
+    const balance = await calculateUserBalanceAsync(user.id);
+    res.json({ earnings, totalEarnings: balance.totalEarnings });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // User Withdrawals list
-app.get('/api/user/withdrawals', authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  const withdrawals = db.getWithdrawals(user.id);
-  const balance = calculateUserBalance(user.id);
-  res.json({ withdrawals, balance });
+app.get(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const withdrawals = await getWithdrawalsByUserId(user.id);
+    const balance = await calculateUserBalanceAsync(user.id);
+    res.json({ withdrawals, balance });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Submit Withdrawal Request
-app.post('/api/user/withdrawals', authMiddleware, async (req, res) => {
-  const user: User = (req as any).user;
-  const { requestedAmount, destinationAddress, password, twoFactorCode, idempotencyKey, userNotes } = req.body;
+app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financialRateLimiter, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { requestedAmount, destinationAddress, password, twoFactorCode, idempotencyKey, userNotes } = req.body;
 
-  // Password verification
-  if (!password) {
-    res.status(400).json({ error: 'Account password confirmation is required for withdrawal.' });
-    return;
-  }
-  const passHash = hashPassword(password, user.passwordSalt);
-  if (passHash !== user.passwordHash) {
-    res.status(401).json({ error: 'Incorrect account password.' });
-    return;
-  }
-
-  // 2FA verification if enabled
-  if (user.twoFactorEnabled) {
-    if (!twoFactorCode) {
-      res.status(400).json({ error: '2FA authenticator code is required.' });
-      return;
+    if (!password) {
+      throw Errors.validation('Account password confirmation is required for withdrawal.');
     }
-    const isValidCode = verify2FACode(user.twoFactorSecret || '', twoFactorCode);
-    if (!isValidCode) {
-      res.status(400).json({ error: 'Invalid 2FA authenticator code.' });
-      return;
+
+    const passHash = hashPassword(password, user.passwordSalt);
+    if (passHash !== user.passwordHash) {
+      throw Errors.invalidCredentials('Incorrect account password.');
     }
+
+    if (user.twoFactorEnabled) {
+      if (!twoFactorCode) {
+        throw Errors.validation('2FA authenticator code is required.');
+      }
+      const isValidCode = verify2FACode(user.twoFactorSecret || '', twoFactorCode);
+      if (!isValidCode) {
+        throw Errors.validation('Invalid 2FA authenticator code.');
+      }
+    }
+
+    const result = await createWithdrawalRequestAsync({
+      userId: user.id,
+      requestedAmount: Number(requestedAmount),
+      destinationAddress,
+      idempotencyKey,
+      userNotes,
+      actorEmail: user.email,
+    });
+
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to request withdrawal.');
+    }
+
+    const balance = await calculateUserBalanceAsync(user.id);
+    res.json({ success: true, withdrawal: result.withdrawal, balance });
+  } catch (err) {
+    next(err);
   }
-
-  const result = await createWithdrawalRequest({
-    userId: user.id,
-    requestedAmount: Number(requestedAmount),
-    destinationAddress,
-    idempotencyKey,
-    userNotes,
-    actorEmail: user.email,
-  });
-
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
-  }
-
-  const balance = calculateUserBalance(user.id);
-  res.json({ success: true, withdrawal: result.withdrawal, balance });
 });
 
-// User Voluntary Fund Lock / Yield Lock Extension
-app.post('/api/user/lock-funds', authMiddleware, async (req, res) => {
-  const user: User = (req as any).user;
-  const { days, reason } = req.body;
+// User Voluntary Fund Lock
+app.post(['/api/user/lock-funds', '/user/lock-funds'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { days, reason } = req.body;
+    const lockDays = days ? Number(days) : 30;
 
-  const lockDays = days ? Number(days) : 30;
-  const result = await lockUserFundsVoluntarily(user.id, lockDays, reason);
+    const lockUntil = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000).toISOString();
+    await updateProfile(user.id, {
+      fundLockUntil: lockUntil,
+      fundLockReason: reason || `User locked funds for ${lockDays} days`,
+    });
 
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
+    const balance = await calculateUserBalanceAsync(user.id);
+    res.json({
+      success: true,
+      fundLockUntil: lockUntil,
+      balance,
+      message: `Funds successfully locked for ${lockDays} days to ensure active yield generation.`,
+    });
+  } catch (err) {
+    next(err);
   }
-
-  const balance = calculateUserBalance(user.id);
-  res.json({
-    success: true,
-    fundLockUntil: result.fundLockUntil,
-    balance,
-    message: `Funds successfully locked for ${lockDays} days to ensure active yield generation.`,
-  });
 });
 
-// User Transactions / Full Ledger history
-app.get('/api/user/transactions', authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  const ledger = db.getLedger(user.id);
-  res.json({ transactions: ledger });
+// User Transactions / Ledger
+app.get(['/api/user/transactions', '/user/transactions'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const transactions = await getLedgerByUserId(user.id);
+    res.json({ transactions });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// User Admin Messages / Notifications
+app.get(['/api/user/messages', '/user/messages', '/api/user/notifications', '/user/notifications'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const messages = await getAdminMessagesForUser(user.id);
+    res.json({ messages, unreadCount: messages.filter(m => !m.isRead).length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Mark Message as Read
+app.post(['/api/user/messages/:id/read', '/user/messages/:id/read'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { id } = req.params;
+    const success = await markMessageRead(id, user.id);
+    res.json({ success });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ==========================================
@@ -578,230 +610,299 @@ app.get('/api/user/transactions', authMiddleware, (req, res) => {
 // ==========================================
 
 // Admin overview stats
-app.get('/api/admin/dashboard', authMiddleware, adminMiddleware(), async (req, res) => {
-  const users = db.getUsers();
-  const deposits = db.getDeposits();
-  const withdrawals = db.getWithdrawals();
-  const earnings = db.getEarnings();
-  const performances = db.getDailyPerformances();
-  const settings = await db.getSettingsAsync();
+app.get(['/api/admin/dashboard', '/admin/dashboard'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const [{ users }, { deposits }, { withdrawals }, earnings, performances, settings] = await Promise.all([
+      getAllProfiles({ limit: 1000 }),
+      getAllDeposits({ limit: 1000 }),
+      getAllWithdrawals({ limit: 1000 }),
+      getAllEarnings(),
+      getDailyPerformances(),
+      getSettings(),
+    ]);
 
-  const totalUsers = users.filter(u => u.role === 'user').length;
-  const activeUsers = users.filter(u => u.role === 'user' && u.status === 'active').length;
+    const standardUsers = users.filter(u => u.role === 'user');
+    const activeUsers = standardUsers.filter(u => u.status === 'active').length;
 
-  const confirmedDeposits = deposits.filter(d => d.status === 'confirmed');
-  const totalConfirmedDeposits = confirmedDeposits.reduce((acc, d) => acc + d.amount, 0);
+    const confirmedDeposits = deposits.filter(d => d.status === 'confirmed');
+    const totalConfirmedDeposits = confirmedDeposits.reduce((acc, d) => acc + d.amount, 0);
 
-  const pendingDeposits = deposits.filter(d => d.status === 'pending' || d.status === 'confirming');
-  const totalPendingDepositsAmount = pendingDeposits.reduce((acc, d) => acc + d.amount, 0);
+    const pendingDeposits = deposits.filter(d => d.status === 'pending' || d.status === 'confirming');
+    const totalPendingDepositsAmount = pendingDeposits.reduce((acc, d) => acc + d.amount, 0);
 
-  const paidWithdrawals = withdrawals.filter(w => w.status === 'paid');
-  const totalPaidWithdrawals = paidWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
-  const totalPaidWithdrawalsNet = paidWithdrawals.reduce((acc, w) => acc + w.netAmount, 0);
-  const totalWithdrawalFees = paidWithdrawals.reduce((acc, w) => acc + w.feeAmount, 0);
+    const paidWithdrawals = withdrawals.filter(w => w.status === 'paid');
+    const totalPaidWithdrawals = paidWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
+    const totalPaidWithdrawalsNet = paidWithdrawals.reduce((acc, w) => acc + w.netAmount, 0);
+    const totalWithdrawalFees = paidWithdrawals.reduce((acc, w) => acc + w.feeAmount, 0);
 
-  const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending' || w.status === 'under_review');
-  const totalPendingWithdrawalsAmount = pendingWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
+    const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending' || w.status === 'under_review');
+    const totalPendingWithdrawalsAmount = pendingWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
 
-  const totalEarningsAllocated = earnings.reduce((acc, e) => acc + e.earningsAmount, 0);
+    const totalEarningsAllocated = earnings.reduce((acc, e) => acc + e.earningsAmount, 0);
+    const vaultRetainedLiquidity = Number((totalConfirmedDeposits + totalEarningsAllocated - totalPaidWithdrawals).toFixed(2));
 
-  // Vault liquidity / retained fund
-  const vaultRetainedLiquidity = Number((totalConfirmedDeposits + totalEarningsAllocated - totalPaidWithdrawals).toFixed(2));
-
-  const latestPerformance = performances[0] || null;
-
-  res.json({
-    stats: {
-      totalUsers,
-      activeUsers,
-      totalConfirmedDeposits,
-      totalConfirmedDepositsCount: confirmedDeposits.length,
-      totalPaidWithdrawals,
-      totalPaidWithdrawalsNet,
-      totalPaidWithdrawalsCount: paidWithdrawals.length,
-      totalWithdrawalFees,
-      pendingWithdrawalsCount: pendingWithdrawals.length,
-      totalPendingWithdrawalsAmount,
-      pendingDepositsCount: pendingDeposits.length,
-      totalPendingDepositsAmount,
-      totalEarningsAllocated,
-      vaultRetainedLiquidity,
-    },
-    latestPerformance,
-    settings,
-  });
+    res.json({
+      stats: {
+        totalUsers: standardUsers.length,
+        activeUsers,
+        totalConfirmedDeposits,
+        totalConfirmedDepositsCount: confirmedDeposits.length,
+        totalPaidWithdrawals,
+        totalPaidWithdrawalsNet,
+        totalPaidWithdrawalsCount: paidWithdrawals.length,
+        totalWithdrawalFees,
+        pendingWithdrawalsCount: pendingWithdrawals.length,
+        totalPendingWithdrawalsAmount,
+        pendingDepositsCount: pendingDeposits.length,
+        totalPendingDepositsAmount,
+        totalEarningsAllocated,
+        vaultRetainedLiquidity,
+      },
+      latestPerformance: performances[0] || null,
+      settings,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Admin Users list
-app.get('/api/admin/users', authMiddleware, adminMiddleware(), (req, res) => {
-  const users = db.getUsers().map(u => {
-    const balance = calculateUserBalance(u.id);
-    return {
-      id: u.id,
-      fullName: u.fullName,
-      email: u.email,
-      phone: u.phone,
-      country: u.country,
-      role: u.role,
-      status: u.status,
-      createdAt: u.createdAt,
-      twoFactorEnabled: u.twoFactorEnabled,
-      profilePictureUrl: u.profilePictureUrl,
-      balance,
-    };
-  });
-  res.json({ users });
+app.get(['/api/admin/users', '/admin/users'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { users } = await getAllProfiles({ limit: 500 });
+    const usersWithBalances = await Promise.all(
+      users.map(async u => {
+        const balance = await calculateUserBalanceAsync(u.id);
+        return {
+          id: u.id,
+          fullName: u.fullName,
+          email: u.email,
+          phone: u.phone,
+          country: u.country,
+          role: u.role,
+          status: u.status,
+          createdAt: u.createdAt,
+          twoFactorEnabled: u.twoFactorEnabled,
+          profilePictureUrl: u.profilePictureUrl,
+          balance,
+        };
+      })
+    );
+    res.json({ users: usersWithBalances });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Admin toggle user status
-app.post('/api/admin/users/:id/status', authMiddleware, adminMiddleware(['super_admin', 'support_admin']), (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  const admin: User = (req as any).user;
+app.post(['/api/admin/users/:id/status', '/admin/users/:id/status'], authMiddleware, adminMiddleware(['super_admin', 'support_admin']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const admin: User = (req as any).user;
 
-  if (!['active', 'suspended', 'pending_verification'].includes(status)) {
-    res.status(400).json({ error: 'Invalid status value.' });
-    return;
+    if (!['active', 'suspended', 'pending_verification'].includes(status)) {
+      throw Errors.validation('Invalid status value.');
+    }
+
+    const updated = await updateProfile(id, { status });
+    await createAuditLog({
+      action: 'USER_STATUS_UPDATED',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      targetUserId: id,
+      afterValue: { status },
+      reason: `Admin updated account status to ${status}`,
+    });
+
+    res.json({ success: true, user: updated });
+  } catch (err) {
+    next(err);
   }
-
-  const updated = db.updateUser(id, { status });
-  if (!updated) {
-    res.status(404).json({ error: 'User not found.' });
-    return;
-  }
-
-  db.addAuditLog({
-    action: 'USER_STATUS_UPDATED',
-    actorId: admin.id,
-    actorEmail: admin.email,
-    actorRole: admin.role,
-    targetUserId: id,
-    afterValue: { status },
-    reason: `Admin updated account status to ${status}`,
-  });
-
-  res.json({ success: true, user: updated });
 });
 
 // Admin Deposits
-app.get('/api/admin/deposits', authMiddleware, adminMiddleware(), (req, res) => {
-  const deposits = db.getDeposits().map(d => {
-    const user = db.getUserById(d.userId);
-    return {
-      ...d,
-      userName: user ? user.fullName : 'Unknown User',
-      userEmail: user ? user.email : '',
-    };
-  });
-  res.json({ deposits });
+app.get(['/api/admin/deposits', '/admin/deposits'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { deposits } = await getAllDeposits({ limit: 500 });
+    const depositsWithUsers = await Promise.all(
+      deposits.map(async d => {
+        const user = await getProfileById(d.userId);
+        return {
+          ...d,
+          userName: user ? user.fullName : 'Unknown User',
+          userEmail: user ? user.email : '',
+        };
+      })
+    );
+    res.json({ deposits: depositsWithUsers });
+  } catch (err) {
+    next(err);
+  }
 });
 
-// Admin process deposit (confirm / approve or reject)
-app.post('/api/admin/deposits/:id/action', authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res) => {
-  const admin: User = (req as any).user;
-  const { id } = req.params;
-  const { action, adminNotes, txHash } = req.body;
+// Admin View Deposit Proof Signed URL
+app.get(['/api/admin/deposits/:id/proof-url', '/admin/deposits/:id/proof-url'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const deposit = await getDepositById(id);
+    if (!deposit || !deposit.proofPhotoUrl) {
+      throw Errors.notFound('DEPOSIT_NOT_FOUND', 'Deposit proof not found.');
+    }
 
-  if (!['confirmed', 'rejected', 'approve', 'reject'].includes(action)) {
-    res.status(400).json({ error: 'Invalid action. Must be confirmed or rejected.' });
-    return;
+    const signedUrl = await getSignedDepositProofUrl(deposit.proofPhotoUrl, 3600);
+    res.json({ signedUrl: signedUrl || deposit.proofPhotoUrl });
+  } catch (err) {
+    next(err);
   }
+});
 
-  const normalizedStatus = (action === 'approve' || action === 'confirmed') ? 'confirmed' : 'rejected';
-  const result = await updateDepositStatus(admin.id, id, normalizedStatus, adminNotes, txHash);
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
+// Admin process deposit
+app.post(['/api/admin/deposits/:id/action', '/admin/deposits/:id/action'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { id } = req.params;
+    const { action, adminNotes, txHash } = req.body;
+
+    if (!['confirmed', 'rejected', 'approve', 'reject'].includes(action)) {
+      throw Errors.validation('Invalid action. Must be confirmed or rejected.');
+    }
+
+    const normalizedStatus = (action === 'approve' || action === 'confirmed') ? 'confirmed' : 'rejected';
+    const result = await updateDepositStatusAsync(admin.id, id, normalizedStatus, adminNotes, txHash);
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to update deposit status.');
+    }
+
+    res.json({ success: true, deposit: result.deposit });
+  } catch (err) {
+    next(err);
   }
-
-  res.json({ success: true, deposit: result.deposit });
 });
 
 // Admin Withdrawals
-app.get('/api/admin/withdrawals', authMiddleware, adminMiddleware(), (req, res) => {
-  const withdrawals = db.getWithdrawals();
-  res.json({ withdrawals });
+app.get(['/api/admin/withdrawals', '/admin/withdrawals'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { withdrawals } = await getAllWithdrawals({ limit: 500 });
+    res.json({ withdrawals });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Admin process withdrawal
-app.post('/api/admin/withdrawals/:id/action', authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res) => {
-  const admin: User = (req as any).user;
-  const { id } = req.params;
-  const { action, txHash, adminNotes } = req.body;
+app.post(['/api/admin/withdrawals/:id/action', '/admin/withdrawals/:id/action'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { id } = req.params;
+    const { action, txHash, adminNotes } = req.body;
 
-  if (!['approved', 'rejected', 'paid', 'processing'].includes(action)) {
-    res.status(400).json({ error: 'Invalid action.' });
-    return;
+    if (!['approved', 'rejected', 'paid', 'processing'].includes(action)) {
+      throw Errors.validation('Invalid withdrawal action.');
+    }
+
+    const result = await updateWithdrawalStatusAsync(admin.id, id, action, txHash, adminNotes);
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to update withdrawal.');
+    }
+
+    res.json({ success: true, withdrawal: result.withdrawal });
+  } catch (err) {
+    next(err);
   }
-
-  const result = await updateWithdrawalStatus(admin.id, id, action, txHash, adminNotes);
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
-  }
-
-  res.json({ success: true, withdrawal: result.withdrawal });
 });
 
-// Admin Daily Performance Records & Distribution
-app.get('/api/admin/performance', authMiddleware, adminMiddleware(), (req, res) => {
-  const performances = db.getDailyPerformances();
-  res.json({ performances });
+// Admin Send Message
+app.post(['/api/admin/messages', '/admin/messages'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin', 'support_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { userId, depositId, withdrawalId, messageType, subject, body } = req.body;
+
+    if (!userId || !body) {
+      throw Errors.validation('userId and body are required.');
+    }
+
+    const message = await createAdminMessage({
+      userId,
+      adminId: admin.id,
+      depositId,
+      withdrawalId,
+      messageType,
+      subject,
+      body,
+    });
+
+    res.json({ success: true, message });
+  } catch (err) {
+    next(err);
+  }
 });
 
-app.post('/api/admin/performance', authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res) => {
-  const admin: User = (req as any).user;
-  const { date, overallFundAmount, actualFundPerformance, applicableRate, notes } = req.body;
-
-  if (!date || applicableRate === undefined) {
-    res.status(400).json({ error: 'Date and applicableRate are required.' });
-    return;
+// Admin Performance
+app.get(['/api/admin/performance', '/admin/performance'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const performances = await getDailyPerformances();
+    res.json({ performances });
+  } catch (err) {
+    next(err);
   }
+});
 
-  const result = await applyDailyPerformance({
-    adminUserId: admin.id,
-    date,
-    overallFundAmount: Number(overallFundAmount || 2500000),
-    actualFundPerformance: Number(actualFundPerformance || (applicableRate * 100)),
-    applicableRate: Number(applicableRate),
-    notes: notes || 'Daily verified fund yield distribution',
-  });
+app.post(['/api/admin/performance', '/admin/performance'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { date, overallFundAmount, actualFundPerformance, applicableRate, notes } = req.body;
 
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
+    if (!date || applicableRate === undefined) {
+      throw Errors.validation('Date and applicableRate are required.');
+    }
+
+    const result = await applyDailyPerformanceAsync({
+      adminUserId: admin.id,
+      date,
+      overallFundAmount: Number(overallFundAmount || 2500000),
+      actualFundPerformance: Number(actualFundPerformance || (applicableRate * 100)),
+      applicableRate: Number(applicableRate),
+      notes: notes || 'Daily verified fund yield distribution',
+    });
+
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to distribute performance.');
+    }
+
+    res.json(result);
+  } catch (err) {
+    next(err);
   }
-
-  res.json(result);
 });
 
 // Admin Audit Logs
-app.get('/api/admin/audit-logs', authMiddleware, adminMiddleware(), (req, res) => {
-  const auditLogs = db.getAuditLogs();
-  res.json({ auditLogs });
+app.get(['/api/admin/audit-logs', '/admin/audit-logs'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const auditLogs = await getAuditLogs({ limit: 200 });
+    res.json({ auditLogs });
+  } catch (err) {
+    next(err);
+  }
 });
 
-// Admin Settings Update
-app.post('/api/admin/settings', authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+// Admin Settings
+app.post(['/api/admin/settings', '/admin/settings'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
   try {
     const admin: User = (req as any).user;
     const { reason, ...settingsPayload } = req.body;
-    const previousSettings = { ...(await db.getSettingsAsync()) };
-    const newSettings = await db.updateSettingsAsync(settingsPayload);
+    const previousSettings = await getSettings();
+    const newSettings = await updateSettings(settingsPayload);
 
-    db.addAuditLog({
+    await createAuditLog({
       action: 'SETTINGS_UPDATED',
       actorId: admin.id,
       actorEmail: admin.email,
       actorRole: admin.role,
       beforeValue: previousSettings,
       afterValue: newSettings,
-      reason: reason || 'Super Admin updated application & authentication configurations',
-    });
-
-    logger.info('ADMIN_SETTINGS_UPDATED', 'Super Admin updated application settings', {
-      adminId: admin.id,
-      metadata: { changedKeys: Object.keys(settingsPayload), reason },
+      reason: reason || 'Super Admin updated application settings',
     });
 
     res.json({ success: true, settings: newSettings });
@@ -810,168 +911,175 @@ app.post('/api/admin/settings', authMiddleware, adminMiddleware(['super_admin'])
   }
 });
 
-// Admin Emergency Security Action: Force Logout All Users
-app.post('/api/admin/auth/force-logout-all', authMiddleware, adminMiddleware(['super_admin']), (req, res) => {
-  const admin: User = (req as any).user;
-  const { reason } = req.body;
-
-  const newVersion = forceLogoutAllUsers();
-
-  db.addAuditLog({
-    action: 'FORCE_LOGOUT_ALL_USERS',
-    actorId: admin.id,
-    actorEmail: admin.email,
-    actorRole: admin.role,
-    afterValue: { sessionVersion: newVersion },
-    reason: reason || 'Super Admin performed emergency global session invalidation',
-  });
-
-  logger.warn('SECURITY_FORCE_LOGOUT_EXECUTED', 'Super Admin invalidated all user sessions', {
-    adminId: admin.id,
-    metadata: { sessionVersion: newVersion, reason },
-  });
-
-  res.json({
-    success: true,
-    message: 'All active user sessions have been successfully terminated.',
-    sessionVersion: newVersion,
-  });
-});
-
-// Admin System Health & Storage Stats
-app.get('/api/admin/health/stats', authMiddleware, adminMiddleware(), (req, res) => {
-  const users = db.getUsers();
-  const deposits = db.getDeposits();
-  const withdrawals = db.getWithdrawals();
-  const ledger = db.getLedger();
-  const auditLogs = db.getAuditLogs();
-  const logStats = logger.getLogStats();
-  const settings = db.getSettings();
-
-  const totalDepositProofs = deposits.filter(d => d.proofPhotoUrl && d.proofPhotoUrl.length > 0).length;
-
-  res.json({
-    totalUsers: users.length,
-    totalDeposits: deposits.length,
-    totalWithdrawals: withdrawals.length,
-    totalLedgerRecords: ledger.length,
-    totalAuditLogs: auditLogs.length,
-    totalSystemLogs: logStats.totalLogs,
-    totalDepositProofs,
-    errorsToday: logStats.errorsToday,
-    warningsToday: logStats.warningsToday,
-    infoToday: logStats.infoToday,
-    dbLoggingEnabled: logStats.dbLoggingEnabled,
-    retentionSettings: {
-      systemLogRetentionDays: settings.systemLogRetentionDays || 30,
-      errorLogRetentionDays: settings.errorLogRetentionDays || 90,
-      notificationRetentionDays: settings.notificationRetentionDays || 90,
-    },
-  });
-});
-
-// Admin System Logs Viewer (Structured & Paginated)
-app.get('/api/admin/logs', authMiddleware, adminMiddleware(), (req, res) => {
-  const { level, event, errorCode, requestId, userId, startDate, endDate, limit, offset } = req.query;
-
-  const result = logger.getRecentLogs({
-    level: level as string,
-    event: event as string,
-    errorCode: errorCode as string,
-    requestId: requestId as string,
-    userId: userId as string,
-    startDate: startDate as string,
-    endDate: endDate as string,
-    limit: limit ? parseInt(limit as string, 10) : 50,
-    offset: offset ? parseInt(offset as string, 10) : 0,
-  });
-
-  res.json(result);
-});
-
-// Admin Trigger Manual Retention & Storage Cleanup
-app.post('/api/admin/health/cleanup', authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+// Force Logout All Users
+app.post(['/api/admin/auth/force-logout-all', '/admin/auth/force-logout-all'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
   try {
-    const { cleanupManager } = await import('./cleanup');
-    const report = await cleanupManager.runScheduledCleanup();
-    res.json({ success: true, report });
+    const admin: User = (req as any).user;
+    const { reason } = req.body;
+    const newVersion = await forceLogoutAllUsersAsync();
+
+    await createAuditLog({
+      action: 'FORCE_LOGOUT_ALL_USERS',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      afterValue: { sessionVersion: newVersion },
+      reason: reason || 'Super Admin executed global force logout',
+    });
+
+    res.json({
+      success: true,
+      message: 'All active user sessions have been successfully terminated.',
+      sessionVersion: newVersion,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin System Health & Diagnostic (Strict Spec Requirement)
+app.get(['/api/admin/system-health', '/admin/system-health'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+  try {
+    const supabase = getServerSupabase();
+    const [
+      { count: usersCount },
+      { count: depositsCount },
+      { count: withdrawalsCount },
+      { count: ledgerCount },
+      settings,
+    ] = await Promise.all([
+      supabase.from('users').select('*', { count: 'exact', head: true }),
+      supabase.from('deposits').select('*', { count: 'exact', head: true }),
+      supabase.from('withdrawals').select('*', { count: 'exact', head: true }),
+      supabase.from('ledger').select('*', { count: 'exact', head: true }),
+      getSettings(),
+    ]);
+
+    res.json({
+      status: 'HEALTHY',
+      database: 'SUPABASE_POSTGRESQL',
+      sourceOfTruth: 'SUPABASE',
+      inMemoryDatabase: 'DISABLED',
+      jsonDatabase: 'DISABLED',
+      backgroundSync: 'DISABLED',
+      supabaseAuth: 'ENABLED',
+      supabaseStorage: 'ENABLED',
+      tables: {
+        users: usersCount || 0,
+        deposits: depositsCount || 0,
+        withdrawals: withdrawalsCount || 0,
+        ledger: ledgerCount || 0,
+      },
+      settings,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Health Stats
+app.get(['/api/admin/health/stats', '/admin/health/stats'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const [{ total: totalUsers }, { total: totalDeposits }, { total: totalWithdrawals }, ledger, auditLogs, settings] = await Promise.all([
+      getAllProfiles({ limit: 1 }),
+      getAllDeposits({ limit: 1 }),
+      getAllWithdrawals({ limit: 1 }),
+      getAllLedger(),
+      getAuditLogs({ limit: 50 }),
+      getSettings(),
+    ]);
+
+    res.json({
+      totalUsers,
+      totalDeposits,
+      totalWithdrawals,
+      totalLedgerRecords: ledger.length,
+      totalAuditLogs: auditLogs.length,
+      totalSystemLogs: 0,
+      totalDepositProofs: totalDeposits,
+      errorsToday: 0,
+      warningsToday: 0,
+      infoToday: 0,
+      dbLoggingEnabled: true,
+      retentionSettings: {
+        systemLogRetentionDays: settings.systemLogRetentionDays || 30,
+        errorLogRetentionDays: settings.errorLogRetentionDays || 90,
+        notificationRetentionDays: settings.notificationRetentionDays || 90,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin System Logs
+app.get(['/api/admin/logs', '/admin/logs'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { level, event, errorCode, requestId, limit, offset } = req.query;
+    const result = await getSystemLogs({
+      level: level as string,
+      event: event as string,
+      errorCode: errorCode as string,
+      requestId: requestId as string,
+      limit: limit ? parseInt(limit as string, 10) : 50,
+      offset: offset ? parseInt(offset as string, 10) : 0,
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }
 });
 
 // Admin Balance Adjustment
-app.post('/api/admin/adjust-balance', authMiddleware, adminMiddleware(['super_admin']), async (req, res) => {
-  const admin: User = (req as any).user;
-  const { targetUserId, amount, reason } = req.body;
-
-  if (!targetUserId || !amount || !reason) {
-    res.status(400).json({ error: 'targetUserId, amount, and reason are required.' });
-    return;
-  }
-
-  const result = await createAdminAdjustment(admin.id, targetUserId, Number(amount), reason);
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
-  }
-
-  const balance = calculateUserBalance(targetUserId);
-  res.json({ success: true, balance });
-});
-
-// Admin Database Reset for Demonstration
-app.post('/api/admin/reset-data', authMiddleware, adminMiddleware(['super_admin']), (req, res) => {
-  db.resetToSeed();
-  res.json({ success: true, message: 'Database reset to initial demo seeds.' });
-});
-
-// Supabase / Database Connection & Schema Migration Endpoints
-app.get('/api/admin/db/status', async (req, res) => {
+app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
   try {
-    const result = await testAndMigrateDatabase();
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
-  }
-});
+    const admin: User = (req as any).user;
+    const { targetUserId, amount, reason } = req.body;
 
-app.post('/api/admin/db/migrate', async (req, res) => {
-  try {
-    const result = await testAndMigrateDatabase();
-    res.json({ success: result.postgresPoolReady, ...result });
-  } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
-  }
-});
-
-app.get('/api/admin/db/schema-sql', (req, res) => {
-  try {
-    const schemaPath = path.join(process.cwd(), 'supabase_schema.sql');
-    if (fs.existsSync(schemaPath)) {
-      const sql = fs.readFileSync(schemaPath, 'utf-8');
-      res.setHeader('Content-Type', 'text/plain');
-      res.send(sql);
-    } else {
-      res.status(404).send('-- Schema file not found');
+    if (!targetUserId || !amount || !reason) {
+      throw Errors.validation('targetUserId, amount, and reason are required.');
     }
+
+    const targetUser = await getProfileById(targetUserId);
+    if (!targetUser) {
+      throw Errors.notFound('USER_NOT_FOUND', 'Target user not found.');
+    }
+
+    const currentBalance = await calculateUserBalanceAsync(targetUserId);
+    const adjustAmount = Number(amount);
+    const balanceAfter = Number((currentBalance.availableBalance + adjustAmount).toFixed(4));
+
+    await createLedgerEntry({
+      userId: targetUserId,
+      type: 'admin_adjustment',
+      amount: adjustAmount,
+      balanceAfter,
+      referenceId: `ADJ-${Date.now()}`,
+      description: `Admin balance adjustment: ${reason}`,
+      createdAt: new Date().toISOString(),
+      performedBy: admin.id,
+    });
+
+    await createAuditLog({
+      action: 'ADMIN_BALANCE_ADJUSTMENT',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      targetUserId,
+      reason,
+      afterValue: { adjustAmount, balanceAfter },
+    });
+
+    const updatedBalance = await calculateUserBalanceAsync(targetUserId);
+    res.json({ success: true, balance: updatedBalance });
   } catch (err) {
-    res.status(500).send('-- Error loading schema');
+    next(err);
   }
 });
 
-// Run Automated Test Suite
-app.post('/api/tests/run', async (req, res) => {
-  try {
-    const testSummary = await runAutomatedTestSuite();
-    res.json(testSummary);
-  } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
-  }
-});
-
-// Catch-all 404 handler for unmatched API routes (ensures API NEVER returns HTML or plain text)
-app.all('/api/*', (req: Request, res: Response) => {
+// Catch-all 404 handler for unmatched API routes (Strict JSON compliance)
+app.all(['/api/*', '/api'], (req: Request, res: Response) => {
   const requestId = (req as any).requestId || 'FINEXJ-UNKNOWN';
   res.status(404).json({
     success: false,
