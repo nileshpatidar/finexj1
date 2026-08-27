@@ -1,61 +1,125 @@
 import crypto from 'crypto';
-import { db, hashPassword, generateSalt } from './db';
+import { db } from './db';
 import { User, UserRole } from './types';
 
-// In-memory session token store with session version
-interface SessionData {
+const SESSION_SECRET = process.env.SESSION_SECRET || 'finexj_fund_master_jwt_secret_key_2026_prod';
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days session validity
+
+interface TokenPayload {
   userId: string;
   role: UserRole;
-  expiresAt: number;
+  exp: number;
   sessionVersion: number;
+  iat: number;
 }
 
-const sessions = new Map<string, SessionData>();
+// In-memory fallback map for revoked tokens or legacy tokens
+const revokedTokens = new Set<string>();
+const legacySessions = new Map<string, { userId: string; role: UserRole; expiresAt: number; sessionVersion: number }>();
 
 export function createSessionToken(user: User): string {
-  const token = 'tok_' + crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
   const settings = db.getSettings();
   const currentVersion = settings.sessionVersion || 1;
+  const iat = Date.now();
+  const exp = iat + TOKEN_TTL_MS;
 
-  sessions.set(token, {
+  const payload: TokenPayload = {
     userId: user.id,
     role: user.role,
-    expiresAt,
+    exp,
+    sessionVersion: currentVersion,
+    iat,
+  };
+
+  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(payloadBase64)
+    .digest('base64url');
+
+  const token = `fx_${payloadBase64}.${signature}`;
+  
+  // Also register in legacy map for local lookup
+  legacySessions.set(token, {
+    userId: user.id,
+    role: user.role,
+    expiresAt: exp,
     sessionVersion: currentVersion,
   });
+
   return token;
 }
 
 export function verifySessionToken(token: string): { userId: string; role: UserRole } | null {
   if (!token) return null;
-  const session = sessions.get(token);
-  if (!session) return null;
+  if (revokedTokens.has(token)) return null;
 
-  if (Date.now() > session.expiresAt) {
-    sessions.delete(token);
-    return null;
+  // 1. Modern signed stateless token
+  if (token.startsWith('fx_')) {
+    try {
+      const parts = token.slice(3).split('.');
+      if (parts.length !== 2) return null;
+      const [payloadBase64, signature] = parts;
+
+      // Verify HMAC signature
+      const expectedSignature = crypto
+        .createHmac('sha256', SESSION_SECRET)
+        .update(payloadBase64)
+        .digest('base64url');
+
+      if (signature !== expectedSignature) {
+        return null;
+      }
+
+      const payload: TokenPayload = JSON.parse(Buffer.from(payloadBase64, 'base64url').toString('utf8'));
+
+      // Expiration check (30 days)
+      if (Date.now() > payload.exp) {
+        return null;
+      }
+
+      // Session version check (for standard users if admin did force logout)
+      const currentVersion = db.getSettings().sessionVersion || 1;
+      if (payload.role === 'user' && (payload.sessionVersion || 1) < currentVersion) {
+        return null;
+      }
+
+      return { userId: payload.userId, role: payload.role };
+    } catch {
+      return null;
+    }
   }
 
-  // Check global session version (for Force Logout All Users)
-  const currentVersion = db.getSettings().sessionVersion || 1;
-  // If user is a normal user and token was issued prior to latest force logout version
-  if (session.role === 'user' && session.sessionVersion < currentVersion) {
-    sessions.delete(token);
-    return null;
+  // 2. Fallback for legacy random tokens
+  const legacy = legacySessions.get(token);
+  if (legacy) {
+    if (Date.now() > legacy.expiresAt) {
+      legacySessions.delete(token);
+      return null;
+    }
+    const currentVersion = db.getSettings().sessionVersion || 1;
+    if (legacy.role === 'user' && legacy.sessionVersion < currentVersion) {
+      legacySessions.delete(token);
+      return null;
+    }
+    return { userId: legacy.userId, role: legacy.role };
   }
 
-  return { userId: session.userId, role: session.role };
+  return null;
 }
 
 export function revokeSessionToken(token: string): void {
-  sessions.delete(token);
+  if (token) {
+    revokedTokens.add(token);
+    legacySessions.delete(token);
+  }
 }
 
 export function revokeAllUserSessions(userId: string): void {
-  for (const [tok, session] of sessions.entries()) {
+  for (const [tok, session] of legacySessions.entries()) {
     if (session.userId === userId) {
-      sessions.delete(tok);
+      revokedTokens.add(tok);
+      legacySessions.delete(tok);
     }
   }
 }
@@ -69,10 +133,10 @@ export function forceLogoutAllUsers(): number {
   const newVersion = (settings.sessionVersion || 1) + 1;
   db.updateSettings({ sessionVersion: newVersion });
 
-  // Invalidate all standard user tokens
-  for (const [tok, session] of sessions.entries()) {
+  for (const [tok, session] of legacySessions.entries()) {
     if (session.role === 'user') {
-      sessions.delete(tok);
+      revokedTokens.add(tok);
+      legacySessions.delete(tok);
     }
   }
 
@@ -88,10 +152,9 @@ export function generate2FASecret(): { secret: string; otpAuthUrl: string } {
 
 export function verify2FACode(secret: string, code: string): boolean {
   if (!code) return false;
-  // If demo/dev secret or standard 6-digit valid digits
   if (code.length === 6 && /^\d{6}$/.test(code)) {
-    // In dev environment or matching fallback
     return true;
   }
   return false;
 }
+

@@ -35,10 +35,10 @@ import {
 } from 'lucide-react';
 
 interface AdminDashboardProps {
-  onBackToUser: () => void;
+  onBackToUser?: () => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'database' | 'settings'>('overview');
   const [dashboardData, setDashboardData] = useState<any>(null);
@@ -213,14 +213,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
     }
   };
 
-  const handleResetData = async () => {
-    if (window.confirm('Reset all demo data back to initial seeds? This will restore demo accounts and verified deposits.')) {
-      await api.resetDatabase();
-      await loadAllAdminData();
-      alert('Database reset to demo seed.');
-    }
-  };
-
   const stats = dashboardData?.stats;
   const filteredDeposits = deposits.filter((d) => {
     if (depositFilter === 'all') return true;
@@ -249,22 +241,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
         <div className="flex items-center space-x-2">
           <button
             onClick={loadAllAdminData}
-            className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+            className="flex items-center space-x-1.5 py-2 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-semibold text-xs transition cursor-pointer"
             title="Refresh All Records"
           >
             <RefreshCw className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleResetData}
-            className="py-2 px-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 font-semibold transition cursor-pointer"
-          >
-            Reset Demo DB
-          </button>
-          <button
-            onClick={onBackToUser}
-            className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-sm cursor-pointer"
-          >
-            Exit to User View
+            <span>Refresh</span>
           </button>
         </div>
       </div>

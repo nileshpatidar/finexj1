@@ -324,6 +324,39 @@ class Database {
     return this.data.users.find(u => u.id === id);
   }
 
+  public async getUserByIdAsync(id: string): Promise<User | undefined> {
+    const local = this.getUserById(id);
+    if (local) return local;
+
+    if (isServerSupabaseReady()) {
+      try {
+        const supabase = getServerSupabase();
+        const { data: u } = await supabase.from('users').select('*').eq('id', id).single();
+        if (u) {
+          const mappedUser: User = {
+            id: String(u.id),
+            fullName: u.full_name || u.fullName || 'User',
+            email: u.email,
+            phone: u.phone || '',
+            country: u.country || 'India',
+            passwordHash: u.password_hash || u.passwordHash,
+            passwordSalt: u.salt || u.passwordSalt,
+            role: u.role || 'user',
+            status: u.is_locked ? 'suspended' : 'active',
+            createdAt: u.created_at || new Date().toISOString(),
+            twoFactorEnabled: Boolean(u.two_factor_enabled),
+            loginAttempts: 0,
+          };
+          this.data.users.push(mappedUser);
+          return mappedUser;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    return undefined;
+  }
+
   public getUserByEmail(email: string): User | undefined {
     const target = email.toLowerCase().trim();
     const alias = target.endsWith('@finexj.com')
@@ -336,6 +369,40 @@ class Database {
       const uEmail = u.email.toLowerCase();
       return uEmail === target || uEmail === alias;
     });
+  }
+
+  public async getUserByEmailAsync(email: string): Promise<User | undefined> {
+    const local = this.getUserByEmail(email);
+    if (local) return local;
+
+    if (isServerSupabaseReady()) {
+      try {
+        const supabase = getServerSupabase();
+        const target = email.toLowerCase().trim();
+        const { data: u } = await supabase.from('users').select('*').ilike('email', target).single();
+        if (u) {
+          const mappedUser: User = {
+            id: String(u.id),
+            fullName: u.full_name || u.fullName || 'User',
+            email: u.email,
+            phone: u.phone || '',
+            country: u.country || 'India',
+            passwordHash: u.password_hash || u.passwordHash,
+            passwordSalt: u.salt || u.passwordSalt,
+            role: u.role || 'user',
+            status: u.is_locked ? 'suspended' : 'active',
+            createdAt: u.created_at || new Date().toISOString(),
+            twoFactorEnabled: Boolean(u.two_factor_enabled),
+            loginAttempts: 0,
+          };
+          this.data.users.push(mappedUser);
+          return mappedUser;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    return undefined;
   }
 
   public addUser(user: User): void {

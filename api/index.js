@@ -318,6 +318,36 @@ var init_db = __esm({
       getUserById(id) {
         return this.data.users.find((u) => u.id === id);
       }
+      async getUserByIdAsync(id) {
+        const local = this.getUserById(id);
+        if (local) return local;
+        if (isServerSupabaseReady()) {
+          try {
+            const supabase = getServerSupabase();
+            const { data: u } = await supabase.from("users").select("*").eq("id", id).single();
+            if (u) {
+              const mappedUser = {
+                id: String(u.id),
+                fullName: u.full_name || u.fullName || "User",
+                email: u.email,
+                phone: u.phone || "",
+                country: u.country || "India",
+                passwordHash: u.password_hash || u.passwordHash,
+                passwordSalt: u.salt || u.passwordSalt,
+                role: u.role || "user",
+                status: u.is_locked ? "suspended" : "active",
+                createdAt: u.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+                twoFactorEnabled: Boolean(u.two_factor_enabled),
+                loginAttempts: 0
+              };
+              this.data.users.push(mappedUser);
+              return mappedUser;
+            }
+          } catch {
+          }
+        }
+        return void 0;
+      }
       getUserByEmail(email) {
         const target = email.toLowerCase().trim();
         const alias = target.endsWith("@finexj.com") ? target.replace("@finexj.com", "@usdtfund.com") : target.endsWith("@usdtfund.com") ? target.replace("@usdtfund.com", "@finexj.com") : target;
@@ -325,6 +355,37 @@ var init_db = __esm({
           const uEmail = u.email.toLowerCase();
           return uEmail === target || uEmail === alias;
         });
+      }
+      async getUserByEmailAsync(email) {
+        const local = this.getUserByEmail(email);
+        if (local) return local;
+        if (isServerSupabaseReady()) {
+          try {
+            const supabase = getServerSupabase();
+            const target = email.toLowerCase().trim();
+            const { data: u } = await supabase.from("users").select("*").ilike("email", target).single();
+            if (u) {
+              const mappedUser = {
+                id: String(u.id),
+                fullName: u.full_name || u.fullName || "User",
+                email: u.email,
+                phone: u.phone || "",
+                country: u.country || "India",
+                passwordHash: u.password_hash || u.passwordHash,
+                passwordSalt: u.salt || u.passwordSalt,
+                role: u.role || "user",
+                status: u.is_locked ? "suspended" : "active",
+                createdAt: u.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+                twoFactorEnabled: Boolean(u.two_factor_enabled),
+                loginAttempts: 0
+              };
+              this.data.users.push(mappedUser);
+              return mappedUser;
+            }
+          } catch {
+          }
+        }
+        return void 0;
       }
       addUser(user) {
         this.data.users.push(user);
@@ -802,42 +863,84 @@ import fs2 from "fs";
 // server/auth.ts
 init_db();
 import crypto2 from "crypto";
-var sessions = /* @__PURE__ */ new Map();
+var SESSION_SECRET = process.env.SESSION_SECRET || "finexj_fund_master_jwt_secret_key_2026_prod";
+var TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
+var revokedTokens = /* @__PURE__ */ new Set();
+var legacySessions = /* @__PURE__ */ new Map();
 function createSessionToken(user) {
-  const token = "tok_" + crypto2.randomBytes(32).toString("hex");
-  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1e3;
   const settings = db.getSettings();
   const currentVersion = settings.sessionVersion || 1;
-  sessions.set(token, {
+  const iat = Date.now();
+  const exp = iat + TOKEN_TTL_MS;
+  const payload = {
     userId: user.id,
     role: user.role,
-    expiresAt,
+    exp,
+    sessionVersion: currentVersion,
+    iat
+  };
+  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto2.createHmac("sha256", SESSION_SECRET).update(payloadBase64).digest("base64url");
+  const token = `fx_${payloadBase64}.${signature}`;
+  legacySessions.set(token, {
+    userId: user.id,
+    role: user.role,
+    expiresAt: exp,
     sessionVersion: currentVersion
   });
   return token;
 }
 function verifySessionToken(token) {
   if (!token) return null;
-  const session = sessions.get(token);
-  if (!session) return null;
-  if (Date.now() > session.expiresAt) {
-    sessions.delete(token);
-    return null;
+  if (revokedTokens.has(token)) return null;
+  if (token.startsWith("fx_")) {
+    try {
+      const parts = token.slice(3).split(".");
+      if (parts.length !== 2) return null;
+      const [payloadBase64, signature] = parts;
+      const expectedSignature = crypto2.createHmac("sha256", SESSION_SECRET).update(payloadBase64).digest("base64url");
+      if (signature !== expectedSignature) {
+        return null;
+      }
+      const payload = JSON.parse(Buffer.from(payloadBase64, "base64url").toString("utf8"));
+      if (Date.now() > payload.exp) {
+        return null;
+      }
+      const currentVersion = db.getSettings().sessionVersion || 1;
+      if (payload.role === "user" && (payload.sessionVersion || 1) < currentVersion) {
+        return null;
+      }
+      return { userId: payload.userId, role: payload.role };
+    } catch {
+      return null;
+    }
   }
-  const currentVersion = db.getSettings().sessionVersion || 1;
-  if (session.role === "user" && session.sessionVersion < currentVersion) {
-    sessions.delete(token);
-    return null;
+  const legacy = legacySessions.get(token);
+  if (legacy) {
+    if (Date.now() > legacy.expiresAt) {
+      legacySessions.delete(token);
+      return null;
+    }
+    const currentVersion = db.getSettings().sessionVersion || 1;
+    if (legacy.role === "user" && legacy.sessionVersion < currentVersion) {
+      legacySessions.delete(token);
+      return null;
+    }
+    return { userId: legacy.userId, role: legacy.role };
   }
-  return { userId: session.userId, role: session.role };
+  return null;
 }
 function revokeSessionToken(token) {
-  sessions.delete(token);
+  if (token) {
+    revokedTokens.add(token);
+    legacySessions.delete(token);
+  }
 }
 function revokeAllUserSessions(userId) {
-  for (const [tok, session] of sessions.entries()) {
+  for (const [tok, session] of legacySessions.entries()) {
     if (session.userId === userId) {
-      sessions.delete(tok);
+      revokedTokens.add(tok);
+      legacySessions.delete(tok);
     }
   }
 }
@@ -845,9 +948,10 @@ function forceLogoutAllUsers() {
   const settings = db.getSettings();
   const newVersion = (settings.sessionVersion || 1) + 1;
   db.updateSettings({ sessionVersion: newVersion });
-  for (const [tok, session] of sessions.entries()) {
+  for (const [tok, session] of legacySessions.entries()) {
     if (session.role === "user") {
-      sessions.delete(tok);
+      revokedTokens.add(tok);
+      legacySessions.delete(tok);
     }
   }
   return newVersion;
@@ -2341,27 +2445,31 @@ app.use((req, res, next) => {
 });
 var authRateLimiter = createRateLimiter({ windowMs: 60 * 1e3, maxRequests: 20, keyPrefix: "auth" });
 var financialRateLimiter = createRateLimiter({ windowMs: 60 * 1e3, maxRequests: 30, keyPrefix: "fin" });
-function authMiddleware(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return next(Errors.unauthorized("Authentication required. Please login."));
+async function authMiddleware(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return next(Errors.unauthorized("Authentication required. Please login."));
+    }
+    const token = authHeader.split(" ")[1];
+    const session = verifySessionToken(token);
+    if (!session) {
+      return next(Errors.unauthorized("Session expired or invalidated. Please login again."));
+    }
+    const user = await db.getUserByIdAsync(session.userId) || db.getUserById(session.userId);
+    if (!user) {
+      return next(Errors.notFound("USER_NOT_FOUND", "User not found."));
+    }
+    const settings = await db.getSettingsAsync();
+    if (settings.maintenanceMode && user.role === "user") {
+      return next(Errors.maintenanceMode("FINEXJ is temporarily under maintenance. Please try again later."));
+    }
+    req.user = user;
+    req.token = token;
+    next();
+  } catch (err) {
+    next(err);
   }
-  const token = authHeader.split(" ")[1];
-  const session = verifySessionToken(token);
-  if (!session) {
-    return next(Errors.unauthorized("Session expired or invalidated. Please login again."));
-  }
-  const user = db.getUserById(session.userId);
-  if (!user) {
-    return next(Errors.notFound("USER_NOT_FOUND", "User not found."));
-  }
-  const settings = db.getSettings();
-  if (settings.maintenanceMode && user.role === "user") {
-    return next(Errors.maintenanceMode("FINEXJ is temporarily under maintenance. Please try again later."));
-  }
-  req.user = user;
-  req.token = token;
-  next();
 }
 function adminMiddleware(allowedRoles = ["super_admin", "finance_admin", "support_admin", "readonly_admin"]) {
   return (req, res, next) => {
@@ -2413,9 +2521,9 @@ app.get("/api/market/prices", async (req, res) => {
 app.get("/api/blockchain/mock-tx", (req, res) => {
   res.json({ txHash: generateMockTxHash(), network: "BEP-20", currency: "USDT" });
 });
-app.post("/api/auth/register", authRateLimiter, (req, res, next) => {
+app.post("/api/auth/register", authRateLimiter, async (req, res, next) => {
   try {
-    const settings = db.getSettings();
+    const settings = await db.getSettingsAsync();
     if (settings.registrationEnabled === false) {
       throw Errors.registrationDisabled("Registration is currently unavailable. Please try again later.");
     }
@@ -2429,7 +2537,7 @@ app.post("/api/auth/register", authRateLimiter, (req, res, next) => {
     if (password.length < 8) {
       throw Errors.validation("Password must be at least 8 characters with letters and numbers.");
     }
-    const existing = db.getUserByEmail(email);
+    const existing = await db.getUserByEmailAsync(email) || db.getUserByEmail(email);
     if (existing) {
       throw Errors.validation("An account with this email address already exists.");
     }
@@ -2481,17 +2589,17 @@ app.post("/api/auth/register", authRateLimiter, (req, res, next) => {
     next(err);
   }
 });
-app.post("/api/auth/login", authRateLimiter, (req, res, next) => {
+app.post("/api/auth/login", authRateLimiter, async (req, res, next) => {
   try {
     const { email, password, twoFactorCode } = req.body;
     if (!email || !password) {
       throw Errors.validation("Email and password are required.");
     }
-    const user = db.getUserByEmail(email);
+    const user = await db.getUserByEmailAsync(email) || db.getUserByEmail(email);
     if (!user) {
       throw Errors.invalidCredentials("Invalid email or password.");
     }
-    const settings = db.getSettings();
+    const settings = await db.getSettingsAsync();
     if (settings.loginEnabled === false && user.role === "user") {
       throw Errors.authDisabled("User login is temporarily unavailable. Please try again later.");
     }

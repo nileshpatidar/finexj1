@@ -54,32 +54,36 @@ const authRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 20
 const financialRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30, keyPrefix: 'fin' });
 
 // Helper: Extract Bearer token and authenticate user
-function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return next(Errors.unauthorized('Authentication required. Please login.'));
-  }
+async function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next(Errors.unauthorized('Authentication required. Please login.'));
+    }
 
-  const token = authHeader.split(' ')[1];
-  const session = verifySessionToken(token);
-  if (!session) {
-    return next(Errors.unauthorized('Session expired or invalidated. Please login again.'));
-  }
+    const token = authHeader.split(' ')[1];
+    const session = verifySessionToken(token);
+    if (!session) {
+      return next(Errors.unauthorized('Session expired or invalidated. Please login again.'));
+    }
 
-  const user = db.getUserById(session.userId);
-  if (!user) {
-    return next(Errors.notFound('USER_NOT_FOUND', 'User not found.'));
-  }
+    const user = (await db.getUserByIdAsync(session.userId)) || db.getUserById(session.userId);
+    if (!user) {
+      return next(Errors.notFound('USER_NOT_FOUND', 'User not found.'));
+    }
 
-  // Maintenance mode guard for non-admins
-  const settings = db.getSettings();
-  if (settings.maintenanceMode && user.role === 'user') {
-    return next(Errors.maintenanceMode('FINEXJ is temporarily under maintenance. Please try again later.'));
-  }
+    // Maintenance mode guard for non-admins
+    const settings = await db.getSettingsAsync();
+    if (settings.maintenanceMode && user.role === 'user') {
+      return next(Errors.maintenanceMode('FINEXJ is temporarily under maintenance. Please try again later.'));
+    }
 
-  (req as any).user = user;
-  (req as any).token = token;
-  next();
+    (req as any).user = user;
+    (req as any).token = token;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 // Helper: Admin role authorization middleware
@@ -147,9 +151,9 @@ app.get('/api/blockchain/mock-tx', (req, res) => {
 });
 
 // Registration
-app.post('/api/auth/register', authRateLimiter, (req, res, next) => {
+app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
   try {
-    const settings = db.getSettings();
+    const settings = await db.getSettingsAsync();
     if (settings.registrationEnabled === false) {
       throw Errors.registrationDisabled('Registration is currently unavailable. Please try again later.');
     }
@@ -168,7 +172,7 @@ app.post('/api/auth/register', authRateLimiter, (req, res, next) => {
       throw Errors.validation('Password must be at least 8 characters with letters and numbers.');
     }
 
-    const existing = db.getUserByEmail(email);
+    const existing = (await db.getUserByEmailAsync(email)) || db.getUserByEmail(email);
     if (existing) {
       throw Errors.validation('An account with this email address already exists.');
     }
@@ -227,7 +231,7 @@ app.post('/api/auth/register', authRateLimiter, (req, res, next) => {
 });
 
 // Login
-app.post('/api/auth/login', authRateLimiter, (req, res, next) => {
+app.post('/api/auth/login', authRateLimiter, async (req, res, next) => {
   try {
     const { email, password, twoFactorCode } = req.body;
 
@@ -235,13 +239,13 @@ app.post('/api/auth/login', authRateLimiter, (req, res, next) => {
       throw Errors.validation('Email and password are required.');
     }
 
-    const user = db.getUserByEmail(email);
+    const user = (await db.getUserByEmailAsync(email)) || db.getUserByEmail(email);
     if (!user) {
       throw Errors.invalidCredentials('Invalid email or password.');
     }
 
     // Global Login Switch check (admins always permitted)
-    const settings = db.getSettings();
+    const settings = await db.getSettingsAsync();
     if (settings.loginEnabled === false && user.role === 'user') {
       throw Errors.authDisabled('User login is temporarily unavailable. Please try again later.');
     }

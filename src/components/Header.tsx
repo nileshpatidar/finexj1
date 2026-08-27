@@ -37,7 +37,10 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & App Title */}
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onNavigate('home')}>
+          <div
+            className="flex items-center space-x-3 cursor-pointer"
+            onClick={() => onNavigate(isAdmin ? 'admin' : 'home')}
+          >
             <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 text-white font-extrabold shadow-lg shadow-blue-500/20">
               <span className="text-xl tracking-tight font-black">F</span>
               <span className="absolute -bottom-1 -right-1 px-1 py-0.2 text-[8px] font-bold bg-blue-900 text-blue-200 border border-blue-400/30 rounded">
@@ -54,7 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                Digital Asset Fund Management
+                {isAdmin ? 'Institutional Admin Console' : 'Digital Asset Fund Management'}
               </p>
             </div>
           </div>
@@ -89,29 +92,24 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
-            {/* Telegram Live Support Button */}
-            <button
-              onClick={onOpenSupport}
-              title="Official Support Desk"
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 border border-blue-500/20 transition cursor-pointer"
-            >
-              <Headphones className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Support</span>
-            </button>
-
-            {/* Admin Switch Button (Shown ONLY if user is verified administrator) */}
-            {isAdmin && (
+            {/* Telegram Live Support Button (for users) */}
+            {!isAdmin && (
               <button
-                onClick={() => onNavigate(currentView === 'admin' ? 'home' : 'admin')}
-                className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${
-                  currentView === 'admin'
-                    ? 'bg-blue-600 text-white border-blue-500'
-                    : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/20'
-                }`}
+                onClick={onOpenSupport}
+                title="Official Support Desk"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 border border-blue-500/20 transition cursor-pointer"
               >
-                <Shield className="w-3.5 h-3.5" />
-                <span>{currentView === 'admin' ? 'User Portal' : 'Admin'}</span>
+                <Headphones className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Support</span>
               </button>
+            )}
+
+            {/* Admin Badge */}
+            {isAdmin && (
+              <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-600/10 text-blue-600 dark:text-blue-400 border border-blue-500/30">
+                <Shield className="w-3.5 h-3.5" />
+                <span className="uppercase tracking-wider text-[10px] font-bold">Admin Active</span>
+              </div>
             )}
 
             {/* Theme Toggle */}
@@ -150,16 +148,18 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
 
                     <div className="py-1">
-                      <button
-                        onClick={() => {
-                          onNavigate('profile');
-                          setShowAccountDropdown(false);
-                        }}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 text-slate-700 dark:text-slate-300 cursor-pointer"
-                      >
-                        <User className="w-4 h-4 text-blue-500" />
-                        <span>Investor Profile</span>
-                      </button>
+                      {!isAdmin && (
+                        <button
+                          onClick={() => {
+                            onNavigate('profile');
+                            setShowAccountDropdown(false);
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 text-slate-700 dark:text-slate-300 cursor-pointer"
+                        >
+                          <User className="w-4 h-4 text-blue-500" />
+                          <span>Investor Profile</span>
+                        </button>
+                      )}
 
                       <button
                         onClick={() => {
@@ -175,14 +175,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 )}
               </div>
-            ) : (
-              <button
-                onClick={() => onNavigate('home')}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white transition shadow-sm cursor-pointer"
-              >
-                Sign In
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

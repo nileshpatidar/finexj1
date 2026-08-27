@@ -235,32 +235,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
             <span>{mode === 'login' ? 'Sign In Securely' : 'Complete Registration'}</span>
           </button>
         </form>
-
-        {mode === 'login' && (
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
-            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-              Quick One-Click Sign In:
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('airdropjani@gmail.com');
-                setPassword('@Admin123');
-              }}
-              className="w-full py-2 px-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-left transition cursor-pointer flex items-center justify-between"
-            >
-              <div>
-                <div className="font-bold text-xs">Super Admin (admin m)</div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                  airdropjani@gmail.com
-                </div>
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-600 text-white px-2 py-0.5 rounded-md">
-                Fill & Sign In
-              </span>
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
