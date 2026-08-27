@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { db, hashPassword, generateSalt } from './server/db';
 import {
@@ -23,6 +24,8 @@ import { generateMockTxHash, isValidBEP20Address } from './server/blockchain';
 import { getMarketPrices } from './server/market';
 import { runAutomatedTestSuite } from './server/tests';
 import { UserRole, User } from './server/types';
+import { testAndMigrateDatabase } from './server/schema-migrator';
+import { seedCloudSqlDatabase } from './server/cloudsql-seed';
 
 const app = express();
 const PORT = 3000;
@@ -729,9 +732,6 @@ app.post('/api/admin/reset-data', authMiddleware, adminMiddleware(['super_admin'
 });
 
 // Supabase / Database Connection & Schema Migration Endpoints
-import { testAndMigrateDatabase } from './server/schema-migrator';
-import fs from 'fs';
-
 app.get('/api/admin/db/status', async (req, res) => {
   try {
     const result = await testAndMigrateDatabase();
@@ -778,8 +778,6 @@ app.post('/api/tests/run', async (req, res) => {
 // ==========================================
 // 4. VITE MIDDLEWARE & SPA FALLBACK
 // ==========================================
-
-import { seedCloudSqlDatabase } from './server/cloudsql-seed';
 
 async function startServer() {
   // Seed Cloud SQL if configured

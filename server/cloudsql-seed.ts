@@ -1,6 +1,6 @@
-import { db, schema } from '../src/db/index.ts';
-import { users, deposits, dailyPerformances, earnings, ledger, auditLogs, systemSettings } from '../src/db/schema.ts';
-import { hashPassword, generateSalt } from './db.ts';
+import { db, schema } from '../src/db/index';
+import { users, deposits, dailyPerformances, earnings, ledger, auditLogs, systemSettings } from '../src/db/schema';
+import { hashPassword, generateSalt } from './db';
 
 export async function seedCloudSqlDatabase() {
   try {

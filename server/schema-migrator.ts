@@ -1,5 +1,5 @@
-import { createPool } from '../src/db/index.ts';
-import { getServerSupabase, isServerSupabaseReady } from './supabase.ts';
+import { createPool } from '../src/db/index';
+import { getServerSupabase, isServerSupabaseReady } from './supabase';
 import fs from 'fs';
 import path from 'path';
 

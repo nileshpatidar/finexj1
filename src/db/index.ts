@@ -1,18 +1,24 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
+import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool, PoolConfig } from 'pg';
-import * as schema from './schema.ts';
+import * as schema from './schema';
 
 // Add global connection pool caching to persist across hot-reloads
 declare global {
   var _postgresPool: Pool | undefined;
+  var _drizzleDb: NodePgDatabase<typeof schema> | undefined;
 }
 
-// Function to create or retrieve the connection pool.
-export const createPool = () => {
-  if (!global._postgresPool) {
-    const connectionString = process.env.DATABASE_URL;
-    const sslEnabled = process.env.SQL_SSL === 'true';
+// Function to create or retrieve the connection pool lazily.
+export const createPool = (): Pool | null => {
+  const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
+  const hasHostParams = Boolean(process.env.SQL_HOST && (process.env.SQL_USER || process.env.SQL_ADMIN_USER));
 
+  if (!connectionString && !hasHostParams) {
+    return null;
+  }
+
+  if (!global._postgresPool) {
+    const sslEnabled = process.env.SQL_SSL === 'true';
     let config: PoolConfig;
 
     if (connectionString) {
@@ -39,16 +45,40 @@ export const createPool = () => {
 
     // Prevent unhandled pool-level errors from crashing the application
     global._postgresPool.on('error', (err) => {
-      console.error('Unexpected error on idle SQL pool client:', err);
+      console.warn('Unexpected error on idle SQL pool client:', err.message);
     });
   }
   return global._postgresPool;
 };
 
-// Create or retrieve the pool instance lazily.
-const pool = createPool();
+// Lazy Drizzle Database instance
+export const getDb = (): NodePgDatabase<typeof schema> | null => {
+  if (global._drizzleDb) {
+    return global._drizzleDb;
+  }
+  const poolInstance = createPool();
+  if (!poolInstance) {
+    return null;
+  }
+  global._drizzleDb = drizzle(poolInstance, { schema });
+  return global._drizzleDb;
+};
 
-// Initialize Drizzle with the pool and schema.
-export const db = drizzle(pool, { schema });
+// Proxy to allow db.select() syntax with lazy initialization
+export const db = new Proxy({} as NodePgDatabase<typeof schema>, {
+  get(target, prop, receiver) {
+    const instance = getDb();
+    if (!instance) {
+      throw new Error('Database is not initialized. Please configure DATABASE_URL or SQL credentials.');
+    }
+    const val = (instance as any)[prop];
+    if (typeof val === 'function') {
+      return val.bind(instance);
+    }
+    return val;
+  },
+});
+
 export { schema };
+
 
