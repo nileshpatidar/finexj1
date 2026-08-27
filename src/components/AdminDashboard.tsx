@@ -5,6 +5,7 @@ import {
   ShieldAlert,
   Users,
   ArrowUpFromLine,
+  ArrowDownToLine,
   TrendingUp,
   Settings,
   ShieldCheck,
@@ -21,6 +22,11 @@ import {
   Check,
   Play,
   Terminal,
+  ExternalLink,
+  Eye,
+  Image as ImageIcon,
+  CheckCircle,
+  X,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -29,14 +35,21 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'withdrawals' | 'performance' | 'adjustments' | 'settings' | 'audit' | 'database'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'settings' | 'audit' | 'database'>('overview');
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
+  const [deposits, setDeposits] = useState<any[]>([]);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [performances, setPerformances] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [appSettings, setAppSettings] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Deposits Filter & Modal State
+  const [depositFilter, setDepositFilter] = useState<'all' | 'pending' | 'confirmed' | 'rejected'>('all');
+  const [previewPhotoModal, setPreviewPhotoModal] = useState<{ url: string; title: string } | null>(null);
+  const [selectedDepositForAction, setSelectedDepositForAction] = useState<{ deposit: any; action: 'confirmed' | 'rejected' } | null>(null);
+  const [depositAdminNotes, setDepositAdminNotes] = useState('');
 
   // Database / Supabase Migration State
   const [dbStatus, setDbStatus] = useState<any>(null);
@@ -67,9 +80,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
   const loadAllAdminData = async () => {
     setIsLoading(true);
     try {
-      const [dash, uList, wList, pList, aList, sList] = await Promise.all([
+      const [dash, uList, dList, wList, pList, aList, sList] = await Promise.all([
         api.getAdminDashboard(),
         api.getAdminUsers(),
+        api.getAdminDeposits(),
         api.getAdminWithdrawals(),
         api.getAdminPerformance(),
         api.getAdminAuditLogs(),
@@ -77,6 +91,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
       ]);
       setDashboardData(dash);
       setUsers(uList.users || []);
+      setDeposits(dList.deposits || []);
       setWithdrawals(wList.withdrawals || []);
       setPerformances(pList.performances || []);
       setAuditLogs(aList.auditLogs || []);
@@ -115,6 +130,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
       setActionError((err as Error).message || 'Failed to distribute daily performance.');
     } finally {
       setIsDistributing(false);
+    }
+  };
+
+  const handleDepositAction = async (depositId: string, action: 'confirmed' | 'rejected', notes?: string) => {
+    try {
+      setActionError(null);
+      setActionMessage(null);
+      const res = await api.updateDepositAction(depositId, {
+        action,
+        adminNotes: notes || depositAdminNotes || undefined,
+      });
+      if (res.success) {
+        setActionMessage(`Deposit ${depositId} marked as ${action.toUpperCase()} and balance ledger updated.`);
+        setSelectedDepositForAction(null);
+        setDepositAdminNotes('');
+        await loadAllAdminData();
+      }
+    } catch (err) {
+      setActionError((err as Error).message || 'Deposit action failed.');
     }
   };
 
@@ -183,6 +217,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
   };
 
   const stats = dashboardData?.stats;
+  const filteredDeposits = deposits.filter((d) => {
+    if (depositFilter === 'all') return true;
+    return d.status === depositFilter;
+  });
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-24 text-xs">
@@ -226,12 +264,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
         </div>
       </div>
 
+      {/* Action Notification Messages */}
+      {actionMessage && (
+        <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span className="font-semibold">{actionMessage}</span>
+          </div>
+          <button onClick={() => setActionMessage(null)} className="text-blue-500 hover:text-blue-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+            <span className="font-semibold">{actionError}</span>
+          </div>
+          <button onClick={() => setActionError(null)} className="text-rose-500 hover:text-rose-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Navigation Tabs */}
       <div className="flex overflow-x-auto no-scrollbar gap-1.5 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
         {[
           { id: 'overview', label: 'Overview', icon: TrendingUp },
-          { id: 'users', label: 'Users', icon: Users },
+          { id: 'deposits', label: 'Deposits', icon: ArrowDownToLine },
           { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpFromLine },
+          { id: 'users', label: 'Users', icon: Users },
           { id: 'performance', label: 'Daily Performance', icon: Sliders },
           { id: 'adjustments', label: 'Adjustments', icon: DollarSign },
           { id: 'audit', label: 'Audit Trail', icon: ShieldCheck },
@@ -252,8 +316,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
             >
               <Icon className="w-3.5 h-3.5" />
               <span>{tab.label}</span>
-              {tab.id === 'withdrawals' && stats?.pendingWithdrawalsCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+              {tab.id === 'deposits' && (stats?.pendingDepositsCount || 0) > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[9px] font-bold">
+                  {stats.pendingDepositsCount}
+                </span>
+              )}
+              {tab.id === 'withdrawals' && (stats?.pendingWithdrawalsCount || 0) > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-bold">
                   {stats.pendingWithdrawalsCount}
                 </span>
               )}
@@ -262,33 +331,73 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
         })}
       </div>
 
-      {/* Action Messages */}
-      {actionMessage && (
-        <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 flex items-center space-x-2 font-medium">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
-          <span>{actionMessage}</span>
-        </div>
-      )}
-
-      {actionError && (
-        <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 flex items-center space-x-2 font-medium">
-          <XCircle className="w-4 h-4 flex-shrink-0 text-red-600 dark:text-red-400" />
-          <span>{actionError}</span>
-        </div>
-      )}
-
       {/* TAB 1: OVERVIEW */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Comprehensive Financial Summary Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {/* 1. Total Confirmed Deposits */}
             <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
               <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Total Confirmed Deposits</span>
               <p className="text-xl font-bold text-slate-900 dark:text-white">
-                ${(stats?.totalConfirmedDeposits || 0).toLocaleString()} USDT
+                ${(stats?.totalConfirmedDeposits || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
               </p>
-              <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">BEP-20 Verified</span>
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="font-semibold text-blue-600 dark:text-blue-400">BEP-20 Verified</span>
+                <span className="text-slate-400 font-medium">{stats?.totalConfirmedDepositsCount || 0} deposits</span>
+              </div>
             </div>
 
+            {/* 2. Total Withdrawals Paid / Provided */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Total Withdrawals Paid</span>
+              <p className="text-xl font-bold text-slate-900 dark:text-white">
+                ${(stats?.totalPaidWithdrawals || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+              </p>
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-slate-500 dark:text-slate-400">Net: ${(stats?.totalPaidWithdrawalsNet || 0).toFixed(2)}</span>
+                <span className="text-slate-400 font-medium">{stats?.totalPaidWithdrawalsCount || 0} paid</span>
+              </div>
+            </div>
+
+            {/* 3. Pending Deposits */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Pending Deposits</span>
+              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
+                {stats?.pendingDepositsCount || 0} (${(stats?.totalPendingDepositsAmount || 0).toFixed(2)})
+              </p>
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-amber-600 dark:text-amber-400 font-semibold">Requires Proof Review</span>
+                <button
+                  onClick={() => {
+                    setDepositFilter('pending');
+                    setActiveTab('deposits');
+                  }}
+                  className="underline hover:text-amber-700 cursor-pointer font-medium"
+                >
+                  Review
+                </button>
+              </div>
+            </div>
+
+            {/* 4. Pending Withdrawals */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Pending Withdrawals</span>
+              <p className="text-xl font-bold text-rose-600 dark:text-rose-400">
+                {stats?.pendingWithdrawalsCount || 0} (${(stats?.totalPendingWithdrawalsAmount || 0).toFixed(2)})
+              </p>
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-rose-600 dark:text-rose-400 font-semibold">Requires Approval</span>
+                <button
+                  onClick={() => setActiveTab('withdrawals')}
+                  className="underline hover:text-rose-700 cursor-pointer font-medium"
+                >
+                  Review
+                </button>
+              </div>
+            </div>
+
+            {/* 5. Total Earnings Distributed */}
             <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
               <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Total Earnings Distributed</span>
               <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
@@ -297,20 +406,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
               <span className="text-[10px] text-slate-500 dark:text-slate-400">Fund Yield Allocations</span>
             </div>
 
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Pending Withdrawals</span>
-              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
-                {stats?.pendingWithdrawalsCount || 0} (${(stats?.totalPendingWithdrawalsAmount || 0).toFixed(2)})
-              </p>
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Requires Approval</span>
-            </div>
-
+            {/* 6. Withdrawal Fees (4%) */}
             <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
               <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Withdrawal Fees (4%)</span>
               <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
                 ${(stats?.totalWithdrawalFees || 0).toFixed(2)} USDT
               </p>
-              <span className="text-[10px] text-slate-500 dark:text-slate-400">Platform Retained</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">Platform Retained Pool</span>
+            </div>
+
+            {/* 7. Vault Retained Liquidity */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm col-span-2 sm:col-span-1 lg:col-span-2">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Vault Retained Liquidity</span>
+              <p className="text-xl font-bold text-blue-700 dark:text-blue-300 font-mono">
+                ${(stats?.vaultRetainedLiquidity || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+              </p>
+              <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">Net Active Vault Balance (Deposits - Withdrawals + Fees)</span>
             </div>
           </div>
 
@@ -420,6 +531,185 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* TAB: DEPOSITS */}
+      {activeTab === 'deposits' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center space-x-2">
+                <ArrowDownToLine className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span>User Deposits & Payment Proof Review ({filteredDeposits.length})</span>
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Inspect uploaded payment receipts, verify BSC transactions on BscScan, and approve deposits to credit user balances.
+              </p>
+            </div>
+
+            {/* Filter Buttons */}
+            <div className="flex items-center space-x-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+              {[
+                { id: 'all', label: `All (${deposits.length})` },
+                { id: 'pending', label: `Pending Review (${deposits.filter(d => d.status === 'pending').length})` },
+                { id: 'confirmed', label: `Confirmed (${deposits.filter(d => d.status === 'confirmed').length})` },
+                { id: 'rejected', label: `Rejected (${deposits.filter(d => d.status === 'rejected').length})` },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setDepositFilter(f.id as any)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                    depositFilter === f.id
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {filteredDeposits.length === 0 ? (
+            <div className="p-8 text-center rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+              No deposits match the selected filter.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredDeposits.map((dep) => {
+                const targetUser = users.find(u => u.id === dep.userId);
+                return (
+                  <div
+                    key={dep.id}
+                    className="p-5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm hover:border-blue-500/30 transition"
+                  >
+                    <div className="space-y-2 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-base font-bold text-slate-900 dark:text-white">
+                          ${dep.amount.toFixed(2)} USDT
+                        </span>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            dep.status === 'confirmed'
+                              ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60'
+                              : dep.status === 'rejected'
+                              ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60'
+                              : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
+                          }`}
+                        >
+                          {dep.status === 'confirmed' ? '✓ CONFIRMED & CREDITED' : dep.status === 'rejected' ? '✕ REJECTED' : '⏳ PENDING PROOF REVIEW'}
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                          Ref: {dep.reference || dep.id}
+                        </span>
+                      </div>
+
+                      {/* User & Submission Details */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
+                        <div>
+                          <p>
+                            <strong>User:</strong> {targetUser ? `${targetUser.fullName} (${targetUser.email})` : dep.userId}
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            <strong>Date:</strong> {new Date(dep.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                        <div>
+                          {dep.txHash ? (
+                            <p className="flex items-center space-x-1.5">
+                              <strong>Tx Hash:</strong>
+                              <a
+                                href={`https://bscscan.com/tx/${dep.txHash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-mono text-blue-600 dark:text-blue-400 hover:underline flex items-center space-x-1 inline-flex"
+                              >
+                                <span>{dep.txHash.slice(0, 10)}...{dep.txHash.slice(-6)}</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </p>
+                          ) : (
+                            <p className="text-slate-400 italic">No blockchain tx hash provided</p>
+                          )}
+                          {dep.userNotes && (
+                            <p className="text-slate-500 dark:text-slate-400 text-[11px]">
+                              <strong>User Note:</strong> &ldquo;{dep.userNotes}&rdquo;
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Admin Note if already reviewed */}
+                      {dep.adminNotes && (
+                        <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900 text-[11px] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800">
+                          <strong>Admin Review Note:</strong> {dep.adminNotes} (by {dep.reviewedBy || 'Admin'})
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Proof Photo & Actions */}
+                    <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between gap-3 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800">
+                      {/* Photo Proof Preview Button / Thumbnail */}
+                      {dep.proofPhotoUrl ? (
+                        <button
+                          onClick={() => setPreviewPhotoModal({
+                            url: dep.proofPhotoUrl,
+                            title: `Deposit Proof - $${dep.amount.toFixed(2)} USDT (${dep.reference || dep.id})`
+                          })}
+                          className="flex items-center space-x-2 p-1.5 pr-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 font-semibold transition cursor-pointer"
+                        >
+                          <img
+                            src={dep.proofPhotoUrl}
+                            alt="Receipt"
+                            className="w-9 h-9 rounded-lg object-cover border border-blue-200 dark:border-blue-700"
+                          />
+                          <div className="text-left text-[11px]">
+                            <span className="block font-bold">View Receipt</span>
+                            <span className="text-[9px] text-blue-600 dark:text-blue-400 flex items-center space-x-0.5">
+                              <Eye className="w-2.5 h-2.5" />
+                              <span>Click to Inspect</span>
+                            </span>
+                          </div>
+                        </button>
+                      ) : (
+                        <div className="text-[11px] text-slate-400 flex items-center space-x-1">
+                          <ImageIcon className="w-3.5 h-3.5" />
+                          <span>No receipt photo</span>
+                        </div>
+                      )}
+
+                      {/* Admin Decision Action Buttons */}
+                      {dep.status === 'pending' ? (
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => setSelectedDepositForAction({ deposit: dep, action: 'confirmed' })}
+                            className="py-2 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-sm cursor-pointer flex items-center space-x-1"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Approve & Credit</span>
+                          </button>
+                          <button
+                            onClick={() => setSelectedDepositForAction({ deposit: dep, action: 'rejected' })}
+                            className="py-2 px-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 font-bold transition cursor-pointer flex items-center space-x-1"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reject</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-right">
+                          <span className="text-[11px] text-slate-400">
+                            {dep.status === 'confirmed' ? 'Credited to Balance' : 'Rejected'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -611,6 +901,152 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
               </button>
               <button
                 onClick={() => setSelectedWithdrawal(null)}
+                className="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deposit Receipt Preview Fullscreen Modal */}
+      {previewPhotoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="w-full max-w-2xl p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <ImageIcon className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  {previewPhotoModal.title}
+                </h3>
+              </div>
+              <button
+                onClick={() => setPreviewPhotoModal(null)}
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="relative rounded-2xl overflow-hidden bg-slate-950/90 border border-slate-800 max-h-[65vh] flex items-center justify-center">
+              <img
+                src={previewPhotoModal.url}
+                alt="Payment Receipt"
+                className="max-h-[60vh] max-w-full object-contain rounded-xl shadow-lg"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <a
+                href={previewPhotoModal.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                download="deposit-proof.png"
+                className="py-2 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs flex items-center space-x-1.5 transition"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Original Image</span>
+              </a>
+              <button
+                onClick={() => setPreviewPhotoModal(null)}
+                className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition shadow-sm cursor-pointer"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deposit Action Confirmation Modal (Approve / Reject) */}
+      {selectedDepositForAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-md p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center space-x-2">
+              {selectedDepositForAction.action === 'confirmed' ? (
+                <CheckCircle className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              ) : (
+                <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+              )}
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase">
+                {selectedDepositForAction.action === 'confirmed'
+                  ? 'Approve & Credit Deposit'
+                  : 'Reject Deposit Submission'}
+              </h3>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Amount:</span>
+                <strong className="text-base font-bold text-slate-900 dark:text-white">
+                  ${selectedDepositForAction.deposit.amount.toFixed(2)} USDT
+                </strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Reference:</span>
+                <span className="font-mono">{selectedDepositForAction.deposit.reference || selectedDepositForAction.deposit.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">User ID:</span>
+                <span>{selectedDepositForAction.deposit.userId}</span>
+              </div>
+              {selectedDepositForAction.deposit.txHash && (
+                <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-800 text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">BscScan:</span>
+                  <a
+                    href={`https://bscscan.com/tx/${selectedDepositForAction.deposit.txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 dark:text-blue-400 font-mono hover:underline flex items-center space-x-1"
+                  >
+                    <span>View Tx ↗</span>
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-slate-500 dark:text-slate-400 mb-1 text-xs font-medium">
+                {selectedDepositForAction.action === 'confirmed'
+                  ? 'Administrative Approval Note (Optional)'
+                  : 'Rejection Reason (Will be visible to user)'}
+              </label>
+              <textarea
+                rows={2}
+                value={depositAdminNotes}
+                onChange={e => setDepositAdminNotes(e.target.value)}
+                placeholder={
+                  selectedDepositForAction.action === 'confirmed'
+                    ? 'Receipt verified against on-chain wallet balance'
+                    : 'Receipt illegible or transaction hash not found on BEP-20 chain'
+                }
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs"
+              />
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button
+                onClick={() => handleDepositAction(
+                  selectedDepositForAction.deposit.id,
+                  selectedDepositForAction.action,
+                  depositAdminNotes
+                )}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs text-white transition cursor-pointer shadow-md ${
+                  selectedDepositForAction.action === 'confirmed'
+                    ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
+                    : 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/20'
+                }`}
+              >
+                {selectedDepositForAction.action === 'confirmed'
+                  ? 'Confirm & Credit Balance'
+                  : 'Confirm Rejection'}
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedDepositForAction(null);
+                  setDepositAdminNotes('');
+                }}
                 className="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs transition cursor-pointer"
               >
                 Cancel

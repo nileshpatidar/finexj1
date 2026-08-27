@@ -121,7 +121,7 @@ export const api = {
 
   getDeposits: () => request<{ deposits: DepositItem[] }>('/api/user/deposits'),
 
-  submitDeposit: (payload: { txHash: string; amount?: number }) =>
+  submitDeposit: (payload: { txHash?: string; amount?: number; proofPhotoUrl?: string; userNotes?: string }) =>
     request<{ success: boolean; deposit: DepositItem; balance: any }>('/api/user/deposits', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -169,6 +169,11 @@ export const api = {
       body: JSON.stringify({ status }),
     }),
   getAdminDeposits: () => request<{ deposits: DepositItem[] }>('/api/admin/deposits'),
+  updateDepositAction: (depositId: string, payload: { action: string; adminNotes?: string; txHash?: string }) =>
+    request<{ success: boolean; deposit: DepositItem }>(`/api/admin/deposits/${depositId}/action`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   getAdminWithdrawals: () => request<{ withdrawals: WithdrawalItem[] }>('/api/admin/withdrawals'),
   updateWithdrawalAction: (withdrawalId: string, payload: { action: string; txHash?: string; adminNotes?: string }) =>
     request<{ success: boolean; withdrawal: WithdrawalItem }>(`/api/admin/withdrawals/${withdrawalId}/action`, {

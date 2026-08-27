@@ -55,6 +55,11 @@ export interface DepositItem {
   confirmedAt?: string;
   eligibilityDate?: string;
   depositLockEndDate?: string;
+  proofPhotoUrl?: string;
+  userNotes?: string;
+  adminNotes?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
   notes?: string;
 }
 

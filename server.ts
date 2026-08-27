@@ -17,6 +17,7 @@ import {
   createWithdrawalRequest,
   applyDailyPerformance,
   updateWithdrawalStatus,
+  updateDepositStatus,
   createAdminAdjustment,
   lockUserFundsVoluntarily,
 } from './server/rules';
@@ -406,17 +407,19 @@ app.get('/api/user/deposits', authMiddleware, (req, res) => {
 // Submit BEP-20 Deposit
 app.post('/api/user/deposits', authMiddleware, async (req, res) => {
   const user: User = (req as any).user;
-  const { txHash, amount } = req.body;
+  const { txHash, amount, proofPhotoUrl, userNotes } = req.body;
 
-  if (!txHash) {
-    res.status(400).json({ error: 'Transaction hash is required.' });
+  if (!txHash && !proofPhotoUrl) {
+    res.status(400).json({ error: 'Please provide either a BSC transaction hash or upload a payment receipt photo.' });
     return;
   }
 
   const result = await processDeposit({
     userId: user.id,
-    txHash,
+    txHash: txHash || undefined,
     amount: amount ? Number(amount) : undefined,
+    proofPhotoUrl,
+    userNotes,
     actorEmail: user.email,
   });
 
@@ -540,14 +543,21 @@ app.get('/api/admin/dashboard', authMiddleware, adminMiddleware(), (req, res) =>
   const confirmedDeposits = deposits.filter(d => d.status === 'confirmed');
   const totalConfirmedDeposits = confirmedDeposits.reduce((acc, d) => acc + d.amount, 0);
 
+  const pendingDeposits = deposits.filter(d => d.status === 'pending' || d.status === 'confirming');
+  const totalPendingDepositsAmount = pendingDeposits.reduce((acc, d) => acc + d.amount, 0);
+
   const paidWithdrawals = withdrawals.filter(w => w.status === 'paid');
   const totalPaidWithdrawals = paidWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
+  const totalPaidWithdrawalsNet = paidWithdrawals.reduce((acc, w) => acc + w.netAmount, 0);
   const totalWithdrawalFees = paidWithdrawals.reduce((acc, w) => acc + w.feeAmount, 0);
 
   const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending' || w.status === 'under_review');
   const totalPendingWithdrawalsAmount = pendingWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
 
   const totalEarningsAllocated = earnings.reduce((acc, e) => acc + e.earningsAmount, 0);
+
+  // Vault liquidity / retained fund
+  const vaultRetainedLiquidity = Number((totalConfirmedDeposits + totalEarningsAllocated - totalPaidWithdrawals).toFixed(2));
 
   const latestPerformance = performances[0] || null;
 
@@ -556,11 +566,17 @@ app.get('/api/admin/dashboard', authMiddleware, adminMiddleware(), (req, res) =>
       totalUsers,
       activeUsers,
       totalConfirmedDeposits,
+      totalConfirmedDepositsCount: confirmedDeposits.length,
       totalPaidWithdrawals,
+      totalPaidWithdrawalsNet,
+      totalPaidWithdrawalsCount: paidWithdrawals.length,
       totalWithdrawalFees,
       pendingWithdrawalsCount: pendingWithdrawals.length,
       totalPendingWithdrawalsAmount,
+      pendingDepositsCount: pendingDeposits.length,
+      totalPendingDepositsAmount,
       totalEarningsAllocated,
+      vaultRetainedLiquidity,
     },
     latestPerformance,
     settings,
@@ -620,8 +636,36 @@ app.post('/api/admin/users/:id/status', authMiddleware, adminMiddleware(['super_
 
 // Admin Deposits
 app.get('/api/admin/deposits', authMiddleware, adminMiddleware(), (req, res) => {
-  const deposits = db.getDeposits();
+  const deposits = db.getDeposits().map(d => {
+    const user = db.getUserById(d.userId);
+    return {
+      ...d,
+      userName: user ? user.fullName : 'Unknown User',
+      userEmail: user ? user.email : '',
+    };
+  });
   res.json({ deposits });
+});
+
+// Admin process deposit (confirm / approve or reject)
+app.post('/api/admin/deposits/:id/action', authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res) => {
+  const admin: User = (req as any).user;
+  const { id } = req.params;
+  const { action, adminNotes, txHash } = req.body;
+
+  if (!['confirmed', 'rejected', 'approve', 'reject'].includes(action)) {
+    res.status(400).json({ error: 'Invalid action. Must be confirmed or rejected.' });
+    return;
+  }
+
+  const normalizedStatus = (action === 'approve' || action === 'confirmed') ? 'confirmed' : 'rejected';
+  const result = await updateDepositStatus(admin.id, id, normalizedStatus, adminNotes, txHash);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+
+  res.json({ success: true, deposit: result.deposit });
 });
 
 // Admin Withdrawals

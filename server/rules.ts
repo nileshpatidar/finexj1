@@ -14,9 +14,12 @@ import {
 
 export interface ProcessDepositInput {
   userId: string;
-  txHash: string;
+  txHash?: string;
   amount?: number;
+  proofPhotoUrl?: string;
+  userNotes?: string;
   actorEmail?: string;
+  autoApprove?: boolean;
 }
 
 export interface RequestWithdrawalInput {
@@ -40,7 +43,7 @@ export interface AdminDailyPerformanceInput {
 }
 
 /**
- * 1. Process & Confirm BEP-20 USDT Deposit
+ * 1. Process & Submit / Confirm BEP-20 USDT Deposit
  */
 export async function processDeposit(input: ProcessDepositInput): Promise<{ success: boolean; deposit?: Deposit; error?: string }> {
   const user = db.getUserById(input.userId);
@@ -52,15 +55,18 @@ export async function processDeposit(input: ProcessDepositInput): Promise<{ succ
     return { success: false, error: 'Account is not active.' };
   }
 
-  // Blockchain verification
-  const verification = await verifyBEP20Deposit(input.txHash, input.amount);
-  if (!verification.isValid) {
-    return { success: false, error: verification.errorMessage || 'Blockchain verification failed.' };
+  const depositAmount = Number(input.amount || 100);
+  if (isNaN(depositAmount) || depositAmount <= 0) {
+    return { success: false, error: 'Deposit amount must be greater than 0 USDT.' };
   }
 
-  const depositAmount = verification.amount || input.amount || 100;
   const now = new Date();
   const settings = db.getSettings();
+  const depositId = 'dep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
+  // Generate fallback txHash if user only uploaded proof screenshot without txID
+  const fallbackTxHash = '0x' + crypto.randomBytes(32).toString('hex');
+  const userTxHash = input.txHash ? input.txHash.trim() : fallbackTxHash;
 
   // Next calendar day at 00:00:00 UTC for earning eligibility
   const tomorrow = new Date(now);
@@ -71,7 +77,21 @@ export async function processDeposit(input: ProcessDepositInput): Promise<{ succ
   const lockPeriodMs = (settings.depositLockPeriodDays || 20) * 24 * 60 * 60 * 1000;
   const lockEndDate = new Date(now.getTime() + lockPeriodMs).toISOString();
 
-  const depositId = 'dep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  // If user uploaded payment proof photo or if not directly blockchain-verified, mark as 'pending' for admin review
+  // or if blockchain verification passes, mark confirmed
+  let isDirectlyConfirmed = false;
+  let confirmations = 1;
+
+  if (input.txHash && !input.proofPhotoUrl) {
+    const verification = await verifyBEP20Deposit(input.txHash, depositAmount);
+    if (verification.isValid) {
+      isDirectlyConfirmed = true;
+      confirmations = verification.confirmations || 12;
+    }
+  }
+
+  // If user provided a photo proof, flag as pending review so finance admin can audit receipt and tx on BSC
+  const status: 'pending' | 'confirmed' = isDirectlyConfirmed ? 'confirmed' : 'pending';
 
   const deposit: Deposit = {
     id: depositId,
@@ -79,48 +99,65 @@ export async function processDeposit(input: ProcessDepositInput): Promise<{ succ
     amount: depositAmount,
     currency: 'USDT',
     network: 'BEP-20',
-    txHash: verification.txHash,
-    fromAddress: verification.fromAddress,
-    toAddress: verification.toAddress || settings.bep20DepositAddress,
-    status: 'confirmed',
-    confirmations: verification.confirmations,
-    requiredConfirmations: settings.requiredConfirmations,
+    txHash: userTxHash,
+    toAddress: settings.bep20DepositAddress,
+    status,
+    confirmations: isDirectlyConfirmed ? confirmations : 0,
+    requiredConfirmations: settings.requiredConfirmations || 12,
     createdAt: now.toISOString(),
-    confirmedAt: now.toISOString(),
-    eligibilityDate: tomorrow.toISOString(),
-    depositLockEndDate: lockEndDate,
-    notes: 'Verified BEP-20 USDT Transfer on BNB Smart Chain',
+    confirmedAt: isDirectlyConfirmed ? now.toISOString() : undefined,
+    eligibilityDate: isDirectlyConfirmed ? tomorrow.toISOString() : undefined,
+    depositLockEndDate: isDirectlyConfirmed ? lockEndDate : undefined,
+    proofPhotoUrl: input.proofPhotoUrl,
+    userNotes: input.userNotes,
+    notes: isDirectlyConfirmed
+      ? 'Verified BEP-20 USDT Transfer on BNB Smart Chain'
+      : 'BEP-20 Transfer Submitted - Awaiting Admin Confirmation',
   };
 
   // Atomic database update
   db.addDeposit(deposit);
 
-  // Add ledger entry
-  const prevSummary = calculateUserBalance(user.id);
-  const ledgerEntry: LedgerEntry = {
-    id: 'led_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-    userId: user.id,
-    type: 'deposit',
-    amount: depositAmount,
-    balanceAfter: prevSummary.availableBalance, // Recalculated accurately
-    referenceId: deposit.id,
-    description: `Confirmed USDT BEP-20 Deposit (Tx: ${verification.txHash.substring(0, 8)}...${verification.txHash.slice(-6)})`,
-    createdAt: now.toISOString(),
-    performedBy: user.id,
-  };
-  db.addLedgerEntry(ledgerEntry);
+  if (isDirectlyConfirmed) {
+    // Add ledger entry
+    const prevSummary = calculateUserBalance(user.id);
+    const ledgerEntry: LedgerEntry = {
+      id: 'led_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      userId: user.id,
+      type: 'deposit',
+      amount: depositAmount,
+      balanceAfter: prevSummary.availableBalance + depositAmount,
+      referenceId: deposit.id,
+      description: `Confirmed USDT BEP-20 Deposit (Tx: ${deposit.txHash.substring(0, 8)}...${deposit.txHash.slice(-6)})`,
+      createdAt: now.toISOString(),
+      performedBy: user.id,
+    };
+    db.addLedgerEntry(ledgerEntry);
 
-  // Audit log
-  db.addAuditLog({
-    action: 'DEPOSIT_CONFIRMED',
-    actorId: user.id,
-    actorEmail: user.email,
-    actorRole: user.role,
-    targetUserId: user.id,
-    afterValue: { depositId: deposit.id, amount: depositAmount, txHash: verification.txHash },
-    reason: 'BEP-20 USDT blockchain deposit verified and credited.',
-    referenceId: deposit.id,
-  });
+    // Audit log
+    db.addAuditLog({
+      action: 'DEPOSIT_CONFIRMED',
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: user.id,
+      afterValue: { depositId: deposit.id, amount: depositAmount, txHash: deposit.txHash },
+      reason: 'BEP-20 USDT blockchain deposit verified and credited.',
+      referenceId: deposit.id,
+    });
+  } else {
+    // Audit log for submitted pending deposit
+    db.addAuditLog({
+      action: 'DEPOSIT_SUBMITTED',
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: user.id,
+      afterValue: { depositId: deposit.id, amount: depositAmount, txHash: deposit.txHash, hasProof: Boolean(input.proofPhotoUrl) },
+      reason: 'User submitted deposit payment proof for verification.',
+      referenceId: deposit.id,
+    });
+  }
 
   return { success: true, deposit };
 }
@@ -539,6 +576,109 @@ export async function updateWithdrawalStatus(
   });
 
   return { success: true, withdrawal: updated };
+}
+
+/**
+ * 4.5. Admin updates deposit status (confirm / approve or reject)
+ */
+export async function updateDepositStatus(
+  adminId: string,
+  depositId: string,
+  newStatus: 'confirmed' | 'rejected',
+  adminNotes?: string,
+  txHash?: string
+): Promise<{ success: boolean; deposit?: Deposit; error?: string }> {
+  const admin = db.getUserById(adminId);
+  if (!admin || (admin.role !== 'super_admin' && admin.role !== 'finance_admin')) {
+    return { success: false, error: 'Unauthorized admin role.' };
+  }
+
+  const deposit = db.getDepositById(depositId);
+  if (!deposit) {
+    return { success: false, error: 'Deposit not found.' };
+  }
+
+  if (deposit.status === 'confirmed' && newStatus === 'confirmed') {
+    return { success: false, error: 'Deposit is already confirmed.' };
+  }
+
+  const now = new Date();
+  const oldStatus = deposit.status;
+  const settings = db.getSettings();
+
+  if (newStatus === 'confirmed') {
+    // Next calendar day at 00:00:00 UTC for earning eligibility
+    const tomorrow = new Date(now);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
+
+    // 20-day deposit lock rule for principal withdrawal
+    const lockPeriodMs = (settings.depositLockPeriodDays || 20) * 24 * 60 * 60 * 1000;
+    const lockEndDate = new Date(now.getTime() + lockPeriodMs).toISOString();
+
+    const updated = db.updateDeposit(depositId, {
+      status: 'confirmed',
+      confirmedAt: now.toISOString(),
+      eligibilityDate: tomorrow.toISOString(),
+      depositLockEndDate: lockEndDate,
+      confirmations: 15,
+      reviewedAt: now.toISOString(),
+      reviewedBy: admin.id,
+      adminNotes: adminNotes || deposit.adminNotes,
+      txHash: txHash || deposit.txHash,
+    });
+
+    // Credit user in double-entry ledger
+    const prevSummary = calculateUserBalance(deposit.userId);
+    const ledgerEntry: LedgerEntry = {
+      id: 'led_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      userId: deposit.userId,
+      type: 'deposit',
+      amount: deposit.amount,
+      balanceAfter: prevSummary.availableBalance + deposit.amount,
+      referenceId: deposit.id,
+      description: `Admin Approved USDT BEP-20 Deposit ($${deposit.amount.toFixed(2)} USDT)`,
+      createdAt: now.toISOString(),
+      performedBy: admin.id,
+    };
+    db.addLedgerEntry(ledgerEntry);
+
+    db.addAuditLog({
+      action: 'DEPOSIT_ADMIN_CONFIRMED',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      targetUserId: deposit.userId,
+      beforeValue: { status: oldStatus },
+      afterValue: { status: 'confirmed', amount: deposit.amount, txHash: deposit.txHash, adminNotes },
+      reason: `Admin confirmed and credited deposit of $${deposit.amount} USDT.`,
+      referenceId: depositId,
+    });
+
+    return { success: true, deposit: updated };
+  } else {
+    // Rejected
+    const updated = db.updateDeposit(depositId, {
+      status: 'rejected',
+      reviewedAt: now.toISOString(),
+      reviewedBy: admin.id,
+      adminNotes: adminNotes || 'Rejected during administrative verification.',
+    });
+
+    db.addAuditLog({
+      action: 'DEPOSIT_ADMIN_REJECTED',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      targetUserId: deposit.userId,
+      beforeValue: { status: oldStatus },
+      afterValue: { status: 'rejected', adminNotes },
+      reason: adminNotes || 'Deposit rejected during administrative verification.',
+      referenceId: depositId,
+    });
+
+    return { success: true, deposit: updated };
+  }
 }
 
 /**

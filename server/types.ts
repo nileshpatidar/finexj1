@@ -42,6 +42,11 @@ export interface Deposit {
   confirmedAt?: string;
   eligibilityDate?: string; // Eligible for performance earnings (next server day)
   depositLockEndDate?: string; // 20 days lock period for withdrawal
+  proofPhotoUrl?: string; // Uploaded payment proof screenshot / photo data URL
+  userNotes?: string;
+  adminNotes?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
   notes?: string;
 }
 
