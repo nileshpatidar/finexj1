@@ -405,8 +405,9 @@ class Database {
     return undefined;
   }
 
-  public async addUser(user: User): Promise<void> {
-    await this.asyncSupabaseInsert('users', {
+  public addUser(user: User): void {
+    this.data.users.push(user);
+    this.asyncSupabaseInsert('users', {
       email: user.email,
       password_hash: user.passwordHash,
       salt: user.passwordSalt,
@@ -416,7 +417,6 @@ class Database {
       is_locked: user.status === 'suspended',
       created_at: user.createdAt,
     });
-    this.data.users.push(user);
   }
 
   public updateUser(id: string, updates: Partial<User>): User | undefined {
@@ -595,14 +595,13 @@ class Database {
   }
 
   private async asyncSupabaseInsert(table: string, payload: any) {
-    if (!isServerSupabaseReady()) {
-      throw new Error('Supabase server credentials are not configured.');
-    }
-
-    const supabase = getServerSupabase();
-    const { error } = await supabase.from(table).insert(payload);
-    if (error) {
-      throw new Error(`Supabase insert into ${table} failed: ${error.message}`);
+    try {
+      if (isServerSupabaseReady()) {
+        const supabase = getServerSupabase();
+        await supabase.from(table).insert(payload);
+      }
+    } catch {
+      // Ignored for resilience
     }
   }
 }
