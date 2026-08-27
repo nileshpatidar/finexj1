@@ -598,10 +598,13 @@ class Database {
     try {
       if (isServerSupabaseReady()) {
         const supabase = getServerSupabase();
-        await supabase.from(table).insert(payload);
+        const { error } = await supabase.from(table).insert(payload);
+        if (error) {
+          console.warn(`[Supabase Write Warning] Could not insert into table "${table}":`, error.message, error.details || '');
+        }
       }
-    } catch {
-      // Ignored for resilience
+    } catch (err: any) {
+      console.warn(`[Supabase Write Exception] ${table}:`, err?.message);
     }
   }
 }
