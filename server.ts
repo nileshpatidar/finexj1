@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import { app } from './server/app';
 import { cleanupManager } from './server/cleanup';
 import { seedCloudSqlDatabase } from './server/cloudsql-seed';
+import 'dotenv/config';
 
 const PORT = 3000;
 

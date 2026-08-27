@@ -150,6 +150,7 @@ class Logger {
       .join(' ');
 
     const terminalLine = `[${entry.createdAt}] [${entry.level}] [${entry.event}] ${entry.message}${details ? ` (${details})` : ''}`;
+    if (memoryLogs.length > MAX_MEMORY_LOGS) {
 
     if (level === 'ERROR') {
       console.error(terminalLine);
@@ -158,7 +159,7 @@ class Logger {
     } else {
       console.log(terminalLine);
     }
-
+  }
     // 3. Save to database ONLY if enabled by environment variable
     // If env var is true -> save to database AND terminal (already printed)
     // If env var is not true -> just print in terminal (skip DB save)

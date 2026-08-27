@@ -13,10 +13,10 @@ import { createClient } from "@supabase/supabase-js";
 function getServerSupabase() {
   if (!serverSupabaseClient) {
     const supabaseUrl = process.env.SUPABASE_URL || "https://sicczkuqwljigsatsyva.supabase.co";
-    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || "sb_publishable_scog-F8bxFxW7oFH1wBUmQ_9DOoqJVh";
+    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseSecretKey) {
       throw new Error(
-        "Server Supabase configuration missing: SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_PUBLISHABLE_KEY) must be set in environment variables."
+        "Server Supabase configuration missing: SUPABASE_URL and SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY must be set in environment variables."
       );
     }
     serverSupabaseClient = createClient(supabaseUrl, supabaseSecretKey, {
@@ -29,7 +29,9 @@ function getServerSupabase() {
   return serverSupabaseClient;
 }
 function isServerSupabaseReady() {
-  return true;
+  return Boolean(
+    process.env.SUPABASE_URL && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
+  );
 }
 var serverSupabaseClient;
 var init_supabase = __esm({
@@ -387,9 +389,8 @@ var init_db = __esm({
         }
         return void 0;
       }
-      addUser(user) {
-        this.data.users.push(user);
-        this.asyncSupabaseInsert("users", {
+      async addUser(user) {
+        await this.asyncSupabaseInsert("users", {
           email: user.email,
           password_hash: user.passwordHash,
           salt: user.passwordSalt,
@@ -399,6 +400,7 @@ var init_db = __esm({
           is_locked: user.status === "suspended",
           created_at: user.createdAt
         });
+        this.data.users.push(user);
       }
       updateUser(id, updates) {
         const idx = this.data.users.findIndex((u) => u.id === id);
@@ -540,12 +542,13 @@ var init_db = __esm({
         this.data = initializeSeedData();
       }
       async asyncSupabaseInsert(table, payload) {
-        try {
-          if (isServerSupabaseReady()) {
-            const supabase = getServerSupabase();
-            await supabase.from(table).insert(payload);
-          }
-        } catch {
+        if (!isServerSupabaseReady()) {
+          throw new Error("Supabase server credentials are not configured.");
+        }
+        const supabase = getServerSupabase();
+        const { error } = await supabase.from(table).insert(payload);
+        if (error) {
+          throw new Error(`Supabase insert into ${table} failed: ${error.message}`);
         }
       }
     };
@@ -640,12 +643,14 @@ var init_logger = __esm({
           entry.errorCode ? `code=${entry.errorCode}` : null
         ].filter(Boolean).join(" ");
         const terminalLine = `[${entry.createdAt}] [${entry.level}] [${entry.event}] ${entry.message}${details ? ` (${details})` : ""}`;
-        if (level === "ERROR") {
-          console.error(terminalLine);
-        } else if (level === "WARN") {
-          console.warn(terminalLine);
-        } else {
-          console.log(terminalLine);
+        if (memoryLogs.length > MAX_MEMORY_LOGS) {
+          if (level === "ERROR") {
+            console.error(terminalLine);
+          } else if (level === "WARN") {
+            console.warn(terminalLine);
+          } else {
+            console.log(terminalLine);
+          }
         }
         if (isDbLoggingEnabled()) {
           if (level === "WARN" || level === "ERROR" || event.startsWith("SECURITY_") || event.startsWith("SYSTEM_")) {
@@ -2431,6 +2436,7 @@ function createRateLimiter(options) {
 }
 
 // server/app.ts
+import "dotenv/config";
 var app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use((req, res, next) => {
@@ -2523,6 +2529,7 @@ app.get("/api/blockchain/mock-tx", (req, res) => {
 });
 app.post("/api/auth/register", authRateLimiter, async (req, res, next) => {
   try {
+    console.log(req.body, "body");
     const settings = await db.getSettingsAsync();
     if (settings.registrationEnabled === false) {
       throw Errors.registrationDisabled("Registration is currently unavailable. Please try again later.");
@@ -2559,7 +2566,7 @@ app.post("/api/auth/register", authRateLimiter, async (req, res, next) => {
       loginAttempts: 0,
       profilePictureUrl: profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName)}`
     };
-    db.addUser(newUser);
+    await db.addUser(newUser);
     db.addAuditLog({
       action: "USER_REGISTERED",
       actorId: newUser.id,
@@ -3191,11 +3198,8 @@ app.all("/api/*", (req, res) => {
   });
 });
 app.use(centralErrorHandler);
-
-// server/api-entry.ts
-function handler(req, res) {
-  return app(req, res);
-}
+var app_default = app;
 export {
-  handler as default
+  app,
+  app_default as default
 };

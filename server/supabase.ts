@@ -9,16 +9,11 @@ let serverSupabaseClient: SupabaseClient | null = null;
 export function getServerSupabase(): SupabaseClient {
   if (!serverSupabaseClient) {
     const supabaseUrl = process.env.SUPABASE_URL || 'https://sicczkuqwljigsatsyva.supabase.co';
-    const supabaseSecretKey =
-      process.env.SUPABASE_SECRET_KEY ||
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.SUPABASE_PUBLISHABLE_KEY ||
-      process.env.SUPABASE_ANON_KEY ||
-      'sb_publishable_scog-F8bxFxW7oFH1wBUmQ_9DOoqJVh';
+    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseSecretKey) {
       throw new Error(
-        'Server Supabase configuration missing: SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_PUBLISHABLE_KEY) must be set in environment variables.'
+        'Server Supabase configuration missing: SUPABASE_URL and SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY must be set in environment variables.'
       );
     }
 
@@ -37,7 +32,10 @@ export function getServerSupabase(): SupabaseClient {
  * Validates if the Supabase server configuration is present.
  */
 export function isServerSupabaseReady(): boolean {
-  return true;
+  return Boolean(
+    process.env.SUPABASE_URL &&
+    (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
+  );
 }
 
 /**

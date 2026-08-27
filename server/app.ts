@@ -29,6 +29,7 @@ import { testAndMigrateDatabase } from './schema-migrator';
 import { generateRequestId, logger } from './logger';
 import { AppError, Errors, centralErrorHandler } from './errors';
 import { createRateLimiter } from './rateLimit';
+import 'dotenv/config';
 
 export const app = express();
 
@@ -153,6 +154,8 @@ app.get('/api/blockchain/mock-tx', (req, res) => {
 // Registration
 app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
   try {
+    console.log(req.body,"body");
+    
     const settings = await db.getSettingsAsync();
     if (settings.registrationEnabled === false) {
       throw Errors.registrationDisabled('Registration is currently unavailable. Please try again later.');
@@ -197,7 +200,7 @@ app.post('/api/auth/register', authRateLimiter, async (req, res, next) => {
       profilePictureUrl: profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName)}`,
     };
 
-    db.addUser(newUser);
+    await db.addUser(newUser);
 
     db.addAuditLog({
       action: 'USER_REGISTERED',
