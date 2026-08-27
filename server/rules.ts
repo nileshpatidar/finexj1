@@ -92,10 +92,14 @@ export async function processDeposit(input: ProcessDepositInput): Promise<{ succ
 
   if (input.txHash && !input.proofPhotoUrl) {
     const verification = await verifyBEP20Deposit(input.txHash, depositAmount);
-    if (verification.isValid) {
-      isDirectlyConfirmed = true;
-      confirmations = verification.confirmations || 12;
+    if (!verification.isValid) {
+      return {
+        success: false,
+        error: verification.errorMessage || 'Invalid blockchain transaction.',
+      };
     }
+    isDirectlyConfirmed = true;
+    confirmations = verification.confirmations || 12;
   }
 
   // If user provided a photo proof, flag as pending review so finance admin can audit receipt and tx on BSC

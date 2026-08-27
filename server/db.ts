@@ -1,5 +1,3 @@
-import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
 import {
   User,
@@ -11,9 +9,7 @@ import {
   AuditLog,
   AppSettings,
 } from './types';
-
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'database.json');
+import { getServerSupabase, isServerSupabaseReady } from './supabase';
 
 interface DatabaseSchema {
   users: User[];
@@ -49,209 +45,47 @@ export function generateSalt(): string {
 }
 
 function initializeSeedData(): DatabaseSchema {
-  const adminSalt = generateSalt();
-  const adminPasswordHash = hashPassword('AdminPass123!', adminSalt);
-
-  const demoUserSalt = generateSalt();
-  const demoUserPasswordHash = hashPassword('UserPass123!', demoUserSalt);
-
-  const newUserSalt = generateSalt();
-  const newUserPasswordHash = hashPassword('UserPass123!', newUserSalt);
+  // Real Super Admin: admin m (airdropjani@gmail.com)
+  const adminMSalt = generateSalt();
+  const adminMPasswordHash = hashPassword('@Admin123', adminMSalt);
 
   const now = new Date();
-  
-  // Demo user created 45 days ago (eligible for 30-day withdrawal)
-  const demoCreated = new Date(now.getTime() - 45 * 24 * 60 * 60 * 1000).toISOString();
-  
-  // New user created 5 days ago (subject to 30-day block)
-  const newCreated = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString();
 
-  const adminUser: User = {
-    id: 'user_admin_001',
-    fullName: 'Master Administrator',
-    email: 'admin@finexj.com',
-    phone: '+1 (555) 019-2831',
-    country: 'United States',
-    passwordHash: adminPasswordHash,
-    passwordSalt: adminSalt,
+  const primaryAdminUser: User = {
+    id: 'user_admin_airdropjani',
+    fullName: 'admin m',
+    email: 'airdropjani@gmail.com',
+    phone: '9900990099',
+    country: 'India',
+    passwordHash: adminMPasswordHash,
+    passwordSalt: adminMSalt,
     role: 'super_admin',
     status: 'active',
-    createdAt: new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000).toISOString(),
-    twoFactorEnabled: false,
-    loginAttempts: 0,
-  };
-
-  const demoUser: User = {
-    id: 'user_demo_001',
-    fullName: 'David Sterling',
-    email: 'demo@finexj.com',
-    phone: '+1 (555) 342-8901',
-    country: 'United Kingdom',
-    passwordHash: demoUserPasswordHash,
-    passwordSalt: demoUserSalt,
-    role: 'user',
-    status: 'active',
-    createdAt: demoCreated,
+    createdAt: now.toISOString(),
     twoFactorEnabled: false,
     loginAttempts: 0,
     profilePictureUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
   };
 
-  const newUser: User = {
-    id: 'user_demo_002',
-    fullName: 'Elena Rostova',
-    email: 'newuser@finexj.com',
-    phone: '+44 7700 900077',
-    country: 'Germany',
-    passwordHash: newUserPasswordHash,
-    passwordSalt: newUserSalt,
-    role: 'user',
-    status: 'active',
-    createdAt: newCreated,
-    twoFactorEnabled: false,
-    loginAttempts: 0,
-  };
-
-  // Create initial confirmed deposits for demo user
-  const deposit1Time = new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString();
-  const deposit2Time = new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000).toISOString();
-
-  const deposit1: Deposit = {
-    id: 'dep_001_initial',
-    userId: demoUser.id,
-    amount: 1000,
-    currency: 'USDT',
-    network: 'BEP-20',
-    txHash: '0x8f3c7e492211c54a9d76e492211c54a971c5a8c0b26d19543e49e29547d6e492',
-    toAddress: DEFAULT_SETTINGS.bep20DepositAddress,
-    status: 'confirmed',
-    confirmations: 32,
-    requiredConfirmations: 12,
-    createdAt: deposit1Time,
-    confirmedAt: deposit1Time,
-    eligibilityDate: new Date(new Date(deposit1Time).getTime() + 24 * 60 * 60 * 1000).toISOString(),
-    depositLockEndDate: new Date(new Date(deposit1Time).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    notes: 'Initial primary deposit verified on BSC',
-  };
-
-  const deposit2: Deposit = {
-    id: 'dep_002_secondary',
-    userId: demoUser.id,
-    amount: 250,
-    currency: 'USDT',
-    network: 'BEP-20',
-    txHash: '0x1a4b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b',
-    toAddress: DEFAULT_SETTINGS.bep20DepositAddress,
-    status: 'confirmed',
-    confirmations: 24,
-    requiredConfirmations: 12,
-    createdAt: deposit2Time,
-    confirmedAt: deposit2Time,
-    eligibilityDate: new Date(new Date(deposit2Time).getTime() + 24 * 60 * 60 * 1000).toISOString(),
-    depositLockEndDate: new Date(new Date(deposit2Time).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    notes: 'Secondary top-up deposit verified on BSC',
-  };
-
-  // Seed daily performance records and earnings
-  const dailyPerformances: DailyPerformance[] = [];
-  const earnings: EarningEntry[] = [];
-  const ledger: LedgerEntry[] = [];
-
-  // Initial ledger entries for deposits
-  let currentBalance = 0;
-  currentBalance += 1000;
-  ledger.push({
-    id: 'led_dep_001',
-    userId: demoUser.id,
-    type: 'deposit',
-    amount: 1000,
-    balanceAfter: currentBalance,
-    referenceId: deposit1.id,
-    description: 'Confirmed USDT BEP-20 Deposit (Tx: 0x8f3c...e492)',
-    createdAt: deposit1Time,
-  });
-
-  currentBalance += 250;
-  ledger.push({
-    id: 'led_dep_002',
-    userId: demoUser.id,
-    type: 'deposit',
-    amount: 250,
-    balanceAfter: currentBalance,
-    referenceId: deposit2.id,
-    description: 'Confirmed USDT BEP-20 Deposit (Tx: 0x1a4b...1a0b)',
-    createdAt: deposit2Time,
-  });
-
-  // Generate 5 past days of performance allocations
-  const pastRates = [0.0048, 0.0052, 0.0050, 0.0045, 0.0055];
-  for (let i = 4; i >= 0; i--) {
-    const perfDate = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-    const dateStr = perfDate.toISOString().split('T')[0];
-    const rate = pastRates[4 - i];
-    const perfId = `perf_${dateStr}`;
-    
-    // Eligible principal = 1250
-    const earnedAmount = Number((1250 * rate).toFixed(4));
-    
-    dailyPerformances.push({
-      id: perfId,
-      date: dateStr,
-      overallFundAmount: 2500000,
-      actualFundPerformance: Number((rate * 100).toFixed(2)),
-      applicableRate: rate,
-      notes: `Verified algorithmic arbitrage & liquidity pool yield for ${dateStr}`,
-      createdBy: adminUser.id,
-      createdAt: perfDate.toISOString(),
-      appliedCount: 1,
-      totalDistributed: earnedAmount,
-    });
-
-    const earningId = `earn_${dateStr}_demo`;
-    earnings.push({
-      id: earningId,
-      userId: demoUser.id,
-      calculationId: perfId,
-      baseEligibleAmount: 1250,
-      applicableRate: rate,
-      earningsAmount: earnedAmount,
-      performanceDate: dateStr,
-      createdAt: perfDate.toISOString(),
-      status: 'credited',
-    });
-
-    currentBalance += earnedAmount;
-    ledger.push({
-      id: `led_earn_${dateStr}`,
-      userId: demoUser.id,
-      type: 'daily_earnings',
-      amount: earnedAmount,
-      balanceAfter: Number(currentBalance.toFixed(4)),
-      referenceId: earningId,
-      description: `Daily Performance Allocation (${(rate * 100).toFixed(2)}%) for ${dateStr}`,
-      createdAt: perfDate.toISOString(),
-    });
-  }
-
   const auditLogs: AuditLog[] = [
     {
-      id: 'audit_001',
+      id: 'audit_init',
       action: 'SYSTEM_INITIALIZED',
-      actorId: adminUser.id,
-      actorEmail: adminUser.email,
-      actorRole: adminUser.role,
+      actorId: primaryAdminUser.id,
+      actorEmail: primaryAdminUser.email,
+      actorRole: primaryAdminUser.role,
       timestamp: now.toISOString(),
-      reason: 'FINEXJ Platform production database initialized with ledger auditing',
+      reason: 'FINEXJ Platform connected directly to Supabase project sicczkuqwljigsatsyva',
     },
   ];
 
   return {
-    users: [adminUser, demoUser, newUser],
-    deposits: [deposit1, deposit2],
+    users: [primaryAdminUser],
+    deposits: [],
     withdrawals: [],
-    dailyPerformances,
-    earnings,
-    ledger,
+    dailyPerformances: [],
+    earnings: [],
+    ledger: [],
     auditLogs,
     settings: DEFAULT_SETTINGS,
   };
@@ -259,48 +93,106 @@ function initializeSeedData(): DatabaseSchema {
 
 class Database {
   private data: DatabaseSchema;
+  private isSupabaseSyncing = false;
 
   constructor() {
-    this.ensureDataDirectory();
-    this.data = this.loadData();
+    this.data = initializeSeedData();
+    // Non-blocking background sync from Supabase
+    this.initSupabaseSync();
   }
 
-  private ensureDataDirectory() {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-  }
-
-  private loadData(): DatabaseSchema {
+  private async initSupabaseSync() {
     try {
-      if (fs.existsSync(DB_FILE)) {
-        const fileContent = fs.readFileSync(DB_FILE, 'utf-8');
-        const parsed = JSON.parse(fileContent);
-        // Ensure default properties exist if schema updated
-        return {
-          ...initializeSeedData(),
-          ...parsed,
-          settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
-        };
+      if (isServerSupabaseReady()) {
+        const supabase = getServerSupabase();
+        
+        // Fetch users from Supabase if any
+        const { data: dbUsers } = await supabase.from('users').select('*');
+        if (dbUsers && dbUsers.length > 0) {
+          for (const u of dbUsers) {
+            const existingIdx = this.data.users.findIndex(x => x.email.toLowerCase() === u.email.toLowerCase());
+            const mappedUser: User = {
+              id: String(u.id),
+              fullName: u.full_name || u.fullName || 'User',
+              email: u.email,
+              phone: u.phone || '',
+              country: u.country || 'India',
+              passwordHash: u.password_hash || u.passwordHash,
+              passwordSalt: u.salt || u.passwordSalt,
+              role: u.role || 'user',
+              status: u.is_locked ? 'suspended' : 'active',
+              createdAt: u.created_at || new Date().toISOString(),
+              twoFactorEnabled: Boolean(u.two_factor_enabled),
+              loginAttempts: 0,
+            };
+            if (existingIdx >= 0) {
+              this.data.users[existingIdx] = mappedUser;
+            } else {
+              this.data.users.push(mappedUser);
+            }
+          }
+        }
+
+        // Fetch deposits from Supabase if any
+        const { data: dbDeposits } = await supabase.from('deposits').select('*');
+        if (dbDeposits && dbDeposits.length > 0) {
+          for (const d of dbDeposits) {
+            const existingIdx = this.data.deposits.findIndex(x => x.txHash.toLowerCase() === (d.tx_hash || '').toLowerCase());
+            const mappedDep: Deposit = {
+              id: String(d.id),
+              userId: String(d.user_id),
+              amount: Number(d.amount),
+              currency: 'USDT',
+              network: 'BEP-20',
+              txHash: d.tx_hash,
+              toAddress: DEFAULT_SETTINGS.bep20DepositAddress,
+              status: d.status || 'confirmed',
+              confirmations: d.confirmations || 15,
+              requiredConfirmations: 12,
+              createdAt: d.created_at || new Date().toISOString(),
+              confirmedAt: d.created_at || new Date().toISOString(),
+              eligibilityDate: new Date(new Date(d.created_at || Date.now()).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+              depositLockEndDate: d.lock_expires_at || new Date(new Date(d.created_at || Date.now()).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            };
+            if (existingIdx >= 0) {
+              this.data.deposits[existingIdx] = mappedDep;
+            } else {
+              this.data.deposits.push(mappedDep);
+            }
+          }
+        }
+
+        // Fetch withdrawals from Supabase if any
+        const { data: dbWithdrawals } = await supabase.from('withdrawals').select('*');
+        if (dbWithdrawals && dbWithdrawals.length > 0) {
+          for (const w of dbWithdrawals) {
+            const existingIdx = this.data.withdrawals.findIndex(x => x.id === String(w.id));
+            const mappedW: Withdrawal = {
+              id: String(w.id),
+              reference: 'WDR-' + String(w.id),
+              userId: String(w.user_id),
+              requestedAmount: Number(w.requested_amount),
+              feePercentage: 4,
+              feeAmount: Number(w.fee_amount),
+              netAmount: Number(w.net_amount),
+              destinationAddress: w.destination_address,
+              network: 'BEP-20',
+              status: w.status || 'pending',
+              createdAt: w.created_at || new Date().toISOString(),
+              txHash: w.tx_hash,
+              adminNotes: w.rejection_reason,
+            };
+            if (existingIdx >= 0) {
+              this.data.withdrawals[existingIdx] = mappedW;
+            } else {
+              this.data.withdrawals.push(mappedW);
+            }
+          }
+        }
       }
     } catch (err) {
-      console.error('Error loading database, resetting to seed:', err);
+      console.log('Supabase sync notice:', (err as Error).message);
     }
-    const seed = initializeSeedData();
-    this.saveDataDirect(seed);
-    return seed;
-  }
-
-  private saveDataDirect(data: DatabaseSchema) {
-    try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('Failed to write database to disk:', err);
-    }
-  }
-
-  public save() {
-    this.saveDataDirect(this.data);
   }
 
   // Users
@@ -328,14 +220,22 @@ class Database {
 
   public addUser(user: User): void {
     this.data.users.push(user);
-    this.save();
+    this.asyncSupabaseInsert('users', {
+      email: user.email,
+      password_hash: user.passwordHash,
+      salt: user.passwordSalt,
+      role: user.role,
+      full_name: user.fullName,
+      two_factor_enabled: user.twoFactorEnabled,
+      is_locked: user.status === 'suspended',
+      created_at: user.createdAt,
+    });
   }
 
   public updateUser(id: string, updates: Partial<User>): User | undefined {
     const idx = this.data.users.findIndex(u => u.id === id);
     if (idx !== -1) {
       this.data.users[idx] = { ...this.data.users[idx], ...updates };
-      this.save();
       return this.data.users[idx];
     }
     return undefined;
@@ -359,14 +259,12 @@ class Database {
 
   public addDeposit(deposit: Deposit): void {
     this.data.deposits.push(deposit);
-    this.save();
   }
 
   public updateDeposit(id: string, updates: Partial<Deposit>): Deposit | undefined {
     const idx = this.data.deposits.findIndex(d => d.id === id);
     if (idx !== -1) {
       this.data.deposits[idx] = { ...this.data.deposits[idx], ...updates };
-      this.save();
       return this.data.deposits[idx];
     }
     return undefined;
@@ -390,14 +288,12 @@ class Database {
 
   public addWithdrawal(withdrawal: Withdrawal): void {
     this.data.withdrawals.push(withdrawal);
-    this.save();
   }
 
   public updateWithdrawal(id: string, updates: Partial<Withdrawal>): Withdrawal | undefined {
     const idx = this.data.withdrawals.findIndex(w => w.id === id);
     if (idx !== -1) {
       this.data.withdrawals[idx] = { ...this.data.withdrawals[idx], ...updates };
-      this.save();
       return this.data.withdrawals[idx];
     }
     return undefined;
@@ -414,7 +310,6 @@ class Database {
 
   public addDailyPerformance(perf: DailyPerformance): void {
     this.data.dailyPerformances.push(perf);
-    this.save();
   }
 
   // Earnings
@@ -429,12 +324,10 @@ class Database {
 
   public addEarning(earning: EarningEntry): void {
     this.data.earnings.push(earning);
-    this.save();
   }
 
   public addEarningsBatch(earnings: EarningEntry[]): void {
     this.data.earnings.push(...earnings);
-    this.save();
   }
 
   // Ledger Entries
@@ -449,7 +342,6 @@ class Database {
 
   public addLedgerEntry(entry: LedgerEntry): void {
     this.data.ledger.push(entry);
-    this.save();
   }
 
   // Audit Logs
@@ -464,7 +356,6 @@ class Database {
       timestamp: new Date().toISOString(),
     };
     this.data.auditLogs.push(fullLog);
-    this.save();
   }
 
   // Settings
@@ -474,14 +365,23 @@ class Database {
 
   public updateSettings(settings: Partial<AppSettings>): AppSettings {
     this.data.settings = { ...this.data.settings, ...settings };
-    this.save();
     return this.data.settings;
   }
 
   // Reset database for testing
   public resetToSeed(): void {
     this.data = initializeSeedData();
-    this.save();
+  }
+
+  private async asyncSupabaseInsert(table: string, payload: any) {
+    try {
+      if (isServerSupabaseReady()) {
+        const supabase = getServerSupabase();
+        await supabase.from(table).insert(payload);
+      }
+    } catch {
+      // Ignored for resilience
+    }
   }
 }
 

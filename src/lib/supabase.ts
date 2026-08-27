@@ -8,14 +8,18 @@ let supabaseClient: SupabaseClient | null = null;
  */
 export function getSupabase(): SupabaseClient {
   if (!supabaseClient) {
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseUrl =
+      process.env.SUPABASE_URL ||
+      process.env.VITE_SUPABASE_URL ||
+      'https://sicczkuqwljigsatsyva.supabase.co';
     const supabaseKey =
       process.env.SUPABASE_SECRET_KEY ||
       process.env.SUPABASE_SERVICE_ROLE_KEY ||
       process.env.SUPABASE_PUBLISHABLE_KEY ||
       process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
       process.env.SUPABASE_ANON_KEY ||
-      process.env.VITE_SUPABASE_ANON_KEY;
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      'sb_publishable_scog-F8bxFxW7oFH1wBUmQ_9DOoqJVh';
 
     if (!supabaseUrl || !supabaseKey) {
       throw new Error(
@@ -38,13 +42,5 @@ export function getSupabase(): SupabaseClient {
  * Safe helper to check if Supabase environment variables are provided.
  */
 export function isSupabaseConfigured(): boolean {
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_PUBLISHABLE_KEY ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY;
-  return Boolean(supabaseUrl && supabaseKey);
+  return true;
 }

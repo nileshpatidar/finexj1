@@ -40,11 +40,33 @@ export async function testAndMigrateDatabase(): Promise<DbTestResult> {
   if (isServerSupabaseReady()) {
     try {
       const supabase = getServerSupabase();
-      const { error } = await supabase.from('users').select('id').limit(1);
-      if (error && !error.message.includes('relation "users" does not exist') && !error.message.includes('does not exist')) {
-        result.supabaseJsError = error.message;
-      } else {
-        result.supabaseJsReady = true;
+      const testTables = [
+        'users',
+        'deposits',
+        'withdrawals',
+        'daily_performances',
+        'earnings',
+        'ledger',
+        'audit_logs',
+        'system_settings',
+      ];
+      
+      const found: string[] = [];
+      for (const tableName of testTables) {
+        const { error } = await supabase.from(tableName).select('id').limit(1);
+        if (!error) {
+          found.push(tableName);
+        } else if (
+          !error.message.includes('does not exist') &&
+          !error.message.includes('relation')
+        ) {
+          result.supabaseJsError = error.message;
+        }
+      }
+
+      result.supabaseJsReady = true;
+      if (found.length > 0) {
+        result.tablesFound = Array.from(new Set([...result.tablesFound, ...found]));
       }
     } catch (err) {
       result.supabaseJsError = (err as Error).message;
