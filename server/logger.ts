@@ -78,6 +78,24 @@ export function sanitizeLogData(obj: any): any {
 }
 
 /**
+ * Check if log persistence to database is enabled via environment variables:
+ * ENABLE_LOGGING=true or ENABLE_DB_LOGGING=true
+ * If true: save to database and consolelog (terminal)
+ * If not true: just print in terminal
+ */
+export function isDbLoggingEnabled(): boolean {
+  const envVal =
+    process.env.ENABLE_LOGGING ||
+    process.env.ENABLE_DB_LOGGING ||
+    process.env.ENABLE_LOG_PERSISTENCE ||
+    process.env.LOG_TO_DATABASE;
+
+  if (!envVal) return false;
+  const normalized = envVal.trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+}
+
+/**
  * Structured Logger Engine
  */
 class Logger {
@@ -115,40 +133,39 @@ class Logger {
       createdAt: new Date().toISOString(),
     };
 
-    // 1. Maintain in-memory ring buffer
+    // 1. In-memory buffer for instant live inspection
     memoryLogs.unshift(entry);
     if (memoryLogs.length > MAX_MEMORY_LOGS) {
       memoryLogs.pop();
     }
 
-    // 2. Structured console output in JSON format
-    const consoleOutput = JSON.stringify({
-      timestamp: entry.createdAt,
-      level: entry.level,
-      event: entry.event,
-      requestId: entry.requestId,
-      errorCode: entry.errorCode,
-      message: entry.message,
-      userId: entry.userId,
-      adminId: entry.adminId,
-      route: entry.route,
-      method: entry.method,
-      durationMs: entry.durationMs,
-      metadata: entry.metadata,
-    });
+    // 2. ALWAYS print in terminal (consolelog)
+    const details = [
+      entry.requestId ? `req=${entry.requestId}` : null,
+      entry.route ? `${entry.method || 'REQ'} ${entry.route}` : null,
+      entry.durationMs !== undefined ? `${entry.durationMs}ms` : null,
+      entry.errorCode ? `code=${entry.errorCode}` : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const terminalLine = `[${entry.createdAt}] [${entry.level}] [${entry.event}] ${entry.message}${details ? ` (${details})` : ''}`;
 
     if (level === 'ERROR') {
-      console.error(consoleOutput);
+      console.error(terminalLine);
     } else if (level === 'WARN') {
-      console.warn(consoleOutput);
+      console.warn(terminalLine);
     } else {
-      console.log(consoleOutput);
+      console.log(terminalLine);
     }
 
-    // 3. Persist WARN, ERROR, and critical system events to Supabase system_logs
-    // (Notice: Normal GET /api/user requests are NOT persisted to DB to preserve efficiency)
-    if (level === 'WARN' || level === 'ERROR' || event.startsWith('SECURITY_') || event.startsWith('SYSTEM_')) {
-      this.enqueueForSupabase(entry);
+    // 3. Save to database ONLY if enabled by environment variable
+    // If env var is true -> save to database AND terminal (already printed)
+    // If env var is not true -> just print in terminal (skip DB save)
+    if (isDbLoggingEnabled()) {
+      if (level === 'WARN' || level === 'ERROR' || event.startsWith('SECURITY_') || event.startsWith('SYSTEM_')) {
+        this.enqueueForSupabase(entry);
+      }
     }
   }
 
@@ -268,6 +285,7 @@ class Logger {
     errorsToday: number;
     warningsToday: number;
     infoToday: number;
+    dbLoggingEnabled: boolean;
   } {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -291,6 +309,7 @@ class Logger {
       errorsToday,
       warningsToday,
       infoToday,
+      dbLoggingEnabled: isDbLoggingEnabled(),
     };
   }
 }

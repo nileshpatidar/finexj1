@@ -176,6 +176,7 @@ export interface SystemHealthStats {
   errorsToday: number;
   warningsToday: number;
   infoToday: number;
+  dbLoggingEnabled?: boolean;
   retentionSettings: {
     systemLogRetentionDays: number;
     errorLogRetentionDays: number;

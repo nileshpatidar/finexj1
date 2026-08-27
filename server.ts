@@ -849,6 +849,7 @@ app.get('/api/admin/health/stats', authMiddleware, adminMiddleware(), (req, res)
     errorsToday: logStats.errorsToday,
     warningsToday: logStats.warningsToday,
     infoToday: logStats.infoToday,
+    dbLoggingEnabled: logStats.dbLoggingEnabled,
     retentionSettings: {
       systemLogRetentionDays: settings.systemLogRetentionDays || 30,
       errorLogRetentionDays: settings.errorLogRetentionDays || 90,

@@ -130,7 +130,13 @@ export const SystemLogsView: React.FC = () => {
               <Activity className="w-4 h-4 text-cyan-400" />
             </div>
             <div className="text-2xl font-bold text-slate-100 mt-2">{healthStats.totalSystemLogs}</div>
-            <div className="text-xs text-slate-400 mt-1">Non-blocking buffer + Supabase</div>
+            <div className="text-xs text-slate-400 mt-1">
+              {healthStats.dbLoggingEnabled ? (
+                <span className="text-emerald-400 font-medium">DB Saving Active</span>
+              ) : (
+                <span className="text-amber-400 font-medium">Terminal-Only Mode</span>
+              )}
+            </div>
           </div>
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
@@ -175,6 +181,17 @@ export const SystemLogsView: React.FC = () => {
             <span className="text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">
               Showing {logs.length} of {totalCount} records
             </span>
+            {healthStats?.dbLoggingEnabled ? (
+              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded-md hidden sm:inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                ENABLE_LOGGING=true (DB + Terminal)
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2 py-0.5 rounded-md hidden sm:inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                Terminal-Only Mode
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
