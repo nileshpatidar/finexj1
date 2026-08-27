@@ -32,6 +32,10 @@ export const InvestmentPlanModal: React.FC<InvestmentPlanModalProps> = ({
 
   const faqs = [
     {
+      q: 'What is the minimum deposit amount?',
+      a: 'The minimum deposit requirement is $300 USDT (BEP-20 on BNB Smart Chain). Deposits of $300 or more immediately qualify for active pool allocation and daily return calculations starting on the next calendar day (00:00 UTC).',
+    },
+    {
       q: 'How does the fund generate daily returns?',
       a: 'The pooled USDT funds are managed by quantitative traders and automated algorithms executing delta-neutral strategies, cross-exchange arbitrage, high-frequency market making, and structured decentralized liquidity provisioning. When market operations generate net positive profit, that profit is distributed proportionally across all active investor deposits.',
     },
@@ -40,8 +44,8 @@ export const InvestmentPlanModal: React.FC<InvestmentPlanModalProps> = ({
       a: 'No. In full alignment with professional asset management principles, returns are strictly performance-based and variable according to market opportunities and volatility. While our risk engine utilizes strict stop-loss protocols, returns are never fixed or guaranteed.',
     },
     {
-      q: 'Why is there a 20-day deposit lock period?',
-      a: 'To deploy capital effectively into market-making orders and liquidity positions without exposing the fund to sudden flash withdrawals or predatory arbitrage, newly deposited principal is committed for 20 days. Daily earnings earned on this principal, however, accumulate continuously.',
+      q: 'Why is there a 30-day deposit lock period?',
+      a: 'To deploy capital effectively into market-making orders and liquidity positions without exposing the fund to sudden flash withdrawals or predatory arbitrage, newly deposited principal is committed for 30 days. Daily earnings earned on this principal, however, accumulate continuously.',
     },
     {
       q: 'What is the 30-day account maturity rule?',
@@ -143,7 +147,7 @@ export const InvestmentPlanModal: React.FC<InvestmentPlanModalProps> = ({
                       <span>Deposit & Blockchain Confirmation</span>
                     </div>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                      Transfer USDT (BEP-20) to the platform address. Once 15 BSC network confirmations are achieved, your deposit is officially registered.
+                      Transfer minimum $300 USDT (BEP-20) to the platform address. Once confirmed on Binance Smart Chain, your deposit is officially registered.
                     </p>
                   </div>
 
@@ -153,7 +157,7 @@ export const InvestmentPlanModal: React.FC<InvestmentPlanModalProps> = ({
                       <span>Active Capital Deployment</span>
                     </div>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                      Your principal enters the trading pool with a 20-day liquidity stabilization lock. Funds actively generate performance allocations from day one.
+                      Your principal enters the trading pool with a 30-day liquidity stabilization lock. Funds actively generate performance allocations from day one.
                     </p>
                   </div>
 
@@ -314,7 +318,7 @@ export const InvestmentPlanModal: React.FC<InvestmentPlanModalProps> = ({
               <span>Comprehensive Risk Disclaimer & Disclosure</span>
             </div>
             <p className="text-[10px] text-slate-600 dark:text-slate-400 leading-relaxed">
-              <strong>DISCLAIMER:</strong> Digital asset investments and crypto trading strategies carry significant market risks, including the potential loss of capital, market volatility, liquidity risk, and technical network factors. Historical returns and past daily yields are not indicative of future performance. Yield distributions are variable and depend entirely upon realized trading returns; returns are never guaranteed or fixed. Investors are responsible for assessing their own financial circumstances and should never allocate funds they cannot afford to lose. By depositing funds, you formally accept all platform terms, including the 20-day deposit lock period, the 30-day account age withdrawal eligibility requirement, and the 4% standard network processing fee.
+              <strong>DISCLAIMER:</strong> Digital asset investments and crypto trading strategies carry significant market risks, including the potential loss of capital, market volatility, liquidity risk, and technical network factors. Historical returns and past daily yields are not indicative of future performance. Yield distributions are variable and depend entirely upon realized trading returns; returns are never guaranteed or fixed. Investors are responsible for assessing their own financial circumstances and should never allocate funds they cannot afford to lose. By depositing funds, you formally accept all platform terms, including the 30-day deposit lock period, the 30-day account age withdrawal eligibility requirement, and the 4% standard network processing fee.
             </p>
           </div>
         </div>

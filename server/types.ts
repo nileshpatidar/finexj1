@@ -41,7 +41,7 @@ export interface Deposit {
   createdAt: string;
   confirmedAt?: string;
   eligibilityDate?: string; // Eligible for performance earnings (next server day)
-  depositLockEndDate?: string; // 20 days lock period for withdrawal
+  depositLockEndDate?: string; // 30 days lock period for withdrawal
   proofPhotoUrl?: string; // Uploaded payment proof screenshot / photo data URL
   userNotes?: string;
   adminNotes?: string;
@@ -166,9 +166,10 @@ export interface AppSettings {
   bep20DepositAddress: string;
   usdtContractAddress: string;
   requiredConfirmations: number;
+  minimumDepositAmount: number; // 300 USDT
   withdrawalFeePercentage: number; // 4
   accountAgeRequirementDays: number; // 30
-  depositLockPeriodDays: number; // 20
+  depositLockPeriodDays: number; // 30
   telegramSupportUrl: string;
   operationalWalletAddress: string;
   compoundingEnabled: boolean;

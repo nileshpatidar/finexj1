@@ -133,6 +133,7 @@ export interface AppSettings {
   bep20DepositAddress: string;
   usdtContractAddress: string;
   requiredConfirmations: number;
+  minimumDepositAmount: number;
   withdrawalFeePercentage: number;
   accountAgeRequirementDays: number;
   depositLockPeriodDays: number;

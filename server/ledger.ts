@@ -37,7 +37,7 @@ export function calculateUserBalance(userId: string): UserBalanceSummary {
   const availableBalance = Math.max(0, Number(rawBalance.toFixed(4)));
 
   // 4. Calculate locked deposit principal and active 30-day fund lock
-  const depositLockMs = (settings.depositLockPeriodDays || 20) * 24 * 60 * 60 * 1000;
+  const depositLockMs = (settings.depositLockPeriodDays || 30) * 24 * 60 * 60 * 1000;
   let depositLockedAmount = 0;
 
   for (const dep of confirmedDeposits) {
@@ -103,7 +103,7 @@ export function calculateUserBalance(userId: string): UserBalanceSummary {
     eligibleForWithdrawal = Math.max(0, Number((availableBalance - lockedBalance).toFixed(4)));
     if (eligibleForWithdrawal <= 0) {
       canWithdraw = false;
-      withdrawalRestrictionReason = 'All current principal is within the initial 20-day deposit lock period.';
+      withdrawalRestrictionReason = 'All current principal is within the initial 30-day deposit lock period.';
     }
   }
 

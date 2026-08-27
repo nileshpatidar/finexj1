@@ -55,13 +55,21 @@ export async function processDeposit(input: ProcessDepositInput): Promise<{ succ
     return { success: false, error: 'Account is not active.' };
   }
 
-  const depositAmount = Number(input.amount || 100);
+  const now = new Date();
+  const settings = db.getSettings();
+  const minDeposit = settings.minimumDepositAmount || 300;
+
+  const depositAmount = Number(input.amount || minDeposit);
   if (isNaN(depositAmount) || depositAmount <= 0) {
     return { success: false, error: 'Deposit amount must be greater than 0 USDT.' };
   }
 
-  const now = new Date();
-  const settings = db.getSettings();
+  if (depositAmount < minDeposit) {
+    return {
+      success: false,
+      error: `Minimum deposit amount is ${minDeposit} USDT. Please enter an amount of ${minDeposit} USDT or more.`,
+    };
+  }
   const depositId = 'dep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
   // Generate fallback txHash if user only uploaded proof screenshot without txID
@@ -73,8 +81,8 @@ export async function processDeposit(input: ProcessDepositInput): Promise<{ succ
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   tomorrow.setUTCHours(0, 0, 0, 0);
 
-  // 20-day deposit lock rule for principal withdrawal
-  const lockPeriodMs = (settings.depositLockPeriodDays || 20) * 24 * 60 * 60 * 1000;
+  // 30-day deposit lock rule for principal withdrawal
+  const lockPeriodMs = (settings.depositLockPeriodDays || 30) * 24 * 60 * 60 * 1000;
   const lockEndDate = new Date(now.getTime() + lockPeriodMs).toISOString();
 
   // If user uploaded payment proof photo or if not directly blockchain-verified, mark as 'pending' for admin review
@@ -325,7 +333,7 @@ export async function applyDailyPerformance(input: AdminDailyPerformanceInput): 
 }
 
 /**
- * 3. Request Withdrawal with 30-day Account Age and 20-day Lock validation + 4% fixed fee
+ * 3. Request Withdrawal with 30-day Account Age and 30-day Lock validation + 4% fixed fee
  */
 export async function createWithdrawalRequest(
   input: RequestWithdrawalInput
@@ -371,11 +379,11 @@ export async function createWithdrawalRequest(
     };
   }
 
-  // Condition 2: 20-day deposit lock rule and balance check
+  // Condition 2: 30-day deposit lock rule and balance check
   if (input.requestedAmount > balanceSummary.eligibleForWithdrawal) {
     return {
       success: false,
-      error: `Requested amount ($${input.requestedAmount.toFixed(2)}) exceeds your currently eligible withdrawal balance ($${balanceSummary.eligibleForWithdrawal.toFixed(2)}). Note that deposits have a 20-day lock period.`,
+      error: `Requested amount ($${input.requestedAmount.toFixed(2)}) exceeds your currently eligible withdrawal balance ($${balanceSummary.eligibleForWithdrawal.toFixed(2)}). Note that deposits have a 30-day lock period.`,
     };
   }
 
@@ -612,8 +620,8 @@ export async function updateDepositStatus(
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     tomorrow.setUTCHours(0, 0, 0, 0);
 
-    // 20-day deposit lock rule for principal withdrawal
-    const lockPeriodMs = (settings.depositLockPeriodDays || 20) * 24 * 60 * 60 * 1000;
+    // 30-day deposit lock rule for principal withdrawal
+    const lockPeriodMs = (settings.depositLockPeriodDays || 30) * 24 * 60 * 60 * 1000;
     const lockEndDate = new Date(now.getTime() + lockPeriodMs).toISOString();
 
     const updated = db.updateDeposit(depositId, {

@@ -1376,7 +1376,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToUser }) 
               <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">USDT Token Contract (BSC)</span>
               <p className="font-mono text-slate-600 dark:text-slate-400">{appSettings?.usdtContractAddress}</p>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+              <div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Min Deposit</span>
+                <p className="font-bold text-slate-900 dark:text-white">${appSettings?.minimumDepositAmount || 300} USDT</p>
+              </div>
               <div>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400">Withdrawal Fee</span>
                 <p className="font-bold text-slate-900 dark:text-white">{appSettings?.withdrawalFeePercentage}% (Fixed)</p>

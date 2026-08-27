@@ -160,18 +160,30 @@ export async function runAutomatedTestSuite(): Promise<{
     }
 
     if (demoUser) {
+      // Test Minimum Deposit (< 300) rejection
+      const belowMinDepositRes = await processDeposit({
+        userId: demoUser.id,
+        amount: 150, // Below 300
+      });
+      assert(
+        'Minimum Deposit Enforcement: Rejection Under $300',
+        'Deposit Integrity',
+        belowMinDepositRes.success === false && Boolean(belowMinDepositRes.error?.includes('300')),
+        'Deposit of $150 USDT (< $300 minimum) was correctly blocked by the validation engine.'
+      );
+
       const duplicateTx = generateMockTxHash();
 
       const firstDepositRes = await processDeposit({
         userId: demoUser.id,
         txHash: duplicateTx,
-        amount: 150,
+        amount: 350,
       });
 
       const secondDepositRes = await processDeposit({
         userId: demoUser.id,
         txHash: duplicateTx,
-        amount: 150,
+        amount: 350,
       });
 
       assert(
@@ -204,21 +216,21 @@ export async function runAutomatedTestSuite(): Promise<{
     );
   }
 
-  // --- 6. 20-DAY DEPOSIT LOCK TEST ---
+  // --- 6. 30-DAY DEPOSIT LOCK TEST ---
   try {
     const now = new Date();
-    const testDepDateRecent = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(); // 10 days ago (< 20 days)
-    const isRecentLocked = (now.getTime() - new Date(testDepDateRecent).getTime()) < (20 * 24 * 60 * 60 * 1000);
+    const testDepDateRecent = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(); // 10 days ago (< 30 days)
+    const isRecentLocked = (now.getTime() - new Date(testDepDateRecent).getTime()) < (30 * 24 * 60 * 60 * 1000);
     
     assert(
-      '20-Day Deposit Lock: Day 10 Locked',
+      '30-Day Deposit Lock: Day 10 Locked',
       'Withdrawal Rules',
       isRecentLocked === true,
       'Deposit confirmed 10 days ago is correctly categorized as Locked Principal.'
     );
   } catch (err) {
     assert(
-      '20-Day Deposit Lock Rule',
+      '30-Day Deposit Lock Rule',
       'Withdrawal Rules',
       false,
       `Deposit lock test error: ${(err as Error).message}`

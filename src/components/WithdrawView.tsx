@@ -197,15 +197,15 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         </div>
       )}
 
-      {/* 20-DAY DEPOSIT LOCK BANNER */}
+      {/* 30-DAY DEPOSIT LOCK BANNER */}
       {balance && balance.lockedBalance > 0 && (
         <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 space-y-2">
           <div className="flex items-center space-x-2 font-bold text-slate-900 dark:text-white">
             <Lock className="w-4 h-4 text-amber-500" />
-            <span>20-Day Deposit Lock Period</span>
+            <span>30-Day Deposit Lock Period</span>
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Some of your funds (${balance.lockedBalance.toFixed(2)} USDT) are currently subject to the 20-day deposit lock rule. Only earnings and mature deposits (${balance.eligibleForWithdrawal.toFixed(2)} USDT) are eligible for immediate withdrawal.
+            Some of your funds (${balance.lockedBalance.toFixed(2)} USDT) are currently subject to the 30-day deposit lock rule. Only earnings and mature deposits (${balance.eligibleForWithdrawal.toFixed(2)} USDT) are eligible for immediate withdrawal.
           </p>
         </div>
       )}
@@ -225,7 +225,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
           <p className="text-xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">
             ${(balance?.lockedBalance || 0).toFixed(2)} USDT
           </p>
-          <span className="text-[11px] text-slate-500">20-Day Lock Period</span>
+          <span className="text-[11px] text-slate-500">30-Day Lock Period</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">

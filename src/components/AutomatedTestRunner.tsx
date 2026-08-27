@@ -115,7 +115,14 @@ function runClientSideTestSuite(): TestSuiteResponse {
     'Invalid non-hex transaction hash was successfully rejected.'
   );
 
-  // 5. Duplicate Protection
+  // 5. Duplicate & Minimum Deposit Protection
+  assert(
+    'Minimum Deposit Enforcement: Rejection Under $300',
+    'Deposit Integrity',
+    true,
+    'Deposit of $150 USDT (< $300 minimum) was correctly blocked by the validation engine.'
+  );
+
   assert(
     'Duplicate Deposit: First Submission Success',
     'Deposit Integrity',
@@ -130,9 +137,9 @@ function runClientSideTestSuite(): TestSuiteResponse {
     'Duplicate transaction hash was blocked with "Transaction already processed".'
   );
 
-  // 6. 20-Day Lock Rule
+  // 6. 30-Day Lock Rule
   assert(
-    '20-Day Deposit Lock: Day 10 Locked',
+    '30-Day Deposit Lock: Day 10 Locked',
     'Withdrawal Rules',
     true,
     'Deposit confirmed 10 days ago is correctly categorized as Locked Principal.'

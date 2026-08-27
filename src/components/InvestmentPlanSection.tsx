@@ -10,6 +10,7 @@ import {
   AlertCircle,
   Scale,
   CheckCircle2,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface InvestmentPlanSectionProps {
@@ -155,10 +156,14 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
         </div>
 
         {/* Governance & Rules Badges */}
-        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
+            <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+            <span><strong className="text-slate-900 dark:text-white font-bold">Min Deposit:</strong> $300 USDT</span>
+          </div>
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <Lock className="w-4 h-4 text-amber-500 flex-shrink-0" />
-            <span><strong className="text-slate-900 dark:text-white font-bold">20-Day Lock:</strong> Protects pool stability</span>
+            <span><strong className="text-slate-900 dark:text-white font-bold">30-Day Lock:</strong> Protects pool stability</span>
           </div>
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
@@ -166,7 +171,7 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
           </div>
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <Scale className="w-4 h-4 text-indigo-500 flex-shrink-0" />
-            <span><strong className="text-slate-900 dark:text-white font-bold">4% Fixed Fee:</strong> Transparent withdrawal</span>
+            <span><strong className="text-slate-900 dark:text-white font-bold">4% Fixed Fee:</strong> Transparent fee</span>
           </div>
         </div>
 
@@ -177,7 +182,7 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
             <span>Risk Disclaimer & Performance Disclosure</span>
           </div>
           <p className="text-[11px] leading-relaxed">
-            <strong>IMPORTANT NOTICE:</strong> All fund deposits are actively allocated into digital asset markets and quantitative trading strategies. Cryptocurrency trading and managed digital funds entail substantial market volatility and risk of capital loss. Past fund performance, historical daily returns, or projections do not guarantee or predict future returns. Daily return rates are variable and strictly based on actual trading outcomes; returns are never guaranteed or fixed. Investors should exercise prudence and only allocate risk capital they can afford to risk. By participating, you acknowledge and agree to platform rules, including the 20-day deposit lock, 30-day account maturity requirement, and the 4% standard withdrawal processing fee.
+            <strong>IMPORTANT NOTICE:</strong> All fund deposits are actively allocated into digital asset markets and quantitative trading strategies. Cryptocurrency trading and managed digital funds entail substantial market volatility and risk of capital loss. Past fund performance, historical daily returns, or projections do not guarantee or predict future returns. Daily return rates are variable and strictly based on actual trading outcomes; returns are never guaranteed or fixed. Investors should exercise prudence and only allocate risk capital they can afford to risk. By participating, you acknowledge and agree to platform rules, including the 30-day deposit lock, 30-day account maturity requirement, and the 4% standard withdrawal processing fee.
           </p>
         </div>
       </div>

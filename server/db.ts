@@ -30,9 +30,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   bep20DepositAddress: '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
   usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
   requiredConfirmations: 12,
+  minimumDepositAmount: 300, // Minimum 300 USDT deposit
   withdrawalFeePercentage: 4.0, // Fixed 4%
   accountAgeRequirementDays: 30, // 30 full days
-  depositLockPeriodDays: 20, // 20 days lock
+  depositLockPeriodDays: 30, // 30 days lock
   telegramSupportUrl: 'https://t.me/FINEXJ_OfficialSupport',
   operationalWalletAddress: '0x388C818CA8B9251b393131C08a73683246A73121',
   compoundingEnabled: false, // Principal-based by default
@@ -129,7 +130,7 @@ function initializeSeedData(): DatabaseSchema {
     createdAt: deposit1Time,
     confirmedAt: deposit1Time,
     eligibilityDate: new Date(new Date(deposit1Time).getTime() + 24 * 60 * 60 * 1000).toISOString(),
-    depositLockEndDate: new Date(new Date(deposit1Time).getTime() + 20 * 24 * 60 * 60 * 1000).toISOString(),
+    depositLockEndDate: new Date(new Date(deposit1Time).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     notes: 'Initial primary deposit verified on BSC',
   };
 
@@ -147,7 +148,7 @@ function initializeSeedData(): DatabaseSchema {
     createdAt: deposit2Time,
     confirmedAt: deposit2Time,
     eligibilityDate: new Date(new Date(deposit2Time).getTime() + 24 * 60 * 60 * 1000).toISOString(),
-    depositLockEndDate: new Date(new Date(deposit2Time).getTime() + 20 * 24 * 60 * 60 * 1000).toISOString(),
+    depositLockEndDate: new Date(new Date(deposit2Time).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     notes: 'Secondary top-up deposit verified on BSC',
   };
 

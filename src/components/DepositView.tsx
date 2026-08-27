@@ -29,7 +29,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [deposits, setDeposits] = useState<DepositItem[]>([]);
   const [txHash, setTxHash] = useState('');
-  const [amount, setAmount] = useState<string>('100');
+  const [amount, setAmount] = useState<string>('300');
   const [userNotes, setUserNotes] = useState('');
   const [proofPhotoUrl, setProofPhotoUrl] = useState<string | null>(null);
   const [proofFileName, setProofFileName] = useState<string | null>(null);
@@ -121,8 +121,14 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
     }
 
     const numAmount = parseFloat(amount);
+    const minDeposit = settings?.minimumDepositAmount || 300;
     if (isNaN(numAmount) || numAmount <= 0) {
       setErrorMessage('Please enter a valid deposit amount greater than 0 USDT.');
+      return;
+    }
+
+    if (numAmount < minDeposit) {
+      setErrorMessage(`Minimum deposit is ${minDeposit} USDT. Please enter an amount of ${minDeposit} USDT or more.`);
       return;
     }
 
@@ -285,21 +291,43 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
         <form onSubmit={handleSubmitDeposit} className="space-y-4 text-xs">
           <div>
-            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              Deposit Amount (USDT) <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block font-semibold text-slate-700 dark:text-slate-300">
+                Deposit Amount (USDT) <span className="text-red-500">*</span>
+              </label>
+              <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800">
+                Minimum: {settings?.minimumDepositAmount || 300} USDT
+              </span>
+            </div>
             <div className="relative">
               <input
                 type="number"
                 step="any"
-                min="10"
+                min={settings?.minimumDepositAmount || 300}
                 required
                 value={amount}
                 onChange={e => setAmount(e.target.value)}
-                placeholder="100"
+                placeholder="300"
                 className="w-full py-3 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-semibold text-sm focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition"
               />
               <span className="absolute right-3.5 top-3 font-bold text-slate-400">USDT</span>
+            </div>
+            {/* Quick preset amount buttons */}
+            <div className="flex flex-wrap gap-2 mt-2">
+              {[300, 500, 1000, 2500, 5000].map(val => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setAmount(val.toString())}
+                  className={`py-1 px-2.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                    amount === val.toString()
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  ${val.toLocaleString()}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -609,7 +637,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                         <span>
                           Lock Expiry:{' '}
                           <strong className="text-slate-800 dark:text-slate-200">
-                            {dep.depositLockEndDate ? new Date(dep.depositLockEndDate).toLocaleDateString() : '20 Days'}
+                            {dep.depositLockEndDate ? new Date(dep.depositLockEndDate).toLocaleDateString() : '30 Days'}
                           </strong>
                         </span>
                       ) : isPending ? (
@@ -681,7 +709,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
           <span>Managed Fund Risk Disclosure</span>
         </div>
         <p className="text-[11px] leading-relaxed">
-          <strong>DISCLAIMER:</strong> Deposited funds are pooled and deployed into active algorithmic trading and digital asset liquidity strategies. Cryptocurrency trading involves market volatility and capital risk. Past returns and historical daily performance do not guarantee future earnings. Daily yield rates are variable based on net fund performance and are non-guaranteed. Newly deposited principal is subject to a 20-day liquidity stabilization lock. By submitting a deposit, you confirm acceptance of all governance rules.
+          <strong>DISCLAIMER:</strong> Deposited funds are pooled and deployed into active algorithmic trading and digital asset liquidity strategies. Cryptocurrency trading involves market volatility and capital risk. Past returns and historical daily performance do not guarantee future earnings. Daily yield rates are variable based on net fund performance and are non-guaranteed. Newly deposited principal is subject to a 30-day liquidity stabilization lock. By submitting a deposit, you confirm acceptance of all governance rules.
         </p>
       </div>
     </div>

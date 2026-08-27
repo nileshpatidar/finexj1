@@ -62,7 +62,7 @@ export async function seedCloudSqlDatabase() {
 
     // Add initial deposits
     const deposit1Time = new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000);
-    const lockExpires1 = new Date(deposit1Time.getTime() + 20 * 24 * 60 * 60 * 1000);
+    const lockExpires1 = new Date(deposit1Time.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     await db.insert(deposits).values({
       userId: demoUser.id,
@@ -76,7 +76,7 @@ export async function seedCloudSqlDatabase() {
     });
 
     const deposit2Time = new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000);
-    const lockExpires2 = new Date(deposit2Time.getTime() + 20 * 24 * 60 * 60 * 1000);
+    const lockExpires2 = new Date(deposit2Time.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     await db.insert(deposits).values({
       userId: demoUser.id,
