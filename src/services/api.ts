@@ -191,7 +191,7 @@ export const api = {
     notes: string;
   }) => request<any>('/api/admin/performance', { method: 'POST', body: JSON.stringify(payload) }),
   getAdminAuditLogs: () => request<{ auditLogs: any[] }>('/api/admin/audit-logs'),
-  updateAdminSettings: (payload: Partial<AppSettings>) =>
+  updateAdminSettings: (payload: Partial<AppSettings> & { reason?: string }) =>
     request<{ success: boolean; settings: AppSettings }>('/api/admin/settings', {
       method: 'POST',
       body: JSON.stringify(payload),

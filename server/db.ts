@@ -196,47 +196,123 @@ class Database {
           }
         }
         // Fetch system_settings from Supabase
-        const { data: dbSettings } = await supabase.from('system_settings').select('*');
-        if (dbSettings && dbSettings.length > 0) {
-          const updatedSettings: Partial<AppSettings> = {};
-          for (const item of dbSettings) {
-            if (item.key && item.value !== undefined) {
-              const k = item.key;
-              const v = item.value;
-              if (k === 'bep20DepositAddress') updatedSettings.bep20DepositAddress = v;
-              if (k === 'usdtContractAddress') updatedSettings.usdtContractAddress = v;
-              if (k === 'requiredConfirmations') updatedSettings.requiredConfirmations = Number(v);
-              if (k === 'withdrawalFeePercentage') {
-                const num = Number(v);
-                updatedSettings.withdrawalFeePercentage = num <= 1 && num > 0 ? num * 100 : num;
-              }
-              if (k === 'accountAgeRequirementDays') updatedSettings.accountAgeRequirementDays = Number(v);
-              if (k === 'depositLockPeriodDays') updatedSettings.depositLockPeriodDays = Number(v);
-              if (k === 'telegramSupportUrl') updatedSettings.telegramSupportUrl = v;
-              if (k === 'minimumDepositAmount') updatedSettings.minimumDepositAmount = Number(v);
-              if (k === 'maintenanceMode') updatedSettings.maintenanceMode = v === 'true' || v === true;
-              if (k === 'registrationEnabled') updatedSettings.registrationEnabled = v === 'true' || v === true;
-              if (k === 'loginEnabled') updatedSettings.loginEnabled = v === 'true' || v === true;
-              if (k === 'sessionVersion') updatedSettings.sessionVersion = Number(v);
-              if (k === 'systemLogRetentionDays') updatedSettings.systemLogRetentionDays = Number(v);
-              if (k === 'errorLogRetentionDays') updatedSettings.errorLogRetentionDays = Number(v);
-              if (k === 'notificationRetentionDays') updatedSettings.notificationRetentionDays = Number(v);
-            } else if (item.bep20_deposit_address) {
-              updatedSettings.bep20DepositAddress = item.bep20_deposit_address;
-              updatedSettings.usdtContractAddress = item.usdt_contract_address;
-              updatedSettings.requiredConfirmations = Number(item.required_confirmations || 15);
-              updatedSettings.withdrawalFeePercentage = Number(item.withdrawal_fee_percentage || 4);
-              updatedSettings.accountAgeRequirementDays = Number(item.account_age_requirement_days || 30);
-              updatedSettings.depositLockPeriodDays = Number(item.deposit_lock_period_days || 20);
-              updatedSettings.telegramSupportUrl = item.telegram_support_url;
-            }
-          }
-          this.data.settings = { ...this.data.settings, ...updatedSettings };
-        }
+        await this.syncSettingsFromDatabase();
       }
     } catch (err) {
       console.log('Supabase sync notice:', (err as Error).message);
     }
+  }
+
+  /**
+   * Directly fetch and sync latest settings from Supabase / PostgreSQL
+   */
+  public async syncSettingsFromDatabase(): Promise<AppSettings> {
+    try {
+      if (isServerSupabaseReady()) {
+        const supabase = getServerSupabase();
+        const { data: dbSettings, error } = await supabase.from('system_settings').select('*');
+        
+        if (!error && dbSettings && dbSettings.length > 0) {
+          const updatedSettings: Partial<AppSettings> = {};
+
+          for (const item of dbSettings) {
+            // Case 1: Key-Value pair row (e.g. { key: 'bep20DepositAddress', value: '0x...' })
+            if (item.key !== undefined && item.value !== undefined) {
+              const k = String(item.key).trim();
+              const v = item.value;
+
+              const normalizeKey = k.toLowerCase().replace(/_/g, '');
+
+              if (normalizeKey === 'bep20depositaddress' || normalizeKey === 'depositaddress') {
+                updatedSettings.bep20DepositAddress = String(v).trim();
+              } else if (normalizeKey === 'usdtcontractaddress' || normalizeKey === 'contractaddress') {
+                updatedSettings.usdtContractAddress = String(v).trim();
+              } else if (normalizeKey === 'requiredconfirmations' || normalizeKey === 'confirmations') {
+                const n = Number(v);
+                if (!isNaN(n)) updatedSettings.requiredConfirmations = n;
+              } else if (normalizeKey === 'minimumdepositamount' || normalizeKey === 'mindepositamount' || normalizeKey === 'mindeposit') {
+                const n = Number(v);
+                if (!isNaN(n)) updatedSettings.minimumDepositAmount = n;
+              } else if (normalizeKey === 'withdrawalfeepercentage' || normalizeKey === 'withdrawalfee') {
+                const n = Number(v);
+                if (!isNaN(n)) {
+                  updatedSettings.withdrawalFeePercentage = n <= 1 && n > 0 ? n * 100 : n;
+                }
+              } else if (normalizeKey === 'accountagerequirementdays' || normalizeKey === 'accountagedays') {
+                const n = Number(v);
+                if (!isNaN(n)) updatedSettings.accountAgeRequirementDays = n;
+              } else if (normalizeKey === 'depositlockperioddays' || normalizeKey === 'depositlockdays' || normalizeKey === 'lockperioddays') {
+                const n = Number(v);
+                if (!isNaN(n)) updatedSettings.depositLockPeriodDays = n;
+              } else if (normalizeKey === 'telegramsupporturl' || normalizeKey === 'telegramurl' || normalizeKey === 'supporturl') {
+                updatedSettings.telegramSupportUrl = String(v).trim();
+              } else if (normalizeKey === 'operationalwalletaddress' || normalizeKey === 'operationalwallet') {
+                updatedSettings.operationalWalletAddress = String(v).trim();
+              } else if (normalizeKey === 'compoundingenabled') {
+                updatedSettings.compoundingEnabled = v === true || v === 'true' || v === '1';
+              } else if (normalizeKey === 'maintenancemode') {
+                updatedSettings.maintenanceMode = v === true || v === 'true' || v === '1';
+              } else if (normalizeKey === 'registrationenabled') {
+                updatedSettings.registrationEnabled = v === true || v === 'true' || v === '1';
+              } else if (normalizeKey === 'loginenabled') {
+                updatedSettings.loginEnabled = v === true || v === 'true' || v === '1';
+              } else if (normalizeKey === 'sessionversion') {
+                const n = Number(v);
+                if (!isNaN(n)) updatedSettings.sessionVersion = n;
+              } else if (normalizeKey === 'systemlogretentiondays') {
+                const n = Number(v);
+                if (!isNaN(n)) updatedSettings.systemLogRetentionDays = n;
+              } else if (normalizeKey === 'errorlogretentiondays') {
+                const n = Number(v);
+                if (!isNaN(n)) updatedSettings.errorLogRetentionDays = n;
+              } else if (normalizeKey === 'notificationretentiondays') {
+                const n = Number(v);
+                if (!isNaN(n)) updatedSettings.notificationRetentionDays = n;
+              }
+            }
+            
+            // Case 2: Column-based single row (e.g. { bep20_deposit_address: '0x...', ... })
+            if (item.bep20_deposit_address || item.bep20DepositAddress) {
+              updatedSettings.bep20DepositAddress = (item.bep20_deposit_address || item.bep20DepositAddress);
+            }
+            if (item.usdt_contract_address || item.usdtContractAddress) {
+              updatedSettings.usdtContractAddress = (item.usdt_contract_address || item.usdtContractAddress);
+            }
+            if (item.required_confirmations || item.requiredConfirmations) {
+              const n = Number(item.required_confirmations || item.requiredConfirmations);
+              if (!isNaN(n)) updatedSettings.requiredConfirmations = n;
+            }
+            if (item.minimum_deposit_amount || item.minimumDepositAmount) {
+              const n = Number(item.minimum_deposit_amount || item.minimumDepositAmount);
+              if (!isNaN(n)) updatedSettings.minimumDepositAmount = n;
+            }
+            if (item.withdrawal_fee_percentage || item.withdrawalFeePercentage) {
+              const n = Number(item.withdrawal_fee_percentage || item.withdrawalFeePercentage);
+              if (!isNaN(n)) {
+                updatedSettings.withdrawalFeePercentage = n <= 1 && n > 0 ? n * 100 : n;
+              }
+            }
+            if (item.account_age_requirement_days || item.accountAgeRequirementDays) {
+              const n = Number(item.account_age_requirement_days || item.accountAgeRequirementDays);
+              if (!isNaN(n)) updatedSettings.accountAgeRequirementDays = n;
+            }
+            if (item.deposit_lock_period_days || item.depositLockPeriodDays) {
+              const n = Number(item.deposit_lock_period_days || item.depositLockPeriodDays);
+              if (!isNaN(n)) updatedSettings.depositLockPeriodDays = n;
+            }
+            if (item.telegram_support_url || item.telegramSupportUrl) {
+              updatedSettings.telegramSupportUrl = (item.telegram_support_url || item.telegramSupportUrl);
+            }
+          }
+
+          this.data.settings = { ...this.data.settings, ...updatedSettings };
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to sync settings from database:', (err as Error).message);
+    }
+
+    return this.data.settings;
   }
 
   // Users
@@ -407,24 +483,43 @@ class Database {
     return this.data.settings;
   }
 
+  public async getSettingsAsync(): Promise<AppSettings> {
+    return await this.syncSettingsFromDatabase();
+  }
+
   public updateSettings(settings: Partial<AppSettings>): AppSettings {
     this.data.settings = { ...this.data.settings, ...settings };
     
     // Async persist changed settings to Supabase system_settings
-    if (isServerSupabaseReady()) {
-      const supabase = getServerSupabase();
-      for (const [k, v] of Object.entries(settings)) {
-        if (v !== undefined) {
-          Promise.resolve(
-            supabase
-              .from('system_settings')
-              .upsert({ key: k, value: String(v), updated_at: new Date().toISOString() }, { onConflict: 'key' })
-          ).catch(() => {});
-        }
-      }
-    }
+    this.persistSettingsToDatabase(settings).catch(err => {
+      console.warn('Background settings save notice:', err?.message);
+    });
     
     return this.data.settings;
+  }
+
+  public async updateSettingsAsync(settings: Partial<AppSettings>): Promise<AppSettings> {
+    this.data.settings = { ...this.data.settings, ...settings };
+    await this.persistSettingsToDatabase(settings);
+    return this.data.settings;
+  }
+
+  private async persistSettingsToDatabase(settings: Partial<AppSettings>): Promise<void> {
+    try {
+      if (isServerSupabaseReady()) {
+        const supabase = getServerSupabase();
+        const upsertPromises = Object.entries(settings).map(async ([k, v]) => {
+          if (v !== undefined) {
+            await supabase
+              .from('system_settings')
+              .upsert({ key: k, value: String(v), updated_at: new Date().toISOString() }, { onConflict: 'key' });
+          }
+        });
+        await Promise.allSettled(upsertPromises);
+      }
+    } catch (err) {
+      console.warn('Supabase settings persist error:', (err as Error).message);
+    }
   }
 
   // Reset database for testing
