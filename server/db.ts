@@ -411,6 +411,7 @@ class Database {
       password_hash: user.passwordHash,
       salt: user.passwordSalt,
       role: user.role,
+      phone:user.phone,
       full_name: user.fullName,
       two_factor_enabled: user.twoFactorEnabled,
       is_locked: user.status === 'suspended',
