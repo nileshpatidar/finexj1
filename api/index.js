@@ -543,9 +543,13 @@ var init_db = __esm({
         try {
           if (isServerSupabaseReady()) {
             const supabase = getServerSupabase();
-            await supabase.from(table).insert(payload);
+            const { error } = await supabase.from(table).insert(payload);
+            if (error) {
+              console.warn(`[Supabase Write Warning] Could not insert into table "${table}":`, error.message, error.details || "");
+            }
           }
-        } catch {
+        } catch (err) {
+          console.warn(`[Supabase Write Exception] ${table}:`, err?.message);
         }
       }
     };
@@ -2438,9 +2442,6 @@ app.use((req, res, next) => {
   req.requestId = reqId;
   req.startTime = Date.now();
   res.setHeader("X-Request-Id", reqId);
-  if (req.url && !req.url.startsWith("/api") && req.url !== "/" && !req.url.startsWith("/assets")) {
-    req.url = "/api" + (req.url.startsWith("/") ? req.url : "/" + req.url);
-  }
   next();
 });
 var authRateLimiter = createRateLimiter({ windowMs: 60 * 1e3, maxRequests: 20, keyPrefix: "auth" });
@@ -3194,6 +3195,9 @@ app.use(centralErrorHandler);
 
 // server/api-entry.ts
 function handler(req, res) {
+  if (req.url && !req.url.startsWith("/api")) {
+    req.url = "/api" + (req.url.startsWith("/") ? req.url : "/" + req.url);
+  }
   return app(req, res);
 }
 export {

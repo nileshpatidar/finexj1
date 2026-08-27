@@ -40,12 +40,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   (req as any).requestId = reqId;
   (req as any).startTime = Date.now();
   res.setHeader('X-Request-Id', reqId);
-
-  // Normalize path if request arrived at Serverless function without /api prefix
-  if (req.url && !req.url.startsWith('/api') && req.url !== '/' && !req.url.startsWith('/assets')) {
-    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
-  }
-
   next();
 });
 
