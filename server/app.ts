@@ -40,6 +40,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   (req as any).requestId = reqId;
   (req as any).startTime = Date.now();
   res.setHeader('X-Request-Id', reqId);
+
+  // Normalize path if request arrived at Serverless function without /api prefix
+  if (req.url && !req.url.startsWith('/api') && req.url !== '/' && !req.url.startsWith('/assets')) {
+    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+
   next();
 });
 
@@ -92,7 +98,7 @@ function adminMiddleware(allowedRoles: UserRole[] = ['super_admin', 'finance_adm
 // ==========================================
 
 // Health check endpoint (Strict JSON compliance)
-app.get('/api/health', (req, res) => {
+app.get(['/api', '/api/health'], (req, res) => {
   res.status(200).json({
     success: true,
     service: 'FINEXJ API',

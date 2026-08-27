@@ -45,9 +45,24 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       headers,
     });
 
-    const data = await res.json();
+    const rawText = await res.text();
+    let data: any;
+
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      // If the response is not valid JSON (e.g. serverless gateway error)
+      if (!res.ok) {
+        throw new Error(rawText.slice(0, 150) || `Server returned error status ${res.status}`);
+      }
+      data = rawText;
+    }
+
     if (!res.ok) {
-      throw new Error(data.error || 'Server request failed');
+      const errMsg =
+        (typeof data === 'object' && data !== null && (data.error?.message || data.error || data.message)) ||
+        `Server request failed with status ${res.status}`;
+      throw new Error(errMsg);
     }
 
     // Cache successful GET responses for offline browsing
