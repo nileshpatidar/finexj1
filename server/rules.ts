@@ -399,7 +399,7 @@ export async function createWithdrawalRequest(
   }
 
   const settings = db.getSettings();
-  const feePercentage = settings.withdrawalFeePercentage || 4.0; // Fixed 4%
+  const feePercentage = settings.withdrawalFeePercentage || 9.0; // Dynamic/Default 9%
 
   // Server-side fee calculation
   const feeAmount = Number(((input.requestedAmount * feePercentage) / 100).toFixed(4));
@@ -437,7 +437,7 @@ export async function createWithdrawalRequest(
     amount: -input.requestedAmount,
     balanceAfter: balanceSummary.availableBalance - input.requestedAmount,
     referenceId: withdrawal.id,
-    description: `Withdrawal Request ${reference} ($${input.requestedAmount.toFixed(2)} USDT, 4% fee: $${feeAmount.toFixed(2)})`,
+    description: `Withdrawal Request ${reference} ($${input.requestedAmount.toFixed(2)} USDT, ${feePercentage}% fee: $${feeAmount.toFixed(2)})`,
     createdAt: now.toISOString(),
     performedBy: user.id,
   };

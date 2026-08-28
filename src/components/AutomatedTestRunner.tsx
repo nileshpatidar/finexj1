@@ -67,32 +67,32 @@ function runClientSideTestSuite(): TestSuiteResponse {
     'At Aug 31, 10:30 UTC (30 full days completed), withdrawal request is marked ELIGIBLE.'
   );
 
-  // 3. 4% Fee Calculations
-  const fee100 = 100 * 0.04;
+  // 3. 9% Fee Calculations
+  const fee100 = 100 * 0.09;
   const net100 = 100 - fee100;
-  const fee500 = 500 * 0.04;
+  const fee500 = 500 * 0.09;
   const net500 = 500 - fee500;
-  const fee1000 = 1000 * 0.04;
+  const fee1000 = 1000 * 0.09;
   const net1000 = 1000 - fee1000;
 
   assert(
-    'Fixed 4% Fee: $100 -> $4 Fee, $96 Net',
+    'Fixed 9% Fee: $100 -> $9 Fee, $91 Net',
     'Fee Calculations',
-    fee100 === 4 && net100 === 96,
+    fee100 === 9 && net100 === 91,
     `Calculated fee: $${fee100}, Net to receive: $${net100}.`
   );
 
   assert(
-    'Fixed 4% Fee: $500 -> $20 Fee, $480 Net',
+    'Fixed 9% Fee: $500 -> $45 Fee, $455 Net',
     'Fee Calculations',
-    fee500 === 20 && net500 === 480,
+    fee500 === 45 && net500 === 455,
     `Calculated fee: $${fee500}, Net to receive: $${net500}.`
   );
 
   assert(
-    'Fixed 4% Fee: $1,000 -> $40 Fee, $960 Net',
+    'Fixed 9% Fee: $1,000 -> $90 Fee, $910 Net',
     'Fee Calculations',
-    fee1000 === 40 && net1000 === 960,
+    fee1000 === 90 && net1000 === 910,
     `Calculated fee: $${fee1000}, Net to receive: $${net1000}.`
   );
 
@@ -221,7 +221,7 @@ export const AutomatedTestRunner: React.FC<AutomatedTestRunnerProps> = ({ isOpen
                 )}
               </div>
               <p className="text-[11px] text-slate-400">
-                Validates 30-day rule, 4% fee, duplicate deposits, and ledger integrity
+                Validates 30-day rule, 9% fee, duplicate deposits, and ledger integrity
               </p>
             </div>
           </div>

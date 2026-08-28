@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
   requiredConfirmations: 12,
   minimumDepositAmount: 300, // Minimum 300 USDT deposit
-  withdrawalFeePercentage: 4.0, // Fixed 4%
+  withdrawalFeePercentage: 9.0, // Standard 9%
   accountAgeRequirementDays: 30, // 30 full days
   depositLockPeriodDays: 30, // 30 days lock
   telegramSupportUrl: 'https://t.me/FINEXJ_OfficialSupport',

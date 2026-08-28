@@ -32,6 +32,7 @@ import {
   X,
   Activity,
   Lock,
+  ChevronDown,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -77,6 +78,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [selectedWithdrawal, setSelectedWithdrawal] = useState<any>(null);
   const [payoutTxHash, setPayoutTxHash] = useState('');
   const [adminNote, setAdminNote] = useState('');
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
 
   // Adjustment State
   const [adjustUserId, setAdjustUserId] = useState('');
@@ -278,28 +280,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* Navigation Tabs */}
-      <div className="flex overflow-x-auto no-scrollbar gap-1.5 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+      {/* Streamlined Navigation Tabs */}
+      <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
         {[
           { id: 'overview', label: 'Overview', icon: TrendingUp },
           { id: 'deposits', label: 'Deposits', icon: ArrowDownToLine },
           { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpFromLine },
           { id: 'users', label: 'Users', icon: Users },
           { id: 'performance', label: 'Daily Performance', icon: Sliders },
-          { id: 'security', label: 'Security & Auth Controls', icon: Lock },
-          { id: 'logs', label: 'System Logs', icon: Activity },
-          { id: 'adjustments', label: 'Adjustments', icon: DollarSign },
-          { id: 'audit', label: 'Audit Trail', icon: ShieldCheck },
-          { id: 'database', label: 'Supabase / DB', icon: Database },
-          { id: 'settings', label: 'Settings', icon: Settings },
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
+              onClick={() => {
+                setActiveTab(tab.id as any);
+                setToolsMenuOpen(false);
+              }}
+              className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer text-xs ${
                 isActive
                   ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -320,6 +319,66 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             </button>
           );
         })}
+
+        {/* More Tools Dropdown */}
+        <div className="relative">
+          {(() => {
+            const secondaryTabs = [
+              { id: 'security', label: 'Security & Auth Controls', icon: Lock },
+              { id: 'adjustments', label: 'Adjustments', icon: DollarSign },
+              { id: 'logs', label: 'System Logs', icon: Activity },
+              { id: 'audit', label: 'Audit Trail', icon: ShieldCheck },
+              { id: 'database', label: 'Supabase / DB', icon: Database },
+              { id: 'settings', label: 'Settings', icon: Settings },
+            ];
+            const activeSecondary = secondaryTabs.find(t => t.id === activeTab);
+            const SelectedIcon = activeSecondary ? activeSecondary.icon : Settings;
+
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setToolsMenuOpen(prev => !prev)}
+                  className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer text-xs ${
+                    activeSecondary
+                      ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  <SelectedIcon className="w-3.5 h-3.5" />
+                  <span>{activeSecondary ? activeSecondary.label : 'More Tools & Logs'}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${toolsMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {toolsMenuOpen && (
+                  <div className="absolute left-0 top-full mt-2 w-56 p-1.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xl z-50 animate-in fade-in zoom-in-95">
+                    {secondaryTabs.map(item => {
+                      const ItemIcon = item.icon;
+                      const isItemActive = activeTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            setActiveTab(item.id as any);
+                            setToolsMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-left text-xs font-medium transition cursor-pointer ${
+                            isItemActive
+                              ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold'
+                              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <ItemIcon className="w-4 h-4 text-slate-400" />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
       </div>
 
       {/* TAB 1: OVERVIEW */}
@@ -397,9 +456,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               <span className="text-[10px] text-slate-500 dark:text-slate-400">Fund Yield Allocations</span>
             </div>
 
-            {/* 6. Withdrawal Fees (4%) */}
+            {/* 6. Withdrawal Fees */}
             <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Withdrawal Fees (4%)</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Withdrawal Fees ({appSettings?.withdrawalFeePercentage ?? 9}%)</span>
               <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
                 ${(stats?.totalWithdrawalFees || 0).toFixed(2)} USDT
               </p>
@@ -863,7 +922,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         {wd.status.toUpperCase()}
                       </span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Net: ${wd.netAmount.toFixed(2)} (4% Fee: ${wd.feeAmount.toFixed(2)})
+                        Net: ${wd.netAmount.toFixed(2)} ({wd.feePercentage ?? appSettings?.withdrawalFeePercentage ?? 9}% Fee: ${wd.feeAmount.toFixed(2)})
                       </span>
                     </div>
 

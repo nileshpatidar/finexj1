@@ -1,4 +1,5 @@
 import React from 'react';
+import { useSettings } from '../context/SettingsContext';
 import {
   TrendingUp,
   Cpu,
@@ -21,6 +22,8 @@ interface InvestmentPlanSectionProps {
 export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
   onOpenDetailedModal,
 }) => {
+  const { withdrawalFeePercentage, minimumDepositAmount, depositLockPeriodDays, accountAgeRequirementDays } = useSettings();
+  const feePct = withdrawalFeePercentage ?? 9;
   return (
     <div className="space-y-4">
       {/* Main Managed Fund Overview Card */}
@@ -128,7 +131,7 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
               Compound or Withdraw
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
-              Daily earnings accumulate with full transparency. Withdraw whenever eligible with the standard 4% network fee.
+              Daily earnings accumulate with full transparency. Withdraw whenever eligible with the standard {feePct}% network fee.
             </p>
           </div>
         </div>
@@ -159,19 +162,19 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-            <span><strong className="text-slate-900 dark:text-white font-bold">Min Deposit:</strong> $300 USDT</span>
+            <span><strong className="text-slate-900 dark:text-white font-bold">Min Deposit:</strong> ${minimumDepositAmount} USDT</span>
           </div>
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <Lock className="w-4 h-4 text-amber-500 flex-shrink-0" />
-            <span><strong className="text-slate-900 dark:text-white font-bold">30-Day Lock:</strong> Protects pool stability</span>
+            <span><strong className="text-slate-900 dark:text-white font-bold">{depositLockPeriodDays}-Day Lock:</strong> Protects pool stability</span>
           </div>
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
-            <span><strong className="text-slate-900 dark:text-white font-bold">30-Day Maturity:</strong> Account age rule</span>
+            <span><strong className="text-slate-900 dark:text-white font-bold">{accountAgeRequirementDays}-Day Maturity:</strong> Account age rule</span>
           </div>
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <Scale className="w-4 h-4 text-indigo-500 flex-shrink-0" />
-            <span><strong className="text-slate-900 dark:text-white font-bold">4% Fixed Fee:</strong> Transparent fee</span>
+            <span><strong className="text-slate-900 dark:text-white font-bold">{feePct}% Standard Fee:</strong> Transparent fee</span>
           </div>
         </div>
 
@@ -182,7 +185,7 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
             <span>Risk Disclaimer & Performance Disclosure</span>
           </div>
           <p className="text-[11px] leading-relaxed">
-            <strong>IMPORTANT NOTICE:</strong> All fund deposits are actively allocated into digital asset markets and quantitative trading strategies. Cryptocurrency trading and managed digital funds entail substantial market volatility and risk of capital loss. Past fund performance, historical daily returns, or projections do not guarantee or predict future returns. Daily return rates are variable and strictly based on actual trading outcomes; returns are never guaranteed or fixed. Investors should exercise prudence and only allocate risk capital they can afford to risk. By participating, you acknowledge and agree to platform rules, including the 30-day deposit lock, 30-day account maturity requirement, and the 4% standard withdrawal processing fee.
+            <strong>IMPORTANT NOTICE:</strong> All fund deposits are actively allocated into digital asset markets and quantitative trading strategies. Cryptocurrency trading and managed digital funds entail substantial market volatility and risk of capital loss. Past fund performance, historical daily returns, or projections do not guarantee or predict future returns. Daily return rates are variable and strictly based on actual trading outcomes; returns are never guaranteed or fixed. Investors should exercise prudence and only allocate risk capital they can afford to risk. By participating, you acknowledge and agree to platform rules, including the {depositLockPeriodDays}-day deposit lock, {accountAgeRequirementDays}-day account maturity requirement, and the {feePct}% standard withdrawal processing fee.
           </p>
         </div>
       </div>

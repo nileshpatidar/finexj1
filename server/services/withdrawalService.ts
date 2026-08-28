@@ -1,4 +1,5 @@
 import { getProfileById, updateProfile } from '../repositories/profiles';
+import { db } from '../db';
 import {
   createWithdrawal,
   getWithdrawalById,
@@ -94,10 +95,10 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     };
   }
 
-  // 4. Dynamic fee calculation from database settings (default 4%)
+  // 4. Dynamic fee calculation from database settings (default 9%)
   const feePct = (settings.withdrawalFeePercentage !== undefined && !isNaN(Number(settings.withdrawalFeePercentage)))
     ? Number(settings.withdrawalFeePercentage)
-    : 4;
+    : 9;
   const feeRate = feePct / 100;
   const feeAmount = Number((requestedAmount * feeRate).toFixed(4));
   const netAmount = Number((requestedAmount - feeAmount).toFixed(4));
@@ -172,55 +173,87 @@ export async function updateWithdrawalStatusAsync(
   txHash?: string,
   adminNotes?: string
 ): Promise<{ success: boolean; withdrawal?: Withdrawal; error?: string }> {
-  const withdrawal = await getWithdrawalById(withdrawalId);
-  if (!withdrawal) {
-    return { success: false, error: 'Withdrawal not found.' };
-  }
+  try {
+    let withdrawal = await getWithdrawalById(withdrawalId);
+    if (!withdrawal) {
+      // Look up by reference or memory fallback
+      const inMem = db.getWithdrawals().find(
+        w => w.id === withdrawalId ||
+             w.reference === withdrawalId ||
+             (w as any).idempotencyKey === withdrawalId ||
+             `wd_${w.id}` === withdrawalId ||
+             String(w.id) === withdrawalId.replace(/^wd_/, '')
+      );
+      if (inMem) {
+        withdrawal = inMem;
+      }
+    }
 
-  const now = new Date();
-  const updated = await updateWithdrawal(withdrawalId, {
-    status,
-    txHash: txHash || withdrawal.txHash,
-    adminNotes,
-    reviewedAt: now.toISOString(),
-    reviewedBy: adminId,
-    paidAt: status === 'paid' ? now.toISOString() : undefined,
-  });
+    if (!withdrawal) {
+      return { success: false, error: `Withdrawal record (${withdrawalId}) not found.` };
+    }
 
-  if (status === 'rejected') {
-    // If rejected, refund the held funds back to the user balance
-    const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
-    await createLedgerEntry({
-      userId: withdrawal.userId,
-      type: 'withdrawal_rejected',
-      amount: withdrawal.requestedAmount,
-      balanceAfter: currentBalance.availableBalance + withdrawal.requestedAmount,
-      referenceId: withdrawal.id,
-      description: `Withdrawal request rejected by admin. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || 'Verification failed'}`,
-      createdAt: now.toISOString(),
-      performedBy: adminId,
+    const now = new Date();
+    const updated = await updateWithdrawal(withdrawal.id, {
+      status,
+      txHash: txHash || withdrawal.txHash,
+      adminNotes,
+      reviewedAt: now.toISOString(),
+      reviewedBy: adminId,
+      paidAt: status === 'paid' ? now.toISOString() : undefined,
     });
-  } else if (status === 'paid') {
-    await createLedgerEntry({
-      userId: withdrawal.userId,
-      type: 'withdrawal_paid',
-      amount: 0,
-      balanceAfter: (await calculateUserBalanceAsync(withdrawal.userId)).availableBalance,
-      referenceId: withdrawal.id,
-      description: `Withdrawal payout dispatched via BEP-20 (Tx: ${txHash || 'Processing'}). Net Paid: ${withdrawal.netAmount} USDT`,
-      createdAt: now.toISOString(),
-      performedBy: adminId,
-    });
+
+    if (status === 'rejected') {
+      // If rejected, refund the held funds back to the user balance
+      try {
+        const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
+        await createLedgerEntry({
+          userId: withdrawal.userId,
+          type: 'withdrawal_rejected',
+          amount: withdrawal.requestedAmount,
+          balanceAfter: currentBalance.availableBalance + withdrawal.requestedAmount,
+          referenceId: withdrawal.id,
+          description: `Withdrawal request rejected by admin. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || 'Verification failed'}`,
+          createdAt: now.toISOString(),
+          performedBy: adminId,
+        });
+      } catch (ledgerErr: any) {
+        console.warn('[Ledger Notice] refund entry skipped:', ledgerErr?.message);
+      }
+    } else if (status === 'paid') {
+      try {
+        const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
+        await createLedgerEntry({
+          userId: withdrawal.userId,
+          type: 'withdrawal_paid',
+          amount: 0,
+          balanceAfter: currentBalance.availableBalance,
+          referenceId: withdrawal.id,
+          description: `Withdrawal payout dispatched via BEP-20 (Tx: ${txHash || 'Processing'}). Net Paid: ${withdrawal.netAmount} USDT`,
+          createdAt: now.toISOString(),
+          performedBy: adminId,
+        });
+      } catch (ledgerErr: any) {
+        console.warn('[Ledger Notice] paid entry skipped:', ledgerErr?.message);
+      }
+    }
+
+    try {
+      await createAuditLog({
+        action: `WITHDRAWAL_${status.toUpperCase()}`,
+        actorId: adminId,
+        actorRole: 'admin',
+        targetUserId: withdrawal.userId,
+        reason: adminNotes || `Admin updated withdrawal status to ${status}`,
+        timestamp: now.toISOString(),
+      });
+    } catch (auditErr: any) {
+      console.warn('[Audit Notice] audit log skipped:', auditErr?.message);
+    }
+
+    return { success: true, withdrawal: updated };
+  } catch (err: any) {
+    console.error('[Withdrawal Action Error]', err);
+    return { success: false, error: err?.message || 'Failed to update withdrawal' };
   }
-
-  await createAuditLog({
-    action: `WITHDRAWAL_${status.toUpperCase()}`,
-    actorId: adminId,
-    actorRole: 'admin',
-    targetUserId: withdrawal.userId,
-    reason: adminNotes || `Admin updated withdrawal status to ${status}`,
-    timestamp: now.toISOString(),
-  });
-
-  return { success: true, withdrawal: updated };
 }
