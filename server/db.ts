@@ -10,6 +10,7 @@ import {
   AppSettings,
 } from './types';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
+import { getPublicDepositProofUrl } from './storage';
 
 interface DatabaseSchema {
   users: User[];
@@ -144,6 +145,7 @@ class Database {
         if (dbDeposits && dbDeposits.length > 0) {
           for (const d of dbDeposits) {
             const existingIdx = this.data.deposits.findIndex(x => x.txHash.toLowerCase() === (d.tx_hash || '').toLowerCase());
+            const rawProof = d.proof_url || d.proof_photo_url;
             const mappedDep: Deposit = {
               id: String(d.id),
               userId: String(d.user_id),
@@ -159,6 +161,8 @@ class Database {
               confirmedAt: d.created_at || new Date().toISOString(),
               eligibilityDate: new Date(new Date(d.created_at || Date.now()).getTime() + 24 * 60 * 60 * 1000).toISOString(),
               depositLockEndDate: d.lock_expires_at || new Date(new Date(d.created_at || Date.now()).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              proofPhotoUrl: rawProof ? getPublicDepositProofUrl(rawProof) : undefined,
+              userNotes: d.notes || d.user_notes || undefined,
             };
             if (existingIdx >= 0) {
               this.data.deposits[existingIdx] = mappedDep;

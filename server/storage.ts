@@ -25,6 +25,8 @@ export async function uploadDepositProof(
     } else {
       fileBuffer = Buffer.from(base64OrBuffer, 'base64');
     }
+  } else if (base64OrBuffer.startsWith('http://') || base64OrBuffer.startsWith('https://')) {
+    return base64OrBuffer;
   } else {
     fileBuffer = Buffer.from(base64OrBuffer, 'base64');
   }
@@ -41,12 +43,26 @@ export async function uploadDepositProof(
     });
 
   if (error) {
-    console.warn(`[Supabase Storage Notice] Bucket "${DEPOSIT_PROOFS_BUCKET}" not found, using data payload fallback.`);
+    console.warn(`[Supabase Storage Notice] Upload failed (${error.message}), falling back to direct image payload.`);
     // Fallback: preserve base64 data uri directly so proof is retained
     return base64OrBuffer;
   }
 
-  return data.path;
+  const { data: publicUrlData } = supabase.storage.from(DEPOSIT_PROOFS_BUCKET).getPublicUrl(data.path);
+  return publicUrlData?.publicUrl || data.path;
+}
+
+/**
+ * Resolves a storage path or full URL to a publicly accessible URL.
+ */
+export function getPublicDepositProofUrl(storagePathOrUrl: string): string {
+  if (!storagePathOrUrl) return '';
+  if (storagePathOrUrl.startsWith('http://') || storagePathOrUrl.startsWith('https://') || storagePathOrUrl.startsWith('data:')) {
+    return storagePathOrUrl;
+  }
+  const supabase = getServerSupabase();
+  const { data } = supabase.storage.from(DEPOSIT_PROOFS_BUCKET).getPublicUrl(storagePathOrUrl);
+  return data?.publicUrl || storagePathOrUrl;
 }
 
 /**

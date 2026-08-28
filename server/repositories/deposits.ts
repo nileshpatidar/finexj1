@@ -1,8 +1,12 @@
 import { getServerSupabase } from '../supabase';
 import { Deposit, DepositStatus } from '../types';
 import { resolveUserIdForDb } from './profiles';
+import { getPublicDepositProofUrl } from '../storage';
 
 export function mapDbDepositToDeposit(d: any): Deposit {
+  const rawProof = d.proof_url || d.proof_photo_url;
+  const proofPhotoUrl = rawProof ? getPublicDepositProofUrl(rawProof) : undefined;
+
   return {
     id: String(d.id),
     userId: String(d.user_id),
@@ -19,8 +23,8 @@ export function mapDbDepositToDeposit(d: any): Deposit {
     confirmedAt: d.confirmed_at || undefined,
     eligibilityDate: d.eligibility_date || undefined,
     depositLockEndDate: d.lock_expires_at || d.deposit_lock_end_date || undefined,
-    proofPhotoUrl: d.proof_url || d.proof_photo_url || undefined,
-    userNotes: d.user_notes || undefined,
+    proofPhotoUrl,
+    userNotes: d.notes || d.user_notes || undefined,
     adminNotes: d.admin_notes || undefined,
     reviewedAt: d.reviewed_at || undefined,
     reviewedBy: d.reviewed_by || undefined,
@@ -108,7 +112,6 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
   const payload: any = {
     user_id: userIdNum,
     amount: dep.amount,
-    net_amount: dep.amount,
     currency: 'USDT',
     network: 'BEP-20',
     to_address: toAddress,
@@ -128,11 +131,9 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
   }
   if (dep.proofPhotoUrl) {
     payload.proof_url = dep.proofPhotoUrl;
-    payload.proof_photo_url = dep.proofPhotoUrl;
   }
   if (dep.userNotes) {
     payload.notes = dep.userNotes;
-    payload.user_notes = dep.userNotes;
   }
 
   let { data, error } = await supabase
@@ -150,6 +151,8 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
       tx_hash: txHash,
       status: dep.status || 'confirmed',
       confirmations: dep.confirmations || 15,
+      proof_url: dep.proofPhotoUrl || null,
+      notes: dep.userNotes || null,
       created_at: dep.createdAt || new Date().toISOString(),
     };
     const retry = await supabase
