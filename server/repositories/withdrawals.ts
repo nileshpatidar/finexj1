@@ -36,6 +36,9 @@ export function mapDbWithdrawalToWithdrawal(w: any): Withdrawal {
     feePct = Math.round(((feeAmt / reqAmount) * 100) * 100) / 100;
   }
 
+  // Map database status 'completed' -> 'paid' for applet compatibility
+  const appStatus = (w.status === 'completed' ? 'paid' : (w.status || 'pending')) as WithdrawalStatus;
+
   return {
     id: String(w.id),
     reference: w.reference || `WD-${w.id}`,
@@ -46,12 +49,12 @@ export function mapDbWithdrawalToWithdrawal(w: any): Withdrawal {
     netAmount: netAmt,
     destinationAddress: w.destination_address || w.destinationAddress || '',
     network: 'BEP-20',
-    status: (w.status || 'pending') as WithdrawalStatus,
+    status: appStatus,
     createdAt: w.created_at || w.createdAt || new Date().toISOString(),
     reviewedAt: w.reviewed_at || w.reviewedAt || undefined,
     reviewedBy: w.reviewed_by || w.reviewedBy || undefined,
-    paidAt: w.paid_at || w.paidAt || undefined,
-    txHash: w.tx_hash || w.txHash || undefined,
+    paidAt: w.paid_at || w.paidAt || (appStatus === 'paid' ? (w.reviewed_at || w.created_at) : undefined),
+    txHash: w.payout_tx_hash || w.tx_hash || w.txHash || undefined,
     adminNotes: w.admin_notes || w.rejection_reason || w.adminNotes || undefined,
     userNotes: w.user_notes || w.userNotes || undefined,
     idempotencyKey: w.idempotency_key || w.idempotencyKey || undefined,
@@ -123,8 +126,12 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
   const standardPayload: any = {
     user_id: resolvedUserId,
     requested_amount: amount,
+    amount: amount,
+    fee_percentage: feePct,
     fee_amount: feeAmount,
     net_amount: netAmount,
+    currency: 'USDT',
+    network: 'BEP-20',
     destination_address: destination,
     status: wd.status || 'pending',
     created_at: wd.createdAt || new Date().toISOString(),
@@ -163,8 +170,11 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
       const altPayload: any = {
         user_id: resolvedUserId,
         amount: amount,
+        fee_percentage: feePct,
         fee_amount: feeAmount,
         net_amount: netAmount,
+        currency: 'USDT',
+        network: 'BEP-20',
         destination_address: destination,
         status: wd.status || 'pending',
         created_at: wd.createdAt || new Date().toISOString(),
@@ -193,84 +203,162 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
   return memWithdrawal;
 }
 
+export function toUuidIfPossible(idStr: string): string | null {
+  const clean = idStr.replace(/^wd_/i, '').replace(/[^a-f0-9]/gi, '');
+  if (clean.length === 32) {
+    return `${clean.slice(0, 8)}-${clean.slice(8, 12)}-${clean.slice(12, 16)}-${clean.slice(16, 20)}-${clean.slice(20, 32)}`.toLowerCase();
+  }
+  return null;
+}
+
 export async function updateWithdrawal(id: string, updates: Partial<Withdrawal>): Promise<Withdrawal> {
   // Always update in-memory record first to guarantee immediate consistency
   db.updateWithdrawal(id, updates);
-  const inMem = db.getWithdrawals().find(w => w.id === id || w.reference === id);
+  const inMem = db.getWithdrawals().find(w => w.id === id || w.reference === id || (w as any).idempotencyKey === id);
 
   try {
     const supabase = getServerSupabase();
-    const payload: any = {};
+    
+    // Normalize status: PostgreSQL constraint requires 'completed' for paid payouts
+    const rawStatus = (updates.status || inMem?.status || 'paid') as string;
+    const dbStatus = (rawStatus === 'paid' || rawStatus === 'completed') ? 'completed' : rawStatus;
+    
+    const nowIso = new Date().toISOString();
+    const finalTxHash = updates.txHash || inMem?.txHash || null;
+    const finalAdminNotes = updates.adminNotes || inMem?.adminNotes || null;
+    const finalReviewedBy = updates.reviewedBy || inMem?.reviewedBy || null;
+    const finalReviewedAt = updates.reviewedAt || inMem?.reviewedAt || nowIso;
 
-    if (updates.status !== undefined) payload.status = updates.status;
-    if (updates.txHash !== undefined) payload.tx_hash = updates.txHash;
-    if (updates.adminNotes !== undefined) {
-      payload.rejection_reason = updates.adminNotes;
+    // Primary payload strictly matching Supabase PostgreSQL withdrawals table
+    const primaryPayload: any = {
+      status: dbStatus,
+      payout_tx_hash: finalTxHash,
+      admin_notes: finalAdminNotes,
+      reviewed_by: finalReviewedBy,
+      reviewed_at: finalReviewedAt,
+      updated_at: nowIso,
+    };
+
+    if (inMem) {
+      if (inMem.requestedAmount) {
+        primaryPayload.amount = inMem.requestedAmount;
+        primaryPayload.requested_amount = inMem.requestedAmount;
+      }
+      if (inMem.feePercentage) primaryPayload.fee_percentage = inMem.feePercentage;
+      if (inMem.feeAmount) primaryPayload.fee_amount = inMem.feeAmount;
+      if (inMem.netAmount) primaryPayload.net_amount = inMem.netAmount;
+      if (inMem.destinationAddress) primaryPayload.destination_address = inMem.destinationAddress;
     }
-    if (updates.reviewedAt !== undefined) payload.reviewed_at = updates.reviewedAt;
-    if (updates.reviewedBy !== undefined) payload.reviewed_by = updates.reviewedBy;
+
+    // List of candidate ID representations to try against Supabase
+    const candidateIds: (string | number)[] = [id];
+    const strippedId = id.replace(/^wd_/i, '').replace(/^wdr[-_]/i, '').replace(/^wd[-_]/i, '');
+    if (strippedId !== id) candidateIds.push(strippedId);
+
+    const uuidVariant = toUuidIfPossible(id);
+    if (uuidVariant && !candidateIds.includes(uuidVariant)) candidateIds.push(uuidVariant);
+
+    if (inMem) {
+      if (inMem.id && !candidateIds.includes(inMem.id)) candidateIds.push(inMem.id);
+      const memUuid = toUuidIfPossible(inMem.id);
+      if (memUuid && !candidateIds.includes(memUuid)) candidateIds.push(memUuid);
+      if (inMem.reference && !candidateIds.includes(inMem.reference)) candidateIds.push(inMem.reference);
+    }
+
+    if (!isNaN(Number(strippedId))) {
+      candidateIds.push(Number(strippedId));
+    }
 
     let updatedRow: any = null;
 
-    // 1. Try updating by exact numeric or text ID
-    if (!isNaN(Number(id))) {
-      const { data } = await supabase
-        .from('withdrawals')
-        .update(payload)
-        .eq('id', Number(id))
-        .select()
-        .maybeSingle();
-      if (data) updatedRow = data;
-    } else {
-      const { data } = await supabase
-        .from('withdrawals')
-        .update(payload)
-        .eq('id', id)
-        .select()
-        .maybeSingle();
-      if (data) updatedRow = data;
+    // Helper to execute update with progressive column fallback
+    async function executeUpdateOnQuery(queryBuilder: (payload: any) => any): Promise<any> {
+      // 1. Try with full payload
+      let res = await queryBuilder(primaryPayload).select().maybeSingle();
+      if (!res.error && res.data) return res.data;
+
+      // 2. Try with core payload (without reviewed_by if missing)
+      const corePayload: any = {
+        status: dbStatus,
+        payout_tx_hash: finalTxHash,
+        admin_notes: finalAdminNotes,
+      };
+      if (inMem?.requestedAmount) corePayload.amount = inMem.requestedAmount;
+      if (inMem?.feePercentage) corePayload.fee_percentage = inMem.feePercentage;
+      if (inMem?.feeAmount) corePayload.fee_amount = inMem.feeAmount;
+      if (inMem?.netAmount) corePayload.net_amount = inMem.netAmount;
+
+      res = await queryBuilder(corePayload).select().maybeSingle();
+      if (!res.error && res.data) return res.data;
+
+      // 3. Try with minimal status-only payload
+      res = await queryBuilder({ status: dbStatus }).select().maybeSingle();
+      if (!res.error && res.data) return res.data;
+
+      return null;
     }
 
-    // 2. If not matched by ID (e.g. record had temporary in-memory ID), try matching by destination_address & pending status
+    // Try matching candidate IDs
+    for (const candId of candidateIds) {
+      try {
+        const row = await executeUpdateOnQuery((p) => supabase.from('withdrawals').update(p).eq('id', candId));
+        if (row) {
+          updatedRow = row;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    // If not matched by candidate IDs, try matching by user_id & destination_address
     if (!updatedRow && inMem) {
       const resolvedUserId = await resolveUserIdForDb(inMem.userId);
-      let query = supabase
-        .from('withdrawals')
-        .update(payload)
-        .eq('destination_address', inMem.destinationAddress);
+      try {
+        const { data: matchedRows } = await supabase
+          .from('withdrawals')
+          .select('id')
+          .eq('destination_address', inMem.destinationAddress)
+          .eq('user_id', resolvedUserId);
 
-      if (!isNaN(Number(resolvedUserId))) {
-        query = query.eq('user_id', Number(resolvedUserId));
+        if (matchedRows && matchedRows.length > 0) {
+          const targetDbId = matchedRows[matchedRows.length - 1].id;
+          updatedRow = await executeUpdateOnQuery((p) => supabase.from('withdrawals').update(p).eq('id', targetDbId));
+        }
+      } catch (matchErr: any) {
+        console.warn('[Withdrawal Target Resolution]', matchErr?.message);
       }
-
-      const { data } = await query.select().order('created_at', { ascending: false }).limit(1).maybeSingle();
-      if (data) updatedRow = data;
     }
 
-    // 3. If still not in Supabase (e.g. original insert had failed earlier), insert it directly now with the updated status
+    // If still not in Supabase, insert it directly with the updated status
     if (!updatedRow && inMem) {
       const resolvedUserId = await resolveUserIdForDb(inMem.userId);
       const newPayload: any = {
         user_id: resolvedUserId,
+        amount: inMem.requestedAmount,
         requested_amount: inMem.requestedAmount,
+        fee_percentage: inMem.feePercentage || 9,
         fee_amount: inMem.feeAmount,
         net_amount: inMem.netAmount,
+        currency: 'USDT',
+        network: 'BEP-20',
         destination_address: inMem.destinationAddress,
-        status: updates.status || inMem.status || 'paid',
-        created_at: inMem.createdAt || new Date().toISOString(),
-        reviewed_at: updates.reviewedAt || new Date().toISOString(),
-        reviewed_by: updates.reviewedBy || 'admin',
+        status: dbStatus,
+        payout_tx_hash: finalTxHash,
+        admin_notes: finalAdminNotes,
+        reviewed_by: finalReviewedBy,
+        reviewed_at: finalReviewedAt,
+        created_at: inMem.createdAt || nowIso,
       };
-      if (updates.txHash || inMem.txHash) newPayload.tx_hash = updates.txHash || inMem.txHash;
-      if (updates.adminNotes || inMem.adminNotes) newPayload.rejection_reason = updates.adminNotes || inMem.adminNotes;
 
-      const { data } = await supabase.from('withdrawals').insert(newPayload).select().maybeSingle();
-      if (data) updatedRow = data;
+      const { data, error: insertErr } = await supabase.from('withdrawals').insert(newPayload).select().maybeSingle();
+      if (!insertErr && data) {
+        updatedRow = data;
+      }
     }
 
     if (updatedRow) {
       const mapped = mapDbWithdrawalToWithdrawal(updatedRow);
       db.updateWithdrawal(id, mapped);
+      console.log(`[Supabase updateWithdrawal Success] Updated withdrawal in PostgreSQL (${id}) to status: ${dbStatus}`);
       return mapped;
     }
   } catch (err: any) {
@@ -291,7 +379,7 @@ export async function updateWithdrawal(id: string, updates: Partial<Withdrawal>)
     netAmount: 0,
     destinationAddress: '',
     network: 'BEP-20',
-    status: updates.status || 'paid',
+    status: (updates.status || 'paid') as WithdrawalStatus,
     createdAt: new Date().toISOString(),
     ...updates,
   };

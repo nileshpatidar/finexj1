@@ -810,11 +810,16 @@ app.post(['/api/admin/withdrawals/:id/action', '/admin/withdrawals/:id/action'],
     const { id } = req.params;
     const { action, txHash, adminNotes } = req.body;
 
-    if (!['approved', 'rejected', 'paid', 'processing'].includes(action)) {
-      throw Errors.validation('Invalid withdrawal action.');
+    const normalizedAction = (action === 'approve' || action === 'approved') ? 'approved' :
+      (action === 'reject' || action === 'rejected') ? 'rejected' :
+      (action === 'pay' || action === 'paid' || action === 'completed') ? 'paid' :
+      action;
+
+    if (!['approved', 'rejected', 'paid', 'processing'].includes(normalizedAction)) {
+      throw Errors.validation('Invalid withdrawal action. Must be paid, approved, or rejected.');
     }
 
-    const result = await updateWithdrawalStatusAsync(admin.id, id, action, txHash, adminNotes);
+    const result = await updateWithdrawalStatusAsync(admin.id, id, normalizedAction, txHash, adminNotes);
     if (!result.success) {
       throw Errors.validation(result.error || 'Failed to update withdrawal.');
     }

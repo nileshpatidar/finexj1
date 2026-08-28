@@ -46,8 +46,8 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
   }, []);
 
   const numAmount = parseFloat(amount) || 0;
-  // Dynamic fee calculated from database settings
-  const feeRate = (withdrawalFeePercentage || 4) / 100;
+  // Dynamic fee calculated from database settings (default 9%)
+  const feeRate = (withdrawalFeePercentage ?? 9) / 100;
   const estimatedFee = Number((numAmount * feeRate).toFixed(2));
   const estimatedNet = Math.max(0, Number((numAmount - estimatedFee).toFixed(2)));
 

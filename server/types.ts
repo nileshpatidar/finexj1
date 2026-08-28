@@ -167,7 +167,7 @@ export interface AppSettings {
   usdtContractAddress: string;
   requiredConfirmations: number;
   minimumDepositAmount: number; // 300 USDT
-  withdrawalFeePercentage: number; // 4
+  withdrawalFeePercentage: number; // Configurable / Default 9%
   accountAgeRequirementDays: number; // 30
   depositLockPeriodDays: number; // 30
   telegramSupportUrl: string;

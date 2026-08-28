@@ -30,7 +30,7 @@ export const SystemWalletSettings: React.FC<SystemWalletSettingsProps> = ({
   const [bep20DepositAddress, setBep20DepositAddress] = useState('');
   const [usdtContractAddress, setUsdtContractAddress] = useState('');
   const [minimumDepositAmount, setMinimumDepositAmount] = useState('300');
-  const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState('4');
+  const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState('9');
   const [accountAgeRequirementDays, setAccountAgeRequirementDays] = useState('30');
   const [depositLockPeriodDays, setDepositLockPeriodDays] = useState('30');
   const [telegramSupportUrl, setTelegramSupportUrl] = useState('');
@@ -47,7 +47,7 @@ export const SystemWalletSettings: React.FC<SystemWalletSettingsProps> = ({
       setBep20DepositAddress(appSettings.bep20DepositAddress || '');
       setUsdtContractAddress(appSettings.usdtContractAddress || '');
       setMinimumDepositAmount(String(appSettings.minimumDepositAmount ?? 300));
-      setWithdrawalFeePercentage(String(appSettings.withdrawalFeePercentage ?? 4));
+      setWithdrawalFeePercentage(String(appSettings.withdrawalFeePercentage ?? 9));
       setAccountAgeRequirementDays(String(appSettings.accountAgeRequirementDays ?? 30));
       setDepositLockPeriodDays(String(appSettings.depositLockPeriodDays ?? 30));
       setTelegramSupportUrl(appSettings.telegramSupportUrl || '');
@@ -71,7 +71,7 @@ export const SystemWalletSettings: React.FC<SystemWalletSettingsProps> = ({
       setBep20DepositAddress(freshSettings.bep20DepositAddress || '');
       setUsdtContractAddress(freshSettings.usdtContractAddress || '');
       setMinimumDepositAmount(String(freshSettings.minimumDepositAmount ?? 300));
-      setWithdrawalFeePercentage(String(freshSettings.withdrawalFeePercentage ?? 4));
+      setWithdrawalFeePercentage(String(freshSettings.withdrawalFeePercentage ?? 9));
       setAccountAgeRequirementDays(String(freshSettings.accountAgeRequirementDays ?? 30));
       setDepositLockPeriodDays(String(freshSettings.depositLockPeriodDays ?? 30));
       setTelegramSupportUrl(freshSettings.telegramSupportUrl || '');

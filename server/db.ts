@@ -189,10 +189,30 @@ class Database {
             }
 
             let feePercentage = DEFAULT_SETTINGS.withdrawalFeePercentage || 9;
-            if (w.fee_percentage !== undefined && w.fee_percentage !== null && Number(w.fee_percentage) > 0) {
-              feePercentage = Number(w.fee_percentage);
-            } else if (requestedAmount > 0 && feeAmount > 0) {
+            if (requestedAmount > 0 && feeAmount > 0) {
+              // Always compute accurate fee percentage mathematically from feeAmount and requestedAmount
               feePercentage = Math.round(((feeAmount / requestedAmount) * 100) * 100) / 100;
+            } else if (w.fee_percentage !== undefined && w.fee_percentage !== null && Number(w.fee_percentage) > 0) {
+              feePercentage = Number(w.fee_percentage);
+            }
+
+            // If the database has a mismatched or erroneous fee_percentage (e.g. 4% stored instead of true 9%), update Supabase row
+            const dbStoredFeePct = Number(w.fee_percentage || 0);
+            const dbStoredAmount = Number(w.amount || w.requested_amount || 0);
+            if (Math.abs(dbStoredFeePct - feePercentage) > 0.01 || dbStoredAmount <= 0) {
+              supabase.from('withdrawals').update({
+                fee_percentage: feePercentage,
+                amount: requestedAmount,
+                requested_amount: requestedAmount,
+                fee_amount: Number(w.fee_amount || (requestedAmount - (w.net_amount || netAmount))),
+                net_amount: Number(w.net_amount || (requestedAmount - (w.fee_amount || feeAmount))),
+              }).eq('id', w.id).then(({ error }) => {
+                if (error) {
+                  console.warn(`[Supabase Fixup Notice] Could not update withdrawal ${w.id}:`, error.message);
+                } else {
+                  console.log(`[Supabase Fixup Success] Corrected withdrawal ${w.id} fee_percentage to ${feePercentage}% and amount to ${requestedAmount}`);
+                }
+              });
             }
 
             const mappedW: Withdrawal = {
@@ -205,10 +225,13 @@ class Database {
               netAmount: Number(w.net_amount || (requestedAmount - (w.fee_amount || feeAmount))),
               destinationAddress: w.destination_address || '',
               network: 'BEP-20',
-              status: w.status || 'pending',
+              status: (w.status === 'completed' ? 'paid' : (w.status || 'pending')) as any,
               createdAt: w.created_at || new Date().toISOString(),
-              txHash: w.tx_hash,
-              adminNotes: w.rejection_reason || w.admin_notes,
+              paidAt: w.paid_at || (w.status === 'completed' ? (w.reviewed_at || w.created_at) : undefined),
+              txHash: w.payout_tx_hash || w.tx_hash,
+              adminNotes: w.admin_notes || w.rejection_reason,
+              reviewedBy: w.reviewed_by,
+              reviewedAt: w.reviewed_at,
             };
             if (existingIdx >= 0) {
               this.data.withdrawals[existingIdx] = mappedW;
