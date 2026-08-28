@@ -115,8 +115,8 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
   const handleSubmitDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!txHash && !proofPhotoUrl) {
-      setErrorMessage('Please either upload a payment proof screenshot or enter the transaction hash (TxID).');
+    if (!txHash.trim()) {
+      setErrorMessage('Please provide the BNB Smart Chain Transaction Hash (TxID). This is required to verify and track your deposit.');
       return;
     }
 
@@ -138,7 +138,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
     try {
       const res = await api.submitDeposit({
-        txHash: txHash.trim() || undefined,
+        txHash: txHash.trim(),
         amount: numAmount,
         proofPhotoUrl: proofPhotoUrl || undefined,
         userNotes: userNotes.trim() || undefined,
@@ -414,7 +414,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="font-semibold text-slate-700 dark:text-slate-300">
-                BNB Smart Chain Transaction Hash (TxID) <span className="text-slate-400 font-normal">(Optional if proof photo is attached)</span>
+                BNB Smart Chain Transaction Hash (TxID) <span className="text-rose-500 font-bold">*Required</span>
               </label>
               <button
                 type="button"
@@ -428,6 +428,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
             </div>
             <input
               type="text"
+              required
               value={txHash}
               onChange={e => setTxHash(e.target.value)}
               placeholder="0x... (from Binance, Trust Wallet, MetaMask, or BSCScan)"
@@ -464,13 +465,13 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
           <button
             type="submit"
-            disabled={isSubmitting || (!txHash && !proofPhotoUrl)}
-            className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white font-bold text-sm shadow-lg shadow-blue-500/25 transition flex items-center justify-center space-x-2 cursor-pointer"
+            disabled={isSubmitting || !txHash.trim() || !amount}
+            className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm shadow-lg shadow-blue-500/25 transition flex items-center justify-center space-x-2 cursor-pointer"
           >
             {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Submitting Deposit Proof...</span>
+                <span>Submitting Deposit for Review...</span>
               </>
             ) : (
               <>
@@ -518,22 +519,37 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
             </div>
           </div>
 
-          {lastSubmittedDeposit.txHash && (
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-blue-200 dark:border-blue-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-blue-200 dark:border-blue-800">
+            {lastSubmittedDeposit.txHash && (
               <span className="text-[11px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm">
                 TxHash: {lastSubmittedDeposit.txHash}
               </span>
-              <a
-                href={`https://bscscan.com/tx/${lastSubmittedDeposit.txHash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center space-x-1 py-1 px-2.5 rounded-lg bg-blue-600 text-white font-bold text-[11px] hover:bg-blue-700 transition"
-              >
-                <span>Track on BscScan</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
+            )}
+            
+            <div className="flex items-center space-x-2">
+              {lastSubmittedDeposit.txHash && (
+                <a
+                  href={`https://bscscan.com/tx/${lastSubmittedDeposit.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center space-x-1 py-1 px-2.5 rounded-lg bg-blue-600 text-white font-bold text-[11px] hover:bg-blue-700 transition"
+                >
+                  <span>Track on BscScan</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+              {lastSubmittedDeposit.proofPhotoUrl && (
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalImage(lastSubmittedDeposit.proofPhotoUrl!)}
+                  className="flex items-center space-x-1 py-1 px-2.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-bold text-[11px] hover:bg-blue-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <ImageIcon className="w-3 h-3" />
+                  <span>View Proof Photo</span>
+                </button>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
 

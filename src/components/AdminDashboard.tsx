@@ -80,6 +80,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [adminNote, setAdminNote] = useState('');
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
 
+  // Action Loading States
+  const [isProcessingDepositAction, setIsProcessingDepositAction] = useState<string | null>(null);
+  const [isProcessingWithdrawalAction, setIsProcessingWithdrawalAction] = useState<string | null>(null);
+
   // Adjustment State
   const [adjustUserId, setAdjustUserId] = useState('');
   const [adjustAmount, setAdjustAmount] = useState('');
@@ -144,6 +148,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   };
 
   const handleDepositAction = async (depositId: string, action: 'confirmed' | 'rejected', notes?: string) => {
+    setIsProcessingDepositAction(depositId);
     try {
       setActionError(null);
       setActionMessage(null);
@@ -159,17 +164,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       }
     } catch (err) {
       setActionError((err as Error).message || 'Deposit action failed.');
+    } finally {
+      setIsProcessingDepositAction(null);
     }
   };
 
   const handleWithdrawalAction = async (withdrawalId: string, action: string, txHash?: string) => {
+    if (action === 'paid' && (!txHash || !txHash.trim())) {
+      setActionError('BNB Smart Chain Payout Tx Hash is a required field to complete payout confirmation.');
+      return;
+    }
+    setIsProcessingWithdrawalAction(withdrawalId);
     try {
       setActionError(null);
       setActionMessage(null);
       const res = await api.updateWithdrawalAction(withdrawalId, {
         action,
-        txHash,
-        adminNotes: adminNote || undefined,
+        txHash: txHash ? txHash.trim() : undefined,
+        adminNotes: adminNote ? adminNote.trim() : undefined,
       });
       if (res.success) {
         setActionMessage(`Withdrawal ${action.toUpperCase()} successfully.`);
@@ -180,6 +192,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       }
     } catch (err) {
       setActionError((err as Error).message || 'Action failed.');
+    } finally {
+      setIsProcessingWithdrawalAction(null);
     }
   };
 
@@ -789,15 +803,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                       {dep.status === 'pending' ? (
                         <div className="flex items-center space-x-2">
                           <button
+                            disabled={Boolean(isProcessingDepositAction)}
                             onClick={() => setSelectedDepositForAction({ deposit: dep, action: 'confirmed' })}
-                            className="py-2 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-sm cursor-pointer flex items-center space-x-1"
+                            className="py-2 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition shadow-sm cursor-pointer flex items-center space-x-1"
                           >
-                            <Check className="w-3.5 h-3.5" />
+                            {isProcessingDepositAction === dep.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Check className="w-3.5 h-3.5" />
+                            )}
                             <span>Approve & Credit</span>
                           </button>
                           <button
+                            disabled={Boolean(isProcessingDepositAction)}
                             onClick={() => setSelectedDepositForAction({ deposit: dep, action: 'rejected' })}
-                            className="py-2 px-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 font-bold transition cursor-pointer flex items-center space-x-1"
+                            className="py-2 px-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 disabled:opacity-50 disabled:cursor-not-allowed text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 font-bold transition cursor-pointer flex items-center space-x-1"
                           >
                             <X className="w-3.5 h-3.5" />
                             <span>Reject</span>
@@ -937,16 +957,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   {wd.status === 'pending' || wd.status === 'under_review' ? (
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => setSelectedWithdrawal(wd)}
-                        className="py-1.5 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-sm cursor-pointer"
+                        disabled={Boolean(isProcessingWithdrawalAction)}
+                        onClick={() => {
+                          setSelectedWithdrawal(wd);
+                          setPayoutTxHash('');
+                          setAdminNote('');
+                        }}
+                        className="py-1.5 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition shadow-sm cursor-pointer"
                       >
                         Pay / Complete
                       </button>
                       <button
+                        disabled={Boolean(isProcessingWithdrawalAction)}
                         onClick={() => handleWithdrawalAction(wd.id, 'rejected')}
-                        className="py-1.5 px-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 font-bold transition cursor-pointer"
+                        className="py-1.5 px-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 disabled:opacity-50 disabled:cursor-not-allowed text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 font-bold transition cursor-pointer flex items-center space-x-1"
                       >
-                        Reject & Refund
+                        {isProcessingWithdrawalAction === wd.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : null}
+                        <span>Reject & Refund</span>
                       </button>
                     </div>
                   ) : (
@@ -977,14 +1006,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             </div>
 
             <div>
-              <label className="block text-slate-500 dark:text-slate-400 mb-1 text-xs font-medium">BNB Smart Chain Payout Tx Hash</label>
+              <label className="block text-slate-700 dark:text-slate-300 mb-1 text-xs font-semibold">
+                BNB Smart Chain Payout Tx Hash <span className="text-rose-500 font-bold">*Required</span>
+              </label>
               <input
                 type="text"
+                required
                 value={payoutTxHash}
                 onChange={e => setPayoutTxHash(e.target.value)}
-                placeholder="0x..."
-                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs"
+                placeholder="0x... (TxID from BSC on-chain transfer)"
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-blue-600"
               />
+              {!payoutTxHash.trim() && (
+                <p className="text-[11px] text-rose-500 mt-1">Transaction hash is required for user confirmation & blockchain verification.</p>
+              )}
             </div>
 
             <div>
@@ -993,19 +1028,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 type="text"
                 value={adminNote}
                 onChange={e => setAdminNote(e.target.value)}
-                placeholder="Payout verified on BSC wallet"
+                placeholder="e.g. Paid via corporate Binance / BSC wallet"
                 className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs"
               />
             </div>
 
             <div className="flex space-x-2 pt-2">
               <button
-                onClick={() => handleWithdrawalAction(selectedWithdrawal.id, 'paid', payoutTxHash || undefined)}
-                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition cursor-pointer shadow-md shadow-blue-500/20"
+                disabled={Boolean(isProcessingWithdrawalAction) || !payoutTxHash.trim()}
+                onClick={() => handleWithdrawalAction(selectedWithdrawal.id, 'paid', payoutTxHash)}
+                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs transition cursor-pointer shadow-md shadow-blue-500/20 flex items-center justify-center space-x-1.5"
               >
-                Mark as Paid & Notify User
+                {isProcessingWithdrawalAction === selectedWithdrawal.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Processing Payout...</span>
+                  </>
+                ) : (
+                  <span>Mark as Paid & Notify User</span>
+                )}
               </button>
               <button
+                disabled={Boolean(isProcessingWithdrawalAction)}
                 onClick={() => setSelectedWithdrawal(null)}
                 className="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs transition cursor-pointer"
               >
@@ -1110,6 +1154,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   </a>
                 </div>
               )}
+              {selectedDepositForAction.deposit.proofPhotoUrl && (
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <span className="text-slate-500 dark:text-slate-400 block mb-1">Attached Payment Receipt:</span>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewPhotoModal({
+                      url: selectedDepositForAction.deposit.proofPhotoUrl,
+                      title: `Deposit Proof - $${Number(selectedDepositForAction.deposit.amount || 0).toFixed(2)} USDT`
+                    })}
+                    className="w-full flex items-center space-x-2 p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 font-semibold transition cursor-pointer"
+                  >
+                    <img
+                      src={selectedDepositForAction.deposit.proofPhotoUrl}
+                      alt="Receipt"
+                      className="w-10 h-10 rounded-lg object-cover border border-blue-200 dark:border-blue-700"
+                    />
+                    <div className="text-left text-xs">
+                      <span className="block font-bold">Inspect Full Receipt Screenshot</span>
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400 flex items-center space-x-0.5">
+                        <Eye className="w-3 h-3" />
+                        <span>Click to Zoom</span>
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              )}
             </div>
 
             <div>
@@ -1133,22 +1203,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
             <div className="flex space-x-2 pt-2">
               <button
+                disabled={Boolean(isProcessingDepositAction)}
                 onClick={() => handleDepositAction(
                   selectedDepositForAction.deposit.id,
                   selectedDepositForAction.action,
                   depositAdminNotes
                 )}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-xs text-white transition cursor-pointer shadow-md ${
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs text-white transition cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-1.5 ${
                   selectedDepositForAction.action === 'confirmed'
                     ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
                     : 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/20'
                 }`}
               >
-                {selectedDepositForAction.action === 'confirmed'
-                  ? 'Confirm & Credit Balance'
-                  : 'Confirm Rejection'}
+                {isProcessingDepositAction === selectedDepositForAction.deposit.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <span>
+                    {selectedDepositForAction.action === 'confirmed'
+                      ? 'Confirm & Credit Balance'
+                      : 'Confirm Rejection'}
+                  </span>
+                )}
               </button>
               <button
+                disabled={Boolean(isProcessingDepositAction)}
                 onClick={() => {
                   setSelectedDepositForAction(null);
                   setDepositAdminNotes('');

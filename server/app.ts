@@ -465,13 +465,13 @@ app.post(['/api/user/deposits', '/user/deposits'], authMiddleware, financialRate
     const user: User = (req as any).user;
     const { txHash, amount, proofPhotoUrl, userNotes } = req.body;
 
-    if (!txHash && !proofPhotoUrl) {
-      throw Errors.validation('Please provide either a BSC transaction hash or upload a payment receipt photo.');
+    if (!txHash || typeof txHash !== 'string' || !txHash.trim()) {
+      throw Errors.validation('BNB Smart Chain Transaction Hash (TxID) is required.');
     }
 
     const result = await processDepositAsync({
       userId: user.id,
-      txHash: txHash || undefined,
+      txHash: txHash.trim(),
       amount: amount ? Number(amount) : undefined,
       proofPhotoUrl,
       userNotes,
@@ -819,7 +819,11 @@ app.post(['/api/admin/withdrawals/:id/action', '/admin/withdrawals/:id/action'],
       throw Errors.validation('Invalid withdrawal action. Must be paid, approved, or rejected.');
     }
 
-    const result = await updateWithdrawalStatusAsync(admin.id, id, normalizedAction, txHash, adminNotes);
+    if (normalizedAction === 'paid' && (!txHash || typeof txHash !== 'string' || !txHash.trim())) {
+      throw Errors.validation('BNB Smart Chain Payout Transaction Hash (TxID) is required to complete payout.');
+    }
+
+    const result = await updateWithdrawalStatusAsync(admin.id, id, normalizedAction, txHash ? txHash.trim() : undefined, adminNotes);
     if (!result.success) {
       throw Errors.validation(result.error || 'Failed to update withdrawal.');
     }
