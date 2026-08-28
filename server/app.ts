@@ -405,11 +405,12 @@ app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (re
 app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const [balanceSummary, ledger, earnings, marketPrices] = await Promise.all([
+    const [balanceSummary, ledger, earnings, marketPrices, settings] = await Promise.all([
       calculateUserBalanceAsync(user.id),
       getLedgerByUserId(user.id),
       getEarningsByUserId(user.id),
       getMarketPrices(),
+      getSettings(),
     ]);
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -429,6 +430,17 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
       todayEarnings: todayEarningsAmount,
       recentActivity: ledger.slice(0, 5),
       marketPrices,
+      settings: {
+        bep20DepositAddress: settings.bep20DepositAddress,
+        usdtContractAddress: settings.usdtContractAddress,
+        requiredConfirmations: settings.requiredConfirmations,
+        minimumDepositAmount: settings.minimumDepositAmount,
+        withdrawalFeePercentage: settings.withdrawalFeePercentage,
+        accountAgeRequirementDays: settings.accountAgeRequirementDays,
+        depositLockPeriodDays: settings.depositLockPeriodDays,
+        telegramSupportUrl: settings.telegramSupportUrl,
+        operationalWalletAddress: settings.operationalWalletAddress,
+      },
       serverTime: new Date().toISOString(),
     });
   } catch (err) {

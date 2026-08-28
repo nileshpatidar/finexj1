@@ -83,9 +83,10 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     };
   }
 
-  // 4. Fixed 4% fee calculation (strictly server-calculated)
-  const feePercentage = 0.04;
-  const feeAmount = Number((requestedAmount * feePercentage).toFixed(4));
+  // 4. Dynamic withdrawal fee calculation from system settings
+  const feePercentNum = Number(settings.withdrawalFeePercentage) || 4;
+  const feeRate = feePercentNum / 100;
+  const feeAmount = Number((requestedAmount * feeRate).toFixed(4));
   const netAmount = Number((requestedAmount - feeAmount).toFixed(4));
 
   const withdrawalId = 'wd_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
@@ -96,7 +97,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     reference,
     userId: user.id,
     requestedAmount,
-    feePercentage: 4,
+    feePercentage: feePercentNum,
     feeAmount,
     netAmount,
     destinationAddress: input.destinationAddress.trim(),
