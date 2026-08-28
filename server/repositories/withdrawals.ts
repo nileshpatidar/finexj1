@@ -75,65 +75,34 @@ export async function getWithdrawalById(id: string): Promise<Withdrawal | null> 
 
 export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdrawal> {
   const supabase = getServerSupabase();
-  const userIdNum = !isNaN(Number(wd.userId)) ? Number(wd.userId) : wd.userId;
   const destination = wd.destinationAddress || '';
-  const ref = wd.reference || `WD-${Date.now()}`;
+  const amount = Number(wd.requestedAmount || 0);
+  const feePct = wd.feePercentage !== undefined ? Number(wd.feePercentage) : 4;
+  const feeAmount = wd.feeAmount !== undefined ? Number(wd.feeAmount) : Number((amount * (feePct / 100)).toFixed(4));
+  const netAmount = wd.netAmount !== undefined ? Number(wd.netAmount) : Number((amount - feeAmount).toFixed(4));
 
   const payload: any = {
-    user_id: userIdNum,
-    requested_amount: wd.requestedAmount,
-    amount: wd.requestedAmount,
-    fee_percentage: wd.feePercentage || 4,
-    fee_amount: wd.feeAmount || Number((Number(wd.requestedAmount || 0) * 0.04).toFixed(4)),
-    net_amount: wd.netAmount || Number((Number(wd.requestedAmount || 0) * 0.96).toFixed(4)),
-    destination_address: destination,
-    to_address: destination,
+    user_id: String(wd.userId),
+    amount: amount,
+    fee_percentage: feePct,
+    fee_amount: feeAmount,
+    net_amount: netAmount,
     currency: 'USDT',
     network: 'BEP-20',
-    reference: ref,
+    destination_address: destination,
     status: wd.status || 'pending',
     created_at: wd.createdAt || new Date().toISOString(),
   };
 
-  if (wd.userNotes) {
-    payload.user_notes = wd.userNotes;
-    payload.notes = wd.userNotes;
-  }
-  if (wd.idempotencyKey) {
-    payload.idempotency_key = wd.idempotencyKey;
-  }
-
-  if (wd.id && !isNaN(Number(wd.id))) {
-    payload.id = Number(wd.id);
-  }
-
-  let { data, error } = await supabase
+  const { data, error } = await supabase
     .from('withdrawals')
     .insert(payload)
     .select()
     .single();
 
-  if (error && error.message.includes('column')) {
-    console.warn('[Supabase Withdrawals Fallback] Retrying with core fields...');
-    const minimalPayload: any = {
-      user_id: userIdNum,
-      amount: wd.requestedAmount,
-      destination_address: destination,
-      status: wd.status || 'pending',
-      created_at: wd.createdAt || new Date().toISOString(),
-    };
-    const retry = await supabase
-      .from('withdrawals')
-      .insert(minimalPayload)
-      .select()
-      .single();
-    data = retry.data;
-    error = retry.error;
-  }
-
-  if (error) {
-    console.error('[Supabase Error] createWithdrawal:', error.message);
-    throw new Error(`Failed to create withdrawal record: ${error.message}`);
+  if (error || !data) {
+    console.error('[Supabase Error] createWithdrawal:', error?.message);
+    throw new Error(`Failed to create withdrawal record in Supabase: ${error?.message || 'Database insert error'}`);
   }
 
   return mapDbWithdrawalToWithdrawal(data);

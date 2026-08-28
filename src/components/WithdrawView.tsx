@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import { WithdrawalItem, UserBalanceSummary } from '../types';
 import {
   ArrowUpFromLine,
@@ -18,6 +19,7 @@ interface WithdrawViewProps {
 
 export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitted }) => {
   const { user } = useAuth();
+  const { withdrawalFeePercentage, accountAgeRequirementDays, depositLockPeriodDays } = useSettings();
   const [balance, setBalance] = useState<UserBalanceSummary | null>(null);
   const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
   const [amount, setAmount] = useState<string>('100');
@@ -44,8 +46,8 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
   }, []);
 
   const numAmount = parseFloat(amount) || 0;
-  // Fixed 4% fee calculated server-side and previewed
-  const feeRate = 0.04;
+  // Dynamic fee calculated from database settings
+  const feeRate = (withdrawalFeePercentage || 4) / 100;
   const estimatedFee = Number((numAmount * feeRate).toFixed(2));
   const estimatedNet = Math.max(0, Number((numAmount - estimatedFee).toFixed(2)));
 
@@ -82,7 +84,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
       });
 
       if (res.success && res.withdrawal) {
-        setSuccessMessage(`Withdrawal request for $${res.withdrawal.requestedAmount.toFixed(2)} USDT submitted successfully! Net to receive: $${res.withdrawal.netAmount.toFixed(2)} USDT after 4% fee.`);
+        setSuccessMessage(`Withdrawal request for $${res.withdrawal.requestedAmount.toFixed(2)} USDT submitted successfully! Net to receive: $${res.withdrawal.netAmount.toFixed(2)} USDT after ${res.withdrawal.feePercentage ?? withdrawalFeePercentage}% fee.`);
         setLastSubmitted(res.withdrawal);
         setPassword('');
         setTwoFactorCode('');
@@ -113,7 +115,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         </p>
       </div>
 
-      {/* 30-DAY POST-WITHDRAWAL FUND RE-LOCK BANNER */}
+      {/* POST-WITHDRAWAL FUND RE-LOCK BANNER */}
       {balance?.isFundLocked && (
         <div className="rounded-3xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 p-6 shadow-md space-y-4">
           <div className="flex items-start space-x-3">
@@ -122,10 +124,10 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             </div>
             <div>
               <h2 className="text-base font-bold text-amber-950 dark:text-amber-100">
-                30-Day Fund Lock Active
+                {depositLockPeriodDays}-Day Fund Lock Active
               </h2>
               <p className="text-xs text-amber-900/90 dark:text-amber-200/90 mt-1 leading-relaxed font-medium">
-                Per fund protocol, following a withdrawal request, remaining capital is automatically re-locked for <strong>30 days</strong>. Daily performance yield continues earning and accumulating uninterrupted.
+                Per fund protocol, following a withdrawal request, remaining capital is automatically re-locked for <strong>{depositLockPeriodDays} days</strong>. Daily performance yield continues earning and accumulating uninterrupted.
               </p>
             </div>
           </div>
@@ -155,7 +157,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         </div>
       )}
 
-      {/* 30-DAY ACCOUNT AGE RESTRICTION BANNER */}
+      {/* ACCOUNT AGE RESTRICTION BANNER */}
       {balance && !balance.is30DaysOld && (
         <div className="rounded-3xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 p-6 shadow-md space-y-4">
           <div className="flex items-start space-x-3">
@@ -164,10 +166,10 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             </div>
             <div>
               <h2 className="text-base font-bold text-amber-950 dark:text-amber-100">
-                Withdrawal Unavailable — 30-Day Account Rule
+                Withdrawal Unavailable — {accountAgeRequirementDays}-Day Account Rule
               </h2>
               <p className="text-xs text-amber-900/90 dark:text-amber-200/90 mt-1 leading-relaxed font-medium">
-                Per fund security policy, your account must complete <strong>30 full days</strong> before you can request a withdrawal. Backend server time is the authoritative source.
+                Per fund security policy, your account must complete <strong>{accountAgeRequirementDays} full days</strong> before you can request a withdrawal. Backend server time is the authoritative source.
               </p>
             </div>
           </div>
@@ -183,29 +185,29 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             <div>
               <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Withdrawal Unlocks At</span>
               <p className="font-semibold text-amber-600 dark:text-amber-400 mt-0.5">
-                {balance.withdrawalEligibleDate ? new Date(balance.withdrawalEligibleDate).toLocaleString() : '30 Days'}
+                {balance.withdrawalEligibleDate ? new Date(balance.withdrawalEligibleDate).toLocaleString() : `${accountAgeRequirementDays} Days`}
               </p>
             </div>
 
             <div>
               <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Account Age</span>
               <p className="font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-                {balance.accountAgeDays} / 30 Days Completed
+                {balance.accountAgeDays} / {accountAgeRequirementDays} Days Completed
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* 30-DAY DEPOSIT LOCK BANNER */}
+      {/* DEPOSIT LOCK BANNER */}
       {balance && balance.lockedBalance > 0 && (
         <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 space-y-2">
           <div className="flex items-center space-x-2 font-bold text-slate-900 dark:text-white">
             <Lock className="w-4 h-4 text-amber-500" />
-            <span>30-Day Deposit Lock Period</span>
+            <span>{depositLockPeriodDays}-Day Deposit Lock Period</span>
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Some of your funds (${balance.lockedBalance.toFixed(2)} USDT) are currently subject to the 30-day deposit lock rule. Only earnings and mature deposits (${balance.eligibleForWithdrawal.toFixed(2)} USDT) are eligible for immediate withdrawal.
+            Some of your funds (${balance.lockedBalance.toFixed(2)} USDT) are currently subject to the {depositLockPeriodDays}-day deposit lock rule. Only earnings and mature deposits (${balance.eligibleForWithdrawal.toFixed(2)} USDT) are eligible for immediate withdrawal.
           </p>
         </div>
       )}
@@ -225,7 +227,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
           <p className="text-xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">
             ${(balance?.lockedBalance || 0).toFixed(2)} USDT
           </p>
-          <span className="text-[11px] text-slate-500">30-Day Lock Period</span>
+          <span className="text-[11px] text-slate-500">{depositLockPeriodDays}-Day Lock Period</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -290,7 +292,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             </div>
           </div>
 
-          {/* Real-time 4% Fee Breakdown Card */}
+          {/* Real-time Dynamic Fee Breakdown Card */}
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
             <div className="flex justify-between text-slate-600 dark:text-slate-400">
               <span className="font-medium">Withdrawal Amount:</span>
@@ -299,7 +301,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               </span>
             </div>
             <div className="flex justify-between text-slate-600 dark:text-slate-400">
-              <span className="font-medium">Withdrawal Fee (4% Fixed):</span>
+              <span className="font-medium">Withdrawal Fee ({withdrawalFeePercentage}% Dynamic):</span>
               <span className="font-bold text-amber-600 dark:text-amber-400">-${estimatedFee.toFixed(2)} USDT</span>
             </div>
             <div className="h-px bg-slate-200 dark:bg-slate-800"></div>
@@ -355,13 +357,13 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             )}
           </div>
 
-          {/* Automatic 30-Day Re-Lock Rule Notice */}
+          {/* Automatic Re-Lock Rule Notice */}
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-start space-x-2.5 text-xs text-slate-600 dark:text-slate-400">
             <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
             <div>
-              <strong className="text-slate-900 dark:text-slate-200 font-bold">Automatic 30-Day Fund Re-Lock Notice:</strong>
+              <strong className="text-slate-900 dark:text-slate-200 font-bold">Automatic {depositLockPeriodDays}-Day Fund Re-Lock Notice:</strong>
               <p className="mt-0.5 text-slate-600 dark:text-slate-400 leading-relaxed">
-                Upon submitting this withdrawal, any remaining balance will be automatically re-locked for <strong>30 days</strong> (lock_expires_at = now + 30 days) to protect liquidity stability while continuing to earn daily yield.
+                Upon submitting this withdrawal, any remaining balance will be automatically re-locked for <strong>{depositLockPeriodDays} days</strong> to protect liquidity stability while continuing to earn daily yield.
               </p>
             </div>
           </div>
@@ -389,12 +391,12 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             ) : balance?.isFundLocked ? (
               <>
                 <Lock className="w-4 h-4" />
-                <span>Locked: 30-Day Post-Withdrawal Re-Lock Active ({balance.fundLockRemainingDays}d {balance.fundLockRemainingHours}h)</span>
+                <span>Locked: {depositLockPeriodDays}-Day Post-Withdrawal Re-Lock Active ({balance.fundLockRemainingDays}d {balance.fundLockRemainingHours}h)</span>
               </>
             ) : !balance?.is30DaysOld ? (
               <>
                 <Lock className="w-4 h-4" />
-                <span>Locked: Account Age &lt; 30 Days</span>
+                <span>Locked: Account Age &lt; {accountAgeRequirementDays} Days</span>
               </>
             ) : (
               <>
@@ -444,7 +446,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                   </div>
 
                   <span className="font-bold text-blue-600 dark:text-blue-400 text-xs">
-                    Net: ${wd.netAmount.toFixed(2)} (4% Fee: ${wd.feeAmount.toFixed(2)})
+                    Net: ${wd.netAmount.toFixed(2)} ({wd.feePercentage ?? withdrawalFeePercentage}% Fee: ${wd.feeAmount.toFixed(2)})
                   </span>
                 </div>
 
@@ -468,16 +470,17 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         )}
       </div>
 
-      {/* Risk Disclaimer in Short Font */}
+      {/* Risk Disclaimer */}
       <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 space-y-1.5 text-xs">
         <div className="flex items-center space-x-1.5 text-amber-600 dark:text-amber-400 font-semibold text-[11px]">
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
           <span>Withdrawal & Fund Policy Notice</span>
         </div>
         <p className="text-[11px] leading-relaxed">
-          <strong>DISCLAIMER:</strong> Withdrawals are processed after manual compliance checks and smart contract validation. All withdrawals are subject to a standard 4% fee and require the account to meet the 30-day maturity requirement. Return allocations from the managed fund are variable and non-guaranteed. Ensure that your provided destination BEP-20 address is valid and on Binance Smart Chain; transactions to wrong addresses or networks cannot be reversed.
+          <strong>DISCLAIMER:</strong> Withdrawals are processed after compliance checks and smart contract validation. All withdrawals are subject to a dynamic {withdrawalFeePercentage}% fee and require the account to meet the {accountAgeRequirementDays}-day maturity requirement. Return allocations from the managed fund are variable and non-guaranteed. Ensure that your provided destination BEP-20 address is valid and on Binance Smart Chain; transactions to wrong addresses or networks cannot be reversed.
         </p>
       </div>
     </div>
   );
 };
+

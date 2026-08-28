@@ -1,4 +1,4 @@
-import { createPool } from '../src/db/index';
+import { getPostgresPool } from './postgres';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
 import fs from 'fs';
 import path from 'path';
@@ -84,7 +84,7 @@ export async function testAndMigrateDatabase(): Promise<DbTestResult> {
 
   if (hasPostgresCredentials) {
     try {
-      const pool = createPool();
+      const pool = getPostgresPool();
       const client = await pool.connect();
 
       try {

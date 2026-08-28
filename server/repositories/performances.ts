@@ -2,32 +2,45 @@ import { getServerSupabase } from '../supabase';
 import { DailyPerformance } from '../types';
 
 export function mapDbPerfToPerf(p: any): DailyPerformance {
+  const totalYield = Number(
+    p.total_yield_percentage ??
+    p.rate_percentage ??
+    p.actual_fund_performance ??
+    (p.trading_profit_percentage !== undefined ? Number(p.trading_profit_percentage) + Number(p.gold_reserves_percentage || 0) : 0)
+  );
+  const applicableRate = Number(
+    p.applicable_rate !== undefined
+      ? p.applicable_rate
+      : (p.applicableRate !== undefined ? p.applicableRate : (totalYield / 100))
+  );
+
   return {
     id: String(p.id),
     date: p.date,
     overallFundAmount: Number(p.total_fund_principal || p.overall_fund_amount || 0),
-    actualFundPerformance: Number(p.rate_percentage || p.actual_fund_performance || 0),
-    applicableRate: Number(p.rate_percentage ? p.rate_percentage / 100 : p.applicable_rate || 0),
+    actualFundPerformance: totalYield,
+    applicableRate: applicableRate,
     notes: p.notes || `Performance on ${p.date}`,
-    createdBy: p.distributed_by || p.created_by || 'system',
-    createdAt: p.distributed_at || p.created_at || new Date().toISOString(),
+    createdBy: p.distributed_by || p.created_by || 'super_admin',
+    createdAt: p.created_at || p.distributed_at || new Date().toISOString(),
     appliedCount: Number(p.applied_count || 0),
     totalDistributed: Number(p.total_yield_distributed || p.total_distributed || 0),
-    marketCondition: p.rate_percentage >= 0 ? 'profit' : 'loss',
+    marketCondition: totalYield >= 0 ? 'profit' : 'loss',
   };
 }
 
 export async function getDailyPerformances(): Promise<DailyPerformance[]> {
   try {
     const supabase = getServerSupabase();
+    // Try daily_performance table first (standard Supabase table)
     let res = await supabase
-      .from('daily_performances')
+      .from('daily_performance')
       .select('*')
       .order('date', { ascending: false });
 
     if (res.error && res.error.message.includes('does not exist')) {
       res = await supabase
-        .from('daily_performance')
+        .from('daily_performances')
         .select('*')
         .order('date', { ascending: false });
     }
@@ -39,6 +52,7 @@ export async function getDailyPerformances(): Promise<DailyPerformance[]> {
 
     return (res.data || []).map(mapDbPerfToPerf);
   } catch (err: any) {
+    console.warn('[Supabase Exception] getDailyPerformances:', err?.message);
     return [];
   }
 }
@@ -47,14 +61,14 @@ export async function getDailyPerformanceByDate(date: string): Promise<DailyPerf
   try {
     const supabase = getServerSupabase();
     let res = await supabase
-      .from('daily_performances')
+      .from('daily_performance')
       .select('*')
       .eq('date', date)
       .maybeSingle();
 
     if (res.error && res.error.message.includes('does not exist')) {
       res = await supabase
-        .from('daily_performance')
+        .from('daily_performances')
         .select('*')
         .eq('date', date)
         .maybeSingle();
@@ -71,54 +85,97 @@ export async function getDailyPerformanceByDate(date: string): Promise<DailyPerf
 }
 
 export async function createDailyPerformance(perf: Partial<DailyPerformance>): Promise<DailyPerformance> {
-  const fallback: DailyPerformance = {
-    id: String(Date.now()),
-    date: perf.date || new Date().toISOString().split('T')[0],
-    overallFundAmount: perf.overallFundAmount || 0,
-    actualFundPerformance: perf.actualFundPerformance || 0,
-    applicableRate: perf.applicableRate || 0,
-    notes: perf.notes || '',
-    createdBy: perf.createdBy || 'super_admin',
-    createdAt: new Date().toISOString(),
-    appliedCount: 0,
-    totalDistributed: perf.totalDistributed || 0,
-    marketCondition: (perf.applicableRate || 0) >= 0 ? 'profit' : 'loss',
+  const supabase = getServerSupabase();
+  const ratePct = perf.applicableRate !== undefined
+    ? Number((perf.applicableRate * 100).toFixed(4))
+    : Number((perf.actualFundPerformance || 0).toFixed(4));
+
+  const targetDate = perf.date || new Date().toISOString().split('T')[0];
+
+  const payload = {
+    date: targetDate,
+    trading_profit_percentage: ratePct,
+    gold_reserves_percentage: 0,
+    total_yield_percentage: ratePct,
+    is_yield_day: true,
   };
 
-  try {
-    const supabase = getServerSupabase();
-    const payload: any = {
-      date: perf.date,
-      rate_percentage: (perf.applicableRate !== undefined ? perf.applicableRate * 100 : (perf.actualFundPerformance || 0)),
+  let { data, error } = await supabase
+    .from('daily_performance')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error && error.message.includes('does not exist')) {
+    const altPayload = {
+      date: targetDate,
+      rate_percentage: ratePct,
       total_fund_principal: perf.overallFundAmount || 0,
       total_yield_distributed: perf.totalDistributed || 0,
       distributed_by: perf.createdBy || 'super_admin',
       distributed_at: perf.createdAt || new Date().toISOString(),
     };
-
-    let { data, error } = await supabase
+    const retry = await supabase
       .from('daily_performances')
-      .insert(payload)
+      .insert(altPayload)
       .select()
       .single();
-
-    if (error && error.message.includes('does not exist')) {
-      const retry = await supabase
-        .from('daily_performance')
-        .insert(payload)
-        .select()
-        .single();
-      data = retry.data;
-      error = retry.error;
-    }
-
-    if (error) {
-      console.warn('[Supabase Notice] createDailyPerformance insert skipped:', error.message);
-      return fallback;
-    }
-
-    return mapDbPerfToPerf(data);
-  } catch (err: any) {
-    return fallback;
+    data = retry.data;
+    error = retry.error;
   }
+
+  if (error || !data) {
+    console.error('[Supabase Error] createDailyPerformance failed:', error?.message);
+    throw new Error(`Failed to save daily performance in Supabase: ${error?.message || 'Unknown database error'}`);
+  }
+
+  return mapDbPerfToPerf(data);
 }
+
+export async function updateDailyPerformance(date: string, perf: Partial<DailyPerformance>): Promise<DailyPerformance> {
+  const supabase = getServerSupabase();
+  const ratePct = perf.applicableRate !== undefined
+    ? Number((perf.applicableRate * 100).toFixed(4))
+    : Number((perf.actualFundPerformance || 0).toFixed(4));
+
+  const payload = {
+    trading_profit_percentage: ratePct,
+    gold_reserves_percentage: 0,
+    total_yield_percentage: ratePct,
+    is_yield_day: true,
+  };
+
+  let { data, error } = await supabase
+    .from('daily_performance')
+    .update(payload)
+    .eq('date', date)
+    .select()
+    .single();
+
+  if (error && error.message.includes('does not exist')) {
+    const altPayload = {
+      rate_percentage: ratePct,
+      total_fund_principal: perf.overallFundAmount || 0,
+      total_yield_distributed: perf.totalDistributed || 0,
+      distributed_by: perf.createdBy || 'super_admin',
+      distributed_at: perf.createdAt || new Date().toISOString(),
+    };
+    const retry = await supabase
+      .from('daily_performances')
+      .update(altPayload)
+      .eq('date', date)
+      .select()
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error || !data) {
+    console.error('[Supabase Error] updateDailyPerformance failed:', error?.message);
+    throw new Error(`Failed to update daily performance in Supabase: ${error?.message || 'Unknown database error'}`);
+  }
+
+  return mapDbPerfToPerf(data);
+}
+
+

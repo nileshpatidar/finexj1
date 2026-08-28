@@ -204,6 +204,7 @@ export const api = {
     actualFundPerformance: number;
     applicableRate: number;
     notes: string;
+    overwriteExisting?: boolean;
   }) => request<any>('/api/admin/performance', { method: 'POST', body: JSON.stringify(payload) }),
   getAdminAuditLogs: () => request<{ auditLogs: any[] }>('/api/admin/audit-logs'),
   updateAdminSettings: (payload: Partial<AppSettings> & { reason?: string }) =>

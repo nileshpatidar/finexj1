@@ -68,6 +68,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [perfFundAmount, setPerfFundAmount] = useState('2500000');
   const [perfRate, setPerfRate] = useState('0.0050'); // 0.50%
   const [perfNotes, setPerfNotes] = useState('Institutional algorithmic yield & liquidity arbitrage allocation');
+  const [allowOverwritePerf, setAllowOverwritePerf] = useState(false);
   const [isDistributing, setIsDistributing] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -125,10 +126,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         actualFundPerformance: parseFloat(perfRate) * 100,
         applicableRate: parseFloat(perfRate),
         notes: perfNotes,
+        overwriteExisting: allowOverwritePerf,
       });
 
       if (res.success) {
-        setActionMessage(`Successfully distributed ${(parseFloat(perfRate) * 100).toFixed(2)}% yield across ${res.affectedUsersCount} eligible user accounts! Total: $${res.totalDistributed.toFixed(2)} USDT.`);
+        setActionMessage(`Successfully ${allowOverwritePerf ? 'updated & recalculated' : 'distributed'} ${(parseFloat(perfRate) * 100).toFixed(2)}% yield across ${res.affectedUsersCount || res.appliedCount || 0} eligible user accounts! Total: $${(res.totalDistributed || 0).toFixed(2)} USDT.`);
+        setAllowOverwritePerf(false);
         await loadAllAdminData();
       }
     } catch (err) {
@@ -454,13 +457,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               </div>
             </div>
 
+            {/* Date already distributed notice */}
+            {(() => {
+              const existingPerf = performances.find(p => p.date === perfDate);
+              if (existingPerf) {
+                return (
+                  <div className="mb-3 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-xs text-amber-800 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div className="flex items-center space-x-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      <div>
+                        <span className="font-bold">Yield for {perfDate} is already calculated & recorded</span>
+                        <span className="ml-1 text-amber-700 dark:text-amber-300">
+                          ({existingPerf.actualFundPerformance >= 0 ? '+' : ''}{existingPerf.actualFundPerformance.toFixed(2)}% | {existingPerf.appliedCount} accounts credited | ${(existingPerf.totalDistributed || 0).toFixed(2)} USDT)
+                        </span>
+                      </div>
+                    </div>
+                    <label className="flex items-center space-x-2 cursor-pointer bg-white dark:bg-amber-900/40 px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={allowOverwritePerf}
+                        onChange={e => setAllowOverwritePerf(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="font-semibold text-[11px] text-amber-900 dark:text-amber-100">
+                        Allow Overwrite / Recalculate
+                      </span>
+                    </label>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             <form onSubmit={handleApplyPerformance} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
                 <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">Performance Date</label>
                 <input
                   type="date"
                   value={perfDate}
-                  onChange={e => setPerfDate(e.target.value)}
+                  onChange={e => {
+                    setPerfDate(e.target.value);
+                    setAllowOverwritePerf(false);
+                  }}
                   className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-semibold"
                 />
               </div>
@@ -496,26 +534,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               </div>
 
               <div className="flex items-end">
-                <button
-                  type="submit"
-                  disabled={isDistributing}
-                  className={`w-full py-2.5 px-4 rounded-xl disabled:opacity-50 font-bold transition flex items-center justify-center space-x-2 cursor-pointer ${
-                    parseFloat(perfRate) > 0
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20'
-                      : parseFloat(perfRate) < 0
-                      ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-500/20'
-                      : 'bg-slate-700 hover:bg-slate-600 text-white'
-                  }`}
-                >
-                  {isDistributing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  <span>
-                    {parseFloat(perfRate) > 0
-                      ? `Post +${(parseFloat(perfRate) * 100).toFixed(2)}% Profit`
-                      : parseFloat(perfRate) < 0
-                      ? `Post ${(parseFloat(perfRate) * 100).toFixed(2)}% Loss`
-                      : 'Post Safe Day (0.00%)'}
-                  </span>
-                </button>
+                {(() => {
+                  const existingPerf = performances.find(p => p.date === perfDate);
+                  const isBlocked = existingPerf && !allowOverwritePerf;
+                  return (
+                    <button
+                      type="submit"
+                      disabled={isDistributing || Boolean(isBlocked)}
+                      title={isBlocked ? `Date ${perfDate} has already been calculated. Enable Overwrite to recalculate.` : ''}
+                      className={`w-full py-2.5 px-4 rounded-xl disabled:opacity-50 font-bold transition flex items-center justify-center space-x-2 cursor-pointer ${
+                        isBlocked
+                          ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed'
+                          : allowOverwritePerf && existingPerf
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-500/20'
+                          : parseFloat(perfRate) > 0
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20'
+                          : parseFloat(perfRate) < 0
+                          ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-500/20'
+                          : 'bg-slate-700 hover:bg-slate-600 text-white'
+                      }`}
+                    >
+                      {isDistributing ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isBlocked ? (
+                        <Lock className="w-4 h-4" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                      <span>
+                        {isBlocked
+                          ? `Already Posted (${(existingPerf.applicableRate * 100).toFixed(2)}%)`
+                          : allowOverwritePerf && existingPerf
+                          ? `Recalculate & Update (${(parseFloat(perfRate) * 100).toFixed(2)}%)`
+                          : parseFloat(perfRate) > 0
+                          ? `Post +${(parseFloat(perfRate) * 100).toFixed(2)}% Profit`
+                          : parseFloat(perfRate) < 0
+                          ? `Post ${(parseFloat(perfRate) * 100).toFixed(2)}% Loss`
+                          : 'Post Safe Day (0.00%)'}
+                      </span>
+                    </button>
+                  );
+                })()}
               </div>
             </form>
           </div>
@@ -1078,23 +1137,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{p.notes}</p>
                 </div>
 
-                <div className="text-right">
-                  <p
-                    className={`text-sm font-bold ${
-                      p.totalDistributed > 0
-                        ? 'text-blue-600 dark:text-blue-400'
+                <div className="flex items-center space-x-3">
+                  <div className="text-right">
+                    <p
+                      className={`text-sm font-bold ${
+                        p.totalDistributed > 0
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : p.totalDistributed < 0
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
+                      {p.totalDistributed > 0
+                        ? `+$${p.totalDistributed.toFixed(2)} USDT`
                         : p.totalDistributed < 0
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : 'text-slate-500 dark:text-slate-400'
-                    }`}
+                        ? `-$${Math.abs(p.totalDistributed).toFixed(2)} USDT`
+                        : '$0.00 USDT (Safe)'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.appliedCount} Users Calculated</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setPerfDate(p.date);
+                      setPerfRate(String(p.applicableRate));
+                      setPerfNotes(p.notes);
+                      setAllowOverwritePerf(true);
+                      setActiveTab('overview');
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs transition cursor-pointer"
                   >
-                    {p.totalDistributed > 0
-                      ? `+$${p.totalDistributed.toFixed(2)} USDT`
-                      : p.totalDistributed < 0
-                      ? `-$${Math.abs(p.totalDistributed).toFixed(2)} USDT`
-                      : '$0.00 USDT (Safe)'}
-                  </p>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.appliedCount} Users Calculated</p>
+                    Edit / Recalculate
+                  </button>
                 </div>
               </div>
             ))}

@@ -864,7 +864,7 @@ app.get(['/api/admin/performance', '/admin/performance'], authMiddleware, adminM
 app.post(['/api/admin/performance', '/admin/performance'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
   try {
     const admin: User = (req as any).user;
-    const { date, overallFundAmount, actualFundPerformance, applicableRate, notes } = req.body;
+    const { date, overallFundAmount, actualFundPerformance, applicableRate, notes, overwriteExisting, allowUpdate } = req.body;
 
     if (!date || applicableRate === undefined) {
       throw Errors.validation('Date and applicableRate are required.');
@@ -877,6 +877,7 @@ app.post(['/api/admin/performance', '/admin/performance'], authMiddleware, admin
       actualFundPerformance: Number(actualFundPerformance || (applicableRate * 100)),
       applicableRate: Number(applicableRate),
       notes: notes || 'Daily verified fund yield distribution',
+      overwriteExisting: Boolean(overwriteExisting || allowUpdate),
     });
 
     if (!result.success) {

@@ -2,6 +2,7 @@ import { getProfileById, updateProfile } from '../repositories/profiles';
 import {
   createWithdrawal,
   getWithdrawalById,
+  getWithdrawalsByUserId,
   updateWithdrawal,
 } from '../repositories/withdrawals';
 import { createLedgerEntry } from '../repositories/ledger';
@@ -47,15 +48,25 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     };
   }
 
+  // Idempotency check: if user already submitted with this idempotencyKey, return existing record
+  if (input.idempotencyKey) {
+    const existingWds = await getWithdrawalsByUserId(user.id);
+    const matched = existingWds.find(w => w.idempotencyKey === input.idempotencyKey);
+    if (matched) {
+      return { success: true, withdrawal: matched };
+    }
+  }
+
   // Calculate user eligibility and balance
   const balance = await calculateUserBalanceAsync(user.id);
   const settings = await getSettings();
 
-  // 1. Check 30 full days account age rule
+  // 1. Check account age rule (dynamically from settings, defaults to 30 days)
+  const requiredDays = Number(settings.accountAgeRequirementDays) || 30;
   const createdAtTime = new Date(user.createdAt).getTime();
   const now = new Date();
   const accountAgeMs = now.getTime() - createdAtTime;
-  const requiredAgeMs = (settings.accountAgeRequirementDays || 30) * 24 * 60 * 60 * 1000;
+  const requiredAgeMs = requiredDays * 24 * 60 * 60 * 1000;
 
   if (accountAgeMs < requiredAgeMs) {
     const remMs = requiredAgeMs - accountAgeMs;
@@ -63,7 +74,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     const remHours = Math.floor((remMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
     return {
       success: false,
-      error: `Withdrawal not permitted. Your account must be active for at least 30 full days before requesting a withdrawal. Time remaining: ${remDays} days ${remHours} hours.`,
+      error: `Withdrawal not permitted. Your account must be active for at least ${requiredDays} full days before requesting a withdrawal. Time remaining: ${remDays} days ${remHours} hours.`,
     };
   }
 
@@ -83,9 +94,11 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     };
   }
 
-  // 4. Dynamic withdrawal fee calculation from system settings
-  const feePercentNum = Number(settings.withdrawalFeePercentage) || 4;
-  const feeRate = feePercentNum / 100;
+  // 4. Dynamic fee calculation from database settings (default 4%)
+  const feePct = (settings.withdrawalFeePercentage !== undefined && !isNaN(Number(settings.withdrawalFeePercentage)))
+    ? Number(settings.withdrawalFeePercentage)
+    : 4;
+  const feeRate = feePct / 100;
   const feeAmount = Number((requestedAmount * feeRate).toFixed(4));
   const netAmount = Number((requestedAmount - feeAmount).toFixed(4));
 
@@ -97,7 +110,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     reference,
     userId: user.id,
     requestedAmount,
-    feePercentage: feePercentNum,
+    feePercentage: feePct,
     feeAmount,
     netAmount,
     destinationAddress: input.destinationAddress.trim(),
@@ -107,6 +120,13 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     userNotes: input.userNotes,
     idempotencyKey: input.idempotencyKey,
   });
+
+  if (!newWithdrawal || !newWithdrawal.id) {
+    return {
+      success: false,
+      error: 'Failed to record withdrawal in database. Please try again.',
+    };
+  }
 
   // Calculate updated balance after holding withdrawal amount
   const updatedBalance = await calculateUserBalanceAsync(user.id);
@@ -118,16 +138,17 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     amount: -requestedAmount,
     balanceAfter: updatedBalance.availableBalance,
     referenceId: newWithdrawal.id,
-    description: `Withdrawal request submitted for ${requestedAmount} USDT (4% Fee: ${feeAmount} USDT, Net: ${netAmount} USDT)`,
+    description: `Withdrawal request submitted for ${requestedAmount} USDT (${feePct}% Fee: ${feeAmount} USDT, Net: ${netAmount} USDT)`,
     createdAt: now.toISOString(),
     performedBy: user.id,
   });
 
   // Activate 30-Day Fund Lock for remaining funds
-  const fundLockEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const lockDays = Number(settings.depositLockPeriodDays) || 30;
+  const fundLockEndDate = new Date(now.getTime() + lockDays * 24 * 60 * 60 * 1000).toISOString();
   await updateProfile(user.id, {
     fundLockUntil: fundLockEndDate,
-    fundLockReason: `30-Day Post-Withdrawal Fund Lock (${reference})`,
+    fundLockReason: `${lockDays}-Day Post-Withdrawal Fund Lock (${reference})`,
     lastWithdrawalAt: now.toISOString(),
   });
 

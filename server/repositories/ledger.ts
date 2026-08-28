@@ -1,5 +1,6 @@
 import { getServerSupabase } from '../supabase';
 import { LedgerEntry, LedgerType } from '../types';
+import { getEarningsByUserId } from './earnings';
 
 export function mapDbLedgerToLedger(l: any): LedgerEntry {
   return {
@@ -34,7 +35,7 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
     console.warn(`[Supabase Notice] ledger table query error:`, err?.message);
   }
 
-  // Graceful fallback: synthesize ledger entries from confirmed deposits & withdrawals
+  // Graceful fallback: synthesize ledger entries from confirmed deposits, withdrawals & earnings
   try {
     let depQuery = supabase.from('deposits').select('*');
     let withQuery = supabase.from('withdrawals').select('*');
@@ -47,7 +48,11 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
       withQuery = withQuery.eq('user_id', userId);
     }
 
-    const [depRes, withRes] = await Promise.all([depQuery, withQuery]);
+    const [depRes, withRes, earnings] = await Promise.all([
+      depQuery,
+      withQuery,
+      getEarningsByUserId(userId),
+    ]);
 
     const entries: LedgerEntry[] = [];
     if (depRes.data) {
@@ -73,9 +78,24 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
           type: (w.status === 'paid' ? 'withdrawal_paid' : 'withdrawal_request') as LedgerType,
           amount: -Number(w.requested_amount || w.amount || 0),
           balanceAfter: 0,
-          referenceId: w.tx_hash || `WITH-${w.id}`,
+          referenceId: w.payout_tx_hash || w.tx_hash || `WITH-${w.id}`,
           description: `USDT BEP-20 Withdrawal (${w.status})`,
           createdAt: w.created_at || new Date().toISOString(),
+        });
+      });
+    }
+
+    if (earnings && earnings.length > 0) {
+      earnings.forEach(e => {
+        entries.push({
+          id: `earn_led_${e.id}`,
+          userId: String(e.userId),
+          type: 'daily_earnings',
+          amount: e.earningsAmount,
+          balanceAfter: 0,
+          referenceId: `CALC-${e.calculationId}`,
+          description: `Daily Performance Yield (${e.performanceDate})`,
+          createdAt: e.createdAt,
         });
       });
     }
@@ -87,6 +107,7 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
     return [];
   }
 }
+
 
 export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<LedgerEntry> {
   const fallbackResult: LedgerEntry = {
