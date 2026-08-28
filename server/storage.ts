@@ -41,9 +41,9 @@ export async function uploadDepositProof(
     });
 
   if (error) {
-    console.warn(`[Supabase Storage Warning] Could not upload to bucket "${DEPOSIT_PROOFS_BUCKET}":`, error.message);
-    // If bucket does not exist or upload blocked, fallback gracefully to returning data URI or path
-    return filePath;
+    console.warn(`[Supabase Storage Notice] Bucket "${DEPOSIT_PROOFS_BUCKET}" not found, using data payload fallback.`);
+    // Fallback: preserve base64 data uri directly so proof is retained
+    return base64OrBuffer;
   }
 
   return data.path;

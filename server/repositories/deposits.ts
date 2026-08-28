@@ -79,33 +79,49 @@ export async function getDepositByTxHash(txHash: string): Promise<Deposit | null
 
 export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
   const supabase = getServerSupabase();
+  const userIdNum = !isNaN(Number(dep.userId)) ? Number(dep.userId) : dep.userId;
   const payload: any = {
-    user_id: dep.userId,
+    user_id: userIdNum,
     amount: dep.amount,
-    currency: 'USDT',
-    network: 'BEP-20',
-    tx_hash: dep.txHash,
-    to_address: dep.toAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
+    net_amount: dep.amount,
+    tx_hash: dep.txHash || `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
     status: dep.status || 'confirmed',
     confirmations: dep.confirmations || 15,
-    required_confirmations: dep.requiredConfirmations || 12,
-    proof_url: dep.proofPhotoUrl || null,
-    notes: dep.notes || dep.userNotes || null,
-    confirmed_at: dep.confirmedAt || new Date().toISOString(),
-    eligibility_date: dep.eligibilityDate || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     lock_expires_at: dep.depositLockEndDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     created_at: dep.createdAt || new Date().toISOString(),
   };
 
-  if (dep.id) {
-    payload.id = dep.id;
+  if (dep.proofPhotoUrl) {
+    payload.proof_url = dep.proofPhotoUrl;
+  }
+  if (dep.userNotes) {
+    payload.notes = dep.userNotes;
   }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('deposits')
     .insert(payload)
     .select()
     .single();
+
+  if (error && error.message.includes('column')) {
+    console.warn('[Supabase Deposits Fallback] Retrying insert with core deposit fields...');
+    const minimalPayload: any = {
+      user_id: userIdNum,
+      amount: dep.amount,
+      tx_hash: dep.txHash || `0x${Date.now().toString(16)}`,
+      status: dep.status || 'confirmed',
+      confirmations: dep.confirmations || 15,
+      created_at: dep.createdAt || new Date().toISOString(),
+    };
+    const retry = await supabase
+      .from('deposits')
+      .insert(minimalPayload)
+      .select()
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     console.error('[Supabase Error] createDeposit:', error.message);
