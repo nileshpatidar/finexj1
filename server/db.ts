@@ -172,21 +172,43 @@ class Database {
         const { data: dbWithdrawals } = await supabase.from('withdrawals').select('*');
         if (dbWithdrawals && dbWithdrawals.length > 0) {
           for (const w of dbWithdrawals) {
-            const existingIdx = this.data.withdrawals.findIndex(x => x.id === String(w.id));
+            const existingIdx = this.data.withdrawals.findIndex(x => x.id === String(w.id) || x.reference === String(w.reference || w.id));
+            const netAmount = Number(w.net_amount || 0);
+            const feeAmount = Number(w.fee_amount || 0);
+            let requestedAmount = Number(w.requested_amount || w.amount || 0);
+
+            if (requestedAmount <= 0 && (netAmount > 0 || feeAmount > 0)) {
+              requestedAmount = Number((netAmount + feeAmount).toFixed(4));
+            } else if (requestedAmount > 0 && netAmount <= 0 && feeAmount <= 0) {
+              const defaultPct = DEFAULT_SETTINGS.withdrawalFeePercentage || 9;
+              const calcFee = Number((requestedAmount * (defaultPct / 100)).toFixed(4));
+              const calcNet = Number((requestedAmount - calcFee).toFixed(4));
+              // Assign derived
+              w.fee_amount = calcFee;
+              w.net_amount = calcNet;
+            }
+
+            let feePercentage = DEFAULT_SETTINGS.withdrawalFeePercentage || 9;
+            if (w.fee_percentage !== undefined && w.fee_percentage !== null && Number(w.fee_percentage) > 0) {
+              feePercentage = Number(w.fee_percentage);
+            } else if (requestedAmount > 0 && feeAmount > 0) {
+              feePercentage = Math.round(((feeAmount / requestedAmount) * 100) * 100) / 100;
+            }
+
             const mappedW: Withdrawal = {
               id: String(w.id),
-              reference: 'WDR-' + String(w.id),
+              reference: w.reference || (String(w.id).startsWith('WD') ? String(w.id) : `WD-${w.id}`),
               userId: String(w.user_id),
-              requestedAmount: Number(w.requested_amount),
-              feePercentage: 4,
-              feeAmount: Number(w.fee_amount),
-              netAmount: Number(w.net_amount),
-              destinationAddress: w.destination_address,
+              requestedAmount,
+              feePercentage,
+              feeAmount: Number(w.fee_amount || (requestedAmount - (w.net_amount || netAmount))),
+              netAmount: Number(w.net_amount || (requestedAmount - (w.fee_amount || feeAmount))),
+              destinationAddress: w.destination_address || '',
               network: 'BEP-20',
               status: w.status || 'pending',
               createdAt: w.created_at || new Date().toISOString(),
               txHash: w.tx_hash,
-              adminNotes: w.rejection_reason,
+              adminNotes: w.rejection_reason || w.admin_notes,
             };
             if (existingIdx >= 0) {
               this.data.withdrawals[existingIdx] = mappedW;

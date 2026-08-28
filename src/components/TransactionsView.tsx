@@ -160,7 +160,7 @@ export const TransactionsView: React.FC = () => {
                         : 'text-slate-900 dark:text-white'
                     }`}
                   >
-                    {isEarning || isDeposit ? '+' : isLoss ? '-' : ''}${Math.abs(item.amount).toFixed(2)}
+                    {isEarning || isDeposit ? '+' : isLoss ? '-' : ''}${Math.abs(Number(item.amount || 0)).toFixed(2)}
                   </span>
                   <p className="text-[10px] text-slate-400">USDT</p>
                 </div>

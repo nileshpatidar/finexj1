@@ -146,10 +146,11 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
       if (res.success && res.deposit) {
         const isPending = res.deposit.status === 'pending';
+        const depAmt = Number(res.deposit.amount || 0);
         setSuccessMessage(
           isPending
-            ? `Deposit confirmation of $${res.deposit.amount.toFixed(2)} USDT submitted successfully! Our finance department will review your proof and confirm it shortly.`
-            : `Deposit of $${res.deposit.amount.toFixed(2)} USDT successfully verified on BNB Smart Chain and credited!`
+            ? `Deposit confirmation of $${depAmt.toFixed(2)} USDT submitted successfully! Our finance department will review your proof and confirm it shortly.`
+            : `Deposit of $${depAmt.toFixed(2)} USDT successfully verified on BNB Smart Chain and credited!`
         );
         setLastSubmittedDeposit(res.deposit);
         setTxHash('');
@@ -499,7 +500,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-slate-700 dark:text-slate-300">
             <div>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Amount</p>
-              <p className="font-bold text-blue-600 dark:text-blue-400 text-sm">${lastSubmittedDeposit.amount.toFixed(2)} USDT</p>
+              <p className="font-bold text-blue-600 dark:text-blue-400 text-sm">${Number(lastSubmittedDeposit.amount || 0).toFixed(2)} USDT</p>
             </div>
             <div>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Network</p>
@@ -583,7 +584,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                       <div className="space-y-0.5">
                         <div className="flex items-center space-x-2">
                           <span className="font-extrabold text-base text-slate-900 dark:text-white">
-                            +${dep.amount.toFixed(2)} USDT
+                            +${Number(dep.amount || 0).toFixed(2)} USDT
                           </span>
                           <span
                             className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${

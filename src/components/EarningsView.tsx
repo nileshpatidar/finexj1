@@ -146,9 +146,9 @@ export const EarningsView: React.FC = () => {
                           }`}
                         >
                           {isProfit
-                            ? `+${(entry.applicableRate * 100).toFixed(2)}% Profit`
+                            ? `+${(Number(entry.applicableRate || 0) * 100).toFixed(2)}% Profit`
                             : isLoss
-                            ? `${(entry.applicableRate * 100).toFixed(2)}% Loss`
+                            ? `${(Number(entry.applicableRate || 0) * 100).toFixed(2)}% Loss`
                             : '0.00% Safe (No Trade)'}
                         </span>
                       </div>
@@ -173,9 +173,9 @@ export const EarningsView: React.FC = () => {
                       ) : null}
 
                       <div className="flex items-center space-x-3 text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                        <span>Base Eligible: ${entry.baseEligibleAmount.toFixed(2)} USDT</span>
+                        <span>Base Eligible: ${Number(entry.baseEligibleAmount || 0).toFixed(2)} USDT</span>
                         <span>•</span>
-                        <span>Calc Ref: {entry.calculationId.substring(0, 14)}</span>
+                        <span>Calc Ref: {String(entry.calculationId || '').substring(0, 14)}</span>
                       </div>
                     </div>
                   </div>
@@ -191,9 +191,9 @@ export const EarningsView: React.FC = () => {
                       }`}
                     >
                       {isProfit
-                        ? `+$${entry.earningsAmount.toFixed(4)}`
+                        ? `+$${Number(entry.earningsAmount || 0).toFixed(4)}`
                         : isLoss
-                        ? `-$${Math.abs(entry.earningsAmount).toFixed(4)}`
+                        ? `-$${Math.abs(Number(entry.earningsAmount || 0)).toFixed(4)}`
                         : '$0.0000'}
                     </span>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400">

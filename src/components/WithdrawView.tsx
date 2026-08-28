@@ -84,7 +84,10 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
       });
 
       if (res.success && res.withdrawal) {
-        setSuccessMessage(`Withdrawal request for $${res.withdrawal.requestedAmount.toFixed(2)} USDT submitted successfully! Net to receive: $${res.withdrawal.netAmount.toFixed(2)} USDT after ${res.withdrawal.feePercentage ?? withdrawalFeePercentage}% fee.`);
+        const reqAmt = Number(res.withdrawal.requestedAmount || 0);
+        const netAmt = Number(res.withdrawal.netAmount || 0);
+        const feePct = res.withdrawal.feePercentage ?? withdrawalFeePercentage;
+        setSuccessMessage(`Withdrawal request for $${reqAmt.toFixed(2)} USDT submitted successfully! Net to receive: $${netAmt.toFixed(2)} USDT after ${feePct}% fee.`);
         setLastSubmitted(res.withdrawal);
         setPassword('');
         setTwoFactorCode('');
@@ -200,14 +203,14 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
       )}
 
       {/* DEPOSIT LOCK BANNER */}
-      {balance && balance.lockedBalance > 0 && (
+      {balance && Number(balance.lockedBalance || 0) > 0 && (
         <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 space-y-2">
           <div className="flex items-center space-x-2 font-bold text-slate-900 dark:text-white">
             <Lock className="w-4 h-4 text-amber-500" />
             <span>{depositLockPeriodDays}-Day Deposit Lock Period</span>
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Some of your funds (${balance.lockedBalance.toFixed(2)} USDT) are currently subject to the {depositLockPeriodDays}-day deposit lock rule. Only earnings and mature deposits (${balance.eligibleForWithdrawal.toFixed(2)} USDT) are eligible for immediate withdrawal.
+            Some of your funds (${Number(balance.lockedBalance || 0).toFixed(2)} USDT) are currently subject to the {depositLockPeriodDays}-day deposit lock rule. Only earnings and mature deposits (${Number(balance.eligibleForWithdrawal || 0).toFixed(2)} USDT) are eligible for immediate withdrawal.
           </p>
         </div>
       )}
@@ -217,7 +220,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
           <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Total Balance</span>
           <p className="text-xl font-extrabold text-slate-900 dark:text-white mt-1">
-            ${(balance?.availableBalance || 0).toFixed(2)} USDT
+            ${Number(balance?.availableBalance || 0).toFixed(2)} USDT
           </p>
           <span className="text-[11px] text-slate-500">Unreserved Funds</span>
         </div>
@@ -225,7 +228,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
           <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Locked Principal</span>
           <p className="text-xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">
-            ${(balance?.lockedBalance || 0).toFixed(2)} USDT
+            ${Number(balance?.lockedBalance || 0).toFixed(2)} USDT
           </p>
           <span className="text-[11px] text-slate-500">{depositLockPeriodDays}-Day Lock Period</span>
         </div>
@@ -233,7 +236,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
           <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Eligible Withdrawal</span>
           <p className="text-xl font-extrabold text-blue-600 dark:text-blue-400 mt-1">
-            ${(balance?.eligibleForWithdrawal || 0).toFixed(2)} USDT
+            ${Number(balance?.eligibleForWithdrawal || 0).toFixed(2)} USDT
           </p>
           <span className="text-[11px] text-slate-500">Ready for Immediate Payout</span>
         </div>
@@ -267,13 +270,13 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               <label className="font-semibold text-slate-700 dark:text-slate-300">
                 Withdrawal Amount (USDT)
               </label>
-              {balance && balance.eligibleForWithdrawal > 0 && (
+              {balance && Number(balance.eligibleForWithdrawal || 0) > 0 && (
                 <button
                   type="button"
-                  onClick={() => setAmount(balance.eligibleForWithdrawal.toString())}
+                  onClick={() => setAmount(Number(balance.eligibleForWithdrawal || 0).toString())}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold cursor-pointer"
                 >
-                  Max (${balance.eligibleForWithdrawal.toFixed(2)})
+                  Max (${Number(balance.eligibleForWithdrawal || 0).toFixed(2)})
                 </button>
               )}
             </div>
@@ -282,7 +285,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                 type="number"
                 step="any"
                 min="10"
-                max={balance?.eligibleForWithdrawal || 0}
+                max={Number(balance?.eligibleForWithdrawal || 0)}
                 value={amount}
                 onChange={e => setAmount(e.target.value)}
                 placeholder="100"
@@ -297,17 +300,17 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             <div className="flex justify-between text-slate-600 dark:text-slate-400">
               <span className="font-medium">Withdrawal Amount:</span>
               <span className="font-bold text-slate-900 dark:text-white">
-                ${numAmount.toFixed(2)} USDT
+                ${Number(numAmount || 0).toFixed(2)} USDT
               </span>
             </div>
             <div className="flex justify-between text-slate-600 dark:text-slate-400">
               <span className="font-medium">Withdrawal Fee ({withdrawalFeePercentage}% Dynamic):</span>
-              <span className="font-bold text-amber-600 dark:text-amber-400">-${estimatedFee.toFixed(2)} USDT</span>
+              <span className="font-bold text-amber-600 dark:text-amber-400">-${Number(estimatedFee || 0).toFixed(2)} USDT</span>
             </div>
             <div className="h-px bg-slate-200 dark:bg-slate-800"></div>
             <div className="flex justify-between font-bold text-sm">
               <span className="text-slate-900 dark:text-white">You Will Receive:</span>
-              <span className="text-blue-600 dark:text-blue-400 font-extrabold">${estimatedNet.toFixed(2)} USDT</span>
+              <span className="text-blue-600 dark:text-blue-400 font-extrabold">${Number(estimatedNet || 0).toFixed(2)} USDT</span>
             </div>
           </div>
 
@@ -428,7 +431,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <span className="font-bold text-slate-900 dark:text-white text-sm">
-                      ${wd.requestedAmount.toFixed(2)} USDT
+                      ${Number(wd.requestedAmount || 0).toFixed(2)} USDT
                     </span>
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -441,12 +444,12 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                           : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
                       }`}
                     >
-                      {wd.status.toUpperCase()}
+                      {String(wd.status || 'pending').toUpperCase()}
                     </span>
                   </div>
 
                   <span className="font-bold text-blue-600 dark:text-blue-400 text-xs">
-                    Net: ${wd.netAmount.toFixed(2)} ({wd.feePercentage ?? withdrawalFeePercentage}% Fee: ${wd.feeAmount.toFixed(2)})
+                    Net: ${Number(wd.netAmount || 0).toFixed(2)} ({wd.feePercentage ?? withdrawalFeePercentage}% Fee: ${Number(wd.feeAmount || 0).toFixed(2)})
                   </span>
                 </div>
 

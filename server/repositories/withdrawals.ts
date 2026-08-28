@@ -4,42 +4,57 @@ import { db } from '../db';
 import { resolveUserIdForDb } from './profiles';
 
 export function mapDbWithdrawalToWithdrawal(w: any): Withdrawal {
-  const reqAmount = Number(w.requested_amount || w.amount || 0);
-  const feeAmt = w.fee_amount !== undefined && w.fee_amount !== null
+  let netAmt = w.net_amount !== undefined && w.net_amount !== null
+    ? Number(w.net_amount)
+    : (w.netAmount !== undefined && w.netAmount !== null ? Number(w.netAmount) : 0);
+
+  let feeAmt = w.fee_amount !== undefined && w.fee_amount !== null
     ? Number(w.fee_amount)
-    : Number((reqAmount * 0.09).toFixed(4));
-  
-  // Calculate dynamic fee percentage accurately
-  let feePct = 9;
-  if (w.fee_percentage !== undefined && w.fee_percentage !== null) {
-    feePct = Number(w.fee_percentage);
-  } else if (reqAmount > 0 && feeAmt > 0) {
-    feePct = Number(((feeAmt / reqAmount) * 100).toFixed(2));
+    : (w.feeAmount !== undefined && w.feeAmount !== null ? Number(w.feeAmount) : 0);
+
+  let reqAmount = Number(w.requested_amount || w.amount || w.requestedAmount || 0);
+
+  // If reqAmount is 0/missing but net & fee are present, accurately calculate requested amount
+  if (reqAmount <= 0 && (netAmt > 0 || feeAmt > 0)) {
+    reqAmount = Number((netAmt + feeAmt).toFixed(4));
+  } else if (reqAmount > 0 && netAmt <= 0 && feeAmt <= 0) {
+    // If only reqAmount is provided, calculate default 9% fee and net
+    const defaultFeePct = w.fee_percentage !== undefined && w.fee_percentage !== null ? Number(w.fee_percentage) : 9;
+    feeAmt = Number((reqAmount * (defaultFeePct / 100)).toFixed(4));
+    netAmt = Number((reqAmount - feeAmt).toFixed(4));
+  } else if (reqAmount > 0 && netAmt > 0 && feeAmt <= 0) {
+    feeAmt = Math.max(0, Number((reqAmount - netAmt).toFixed(4)));
+  } else if (reqAmount > 0 && feeAmt > 0 && netAmt <= 0) {
+    netAmt = Math.max(0, Number((reqAmount - feeAmt).toFixed(4)));
   }
 
-  const netAmt = w.net_amount !== undefined && w.net_amount !== null
-    ? Number(w.net_amount)
-    : Number((reqAmount - feeAmt).toFixed(4));
+  // Calculate dynamic fee percentage accurately
+  let feePct = 9;
+  if (w.fee_percentage !== undefined && w.fee_percentage !== null && Number(w.fee_percentage) > 0) {
+    feePct = Number(w.fee_percentage);
+  } else if (reqAmount > 0 && feeAmt > 0) {
+    feePct = Math.round(((feeAmt / reqAmount) * 100) * 100) / 100;
+  }
 
   return {
     id: String(w.id),
     reference: w.reference || `WD-${w.id}`,
-    userId: String(w.user_id),
+    userId: String(w.user_id || w.userId || ''),
     requestedAmount: reqAmount,
     feePercentage: feePct,
     feeAmount: feeAmt,
     netAmount: netAmt,
-    destinationAddress: w.destination_address || '',
+    destinationAddress: w.destination_address || w.destinationAddress || '',
     network: 'BEP-20',
     status: (w.status || 'pending') as WithdrawalStatus,
-    createdAt: w.created_at || new Date().toISOString(),
-    reviewedAt: w.reviewed_at || undefined,
-    reviewedBy: w.reviewed_by || undefined,
-    paidAt: w.paid_at || undefined,
-    txHash: w.tx_hash || undefined,
-    adminNotes: w.admin_notes || w.rejection_reason || undefined,
-    userNotes: w.user_notes || undefined,
-    idempotencyKey: w.idempotency_key || undefined,
+    createdAt: w.created_at || w.createdAt || new Date().toISOString(),
+    reviewedAt: w.reviewed_at || w.reviewedAt || undefined,
+    reviewedBy: w.reviewed_by || w.reviewedBy || undefined,
+    paidAt: w.paid_at || w.paidAt || undefined,
+    txHash: w.tx_hash || w.txHash || undefined,
+    adminNotes: w.admin_notes || w.rejection_reason || w.adminNotes || undefined,
+    userNotes: w.user_notes || w.userNotes || undefined,
+    idempotencyKey: w.idempotency_key || w.idempotencyKey || undefined,
   };
 }
 
@@ -181,6 +196,7 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
 export async function updateWithdrawal(id: string, updates: Partial<Withdrawal>): Promise<Withdrawal> {
   // Always update in-memory record first to guarantee immediate consistency
   db.updateWithdrawal(id, updates);
+  const inMem = db.getWithdrawals().find(w => w.id === id || w.reference === id);
 
   try {
     const supabase = getServerSupabase();
@@ -194,38 +210,73 @@ export async function updateWithdrawal(id: string, updates: Partial<Withdrawal>)
     if (updates.reviewedAt !== undefined) payload.reviewed_at = updates.reviewedAt;
     if (updates.reviewedBy !== undefined) payload.reviewed_by = updates.reviewedBy;
 
-    let query = supabase.from('withdrawals').update(payload);
+    let updatedRow: any = null;
+
+    // 1. Try updating by exact numeric or text ID
     if (!isNaN(Number(id))) {
-      query = query.eq('id', Number(id));
+      const { data } = await supabase
+        .from('withdrawals')
+        .update(payload)
+        .eq('id', Number(id))
+        .select()
+        .maybeSingle();
+      if (data) updatedRow = data;
     } else {
-      query = query.eq('id', id);
+      const { data } = await supabase
+        .from('withdrawals')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      if (data) updatedRow = data;
     }
 
-    let { data, error } = await query.select().maybeSingle();
+    // 2. If not matched by ID (e.g. record had temporary in-memory ID), try matching by destination_address & pending status
+    if (!updatedRow && inMem) {
+      const resolvedUserId = await resolveUserIdForDb(inMem.userId);
+      let query = supabase
+        .from('withdrawals')
+        .update(payload)
+        .eq('destination_address', inMem.destinationAddress);
 
-    if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
-      console.warn(`[Supabase Withdrawals Fallback] Retrying update with minimal status field...`);
-      const minimalPayload: any = { status: updates.status };
-      if (updates.txHash !== undefined) minimalPayload.tx_hash = updates.txHash;
-      let retryQuery = supabase.from('withdrawals').update(minimalPayload);
-      if (!isNaN(Number(id))) {
-        retryQuery = retryQuery.eq('id', Number(id));
-      } else {
-        retryQuery = retryQuery.eq('id', id);
+      if (!isNaN(Number(resolvedUserId))) {
+        query = query.eq('user_id', Number(resolvedUserId));
       }
-      const retry = await retryQuery.select().maybeSingle();
-      data = retry.data;
-      error = retry.error;
+
+      const { data } = await query.select().order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (data) updatedRow = data;
     }
 
-    if (data) {
-      return mapDbWithdrawalToWithdrawal(data);
+    // 3. If still not in Supabase (e.g. original insert had failed earlier), insert it directly now with the updated status
+    if (!updatedRow && inMem) {
+      const resolvedUserId = await resolveUserIdForDb(inMem.userId);
+      const newPayload: any = {
+        user_id: resolvedUserId,
+        requested_amount: inMem.requestedAmount,
+        fee_amount: inMem.feeAmount,
+        net_amount: inMem.netAmount,
+        destination_address: inMem.destinationAddress,
+        status: updates.status || inMem.status || 'paid',
+        created_at: inMem.createdAt || new Date().toISOString(),
+        reviewed_at: updates.reviewedAt || new Date().toISOString(),
+        reviewed_by: updates.reviewedBy || 'admin',
+      };
+      if (updates.txHash || inMem.txHash) newPayload.tx_hash = updates.txHash || inMem.txHash;
+      if (updates.adminNotes || inMem.adminNotes) newPayload.rejection_reason = updates.adminNotes || inMem.adminNotes;
+
+      const { data } = await supabase.from('withdrawals').insert(newPayload).select().maybeSingle();
+      if (data) updatedRow = data;
+    }
+
+    if (updatedRow) {
+      const mapped = mapDbWithdrawalToWithdrawal(updatedRow);
+      db.updateWithdrawal(id, mapped);
+      return mapped;
     }
   } catch (err: any) {
     console.warn(`[Supabase updateWithdrawal Error]:`, err?.message);
   }
 
-  const inMem = db.getWithdrawals().find(w => w.id === id || w.reference === id);
   if (inMem) {
     return { ...inMem, ...updates };
   }
@@ -254,7 +305,7 @@ export async function getAllWithdrawals(options?: {
   try {
     const supabase = getServerSupabase();
     const page = options?.page || 1;
-    const limit = options?.limit || 50;
+    const limit = options?.limit || 500;
     const offset = (page - 1) * limit;
 
     let query = supabase.from('withdrawals').select('*', { count: 'exact' });
@@ -268,8 +319,22 @@ export async function getAllWithdrawals(options?: {
       .range(offset, offset + limit - 1);
 
     if (!error && data) {
-      const withdrawals = data.map(mapDbWithdrawalToWithdrawal);
-      return { withdrawals, total: count || withdrawals.length };
+      const dbWithdrawals = data.map(mapDbWithdrawalToWithdrawal);
+      const memWithdrawals = db.getWithdrawals();
+      const combined = [...dbWithdrawals];
+
+      for (const m of memWithdrawals) {
+        const existingIdx = combined.findIndex(c => c.id === m.id || c.reference === m.reference);
+        if (existingIdx === -1) {
+          combined.push(m);
+        } else {
+          // If status in memory is newer (e.g. paid/rejected), reflect that
+          if (m.status !== 'pending' && combined[existingIdx].status === 'pending') {
+            combined[existingIdx] = { ...combined[existingIdx], ...m };
+          }
+        }
+      }
+      return { withdrawals: combined, total: count ? Math.max(count, combined.length) : combined.length };
     }
   } catch (err: any) {
     console.warn('[Supabase Warn] getAllWithdrawals:', err?.message);

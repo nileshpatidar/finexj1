@@ -450,8 +450,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             {/* 5. Total Earnings Distributed */}
             <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
               <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Total Earnings Distributed</span>
-              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                +${(stats?.totalEarningsAllocated || 0).toFixed(2)} USDT
+              <p className={`text-xl font-bold ${(stats?.totalEarningsAllocated || 0) >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                {(stats?.totalEarningsAllocated || 0) >= 0 ? '+' : '-'}${Math.abs(stats?.totalEarningsAllocated || 0).toFixed(2)} USDT
               </p>
               <span className="text-[10px] text-slate-500 dark:text-slate-400">Fund Yield Allocations</span>
             </div>
@@ -527,7 +527,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                       <div>
                         <span className="font-bold">Yield for {perfDate} is already calculated & recorded</span>
                         <span className="ml-1 text-amber-700 dark:text-amber-300">
-                          ({existingPerf.actualFundPerformance >= 0 ? '+' : ''}{existingPerf.actualFundPerformance.toFixed(2)}% | {existingPerf.appliedCount} accounts credited | ${(existingPerf.totalDistributed || 0).toFixed(2)} USDT)
+                          ({Number(existingPerf.actualFundPerformance || 0) >= 0 ? '+' : ''}{Number(existingPerf.actualFundPerformance || 0).toFixed(2)}% | {existingPerf.appliedCount} accounts credited | ${Number(existingPerf.totalDistributed || 0).toFixed(2)} USDT)
                         </span>
                       </div>
                     </div>
@@ -622,13 +622,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                       )}
                       <span>
                         {isBlocked
-                          ? `Already Posted (${(existingPerf.applicableRate * 100).toFixed(2)}%)`
+                          ? `Already Posted (${(Number(existingPerf.applicableRate || 0) * 100).toFixed(2)}%)`
                           : allowOverwritePerf && existingPerf
-                          ? `Recalculate & Update (${(parseFloat(perfRate) * 100).toFixed(2)}%)`
-                          : parseFloat(perfRate) > 0
-                          ? `Post +${(parseFloat(perfRate) * 100).toFixed(2)}% Profit`
-                          : parseFloat(perfRate) < 0
-                          ? `Post ${(parseFloat(perfRate) * 100).toFixed(2)}% Loss`
+                          ? `Recalculate & Update (${(parseFloat(perfRate || '0') * 100).toFixed(2)}%)`
+                          : parseFloat(perfRate || '0') > 0
+                          ? `Post +${(parseFloat(perfRate || '0') * 100).toFixed(2)}% Profit`
+                          : parseFloat(perfRate || '0') < 0
+                          ? `Post ${(parseFloat(perfRate || '0') * 100).toFixed(2)}% Loss`
                           : 'Post Safe Day (0.00%)'}
                       </span>
                     </button>
@@ -693,7 +693,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                     <div className="space-y-2 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-base font-bold text-slate-900 dark:text-white">
-                          ${dep.amount.toFixed(2)} USDT
+                          ${Number(dep.amount || 0).toFixed(2)} USDT
                         </span>
                         <span
                           className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -761,7 +761,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         <button
                           onClick={() => setPreviewPhotoModal({
                             url: dep.proofPhotoUrl,
-                            title: `Deposit Proof - $${dep.amount.toFixed(2)} USDT (${dep.reference || dep.id})`
+                            title: `Deposit Proof - $${Number(dep.amount || 0).toFixed(2)} USDT (${dep.reference || dep.id})`
                           })}
                           className="flex items-center space-x-2 p-1.5 pr-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 font-semibold transition cursor-pointer"
                         >
@@ -863,10 +863,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 <div className="flex items-center space-x-4">
                   <div className="text-right">
                     <p className="text-sm font-bold text-slate-900 dark:text-white">
-                      ${u.balance?.availableBalance?.toFixed(2)} USDT
+                      ${Number(u.balance?.availableBalance || 0).toFixed(2)} USDT
                     </p>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      Deposited: ${u.balance?.totalDeposited?.toFixed(2)}
+                      Deposited: ${Number(u.balance?.totalDeposited || 0).toFixed(2)}
                     </p>
                   </div>
 
@@ -908,7 +908,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   <div className="space-y-1">
                     <div className="flex items-center space-x-2">
                       <span className="font-bold text-slate-900 dark:text-white text-sm">
-                        ${wd.requestedAmount.toFixed(2)} USDT
+                        ${Number(wd.requestedAmount || 0).toFixed(2)} USDT
                       </span>
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -919,10 +919,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                             : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
                         }`}
                       >
-                        {wd.status.toUpperCase()}
+                        {String(wd.status || 'pending').toUpperCase()}
                       </span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Net: ${wd.netAmount.toFixed(2)} ({wd.feePercentage ?? appSettings?.withdrawalFeePercentage ?? 9}% Fee: ${wd.feeAmount.toFixed(2)})
+                        Net: ${Number(wd.netAmount || 0).toFixed(2)} ({wd.feePercentage ?? appSettings?.withdrawalFeePercentage ?? 9}% Fee: ${Number(wd.feeAmount || 0).toFixed(2)})
                       </span>
                     </div>
 
@@ -972,7 +972,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               Complete BEP-20 Payout ({selectedWithdrawal.reference})
             </h3>
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 space-y-1 text-xs">
-              <p>Net Payout Amount: <strong className="text-blue-600 dark:text-blue-400 font-bold">${selectedWithdrawal.netAmount.toFixed(2)} USDT</strong></p>
+              <p>Net Payout Amount: <strong className="text-blue-600 dark:text-blue-400 font-bold">${Number(selectedWithdrawal.netAmount || 0).toFixed(2)} USDT</strong></p>
               <p className="font-mono text-[10px] break-all text-slate-500 dark:text-slate-400">Destination: {selectedWithdrawal.destinationAddress}</p>
             </div>
 
@@ -1086,7 +1086,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Amount:</span>
                 <strong className="text-base font-bold text-slate-900 dark:text-white">
-                  ${selectedDepositForAction.deposit.amount.toFixed(2)} USDT
+                  ${Number(selectedDepositForAction.deposit.amount || 0).toFixed(2)} USDT
                 </strong>
               </div>
               <div className="flex justify-between">
@@ -1179,17 +1179,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                     <span className="font-bold text-slate-900 dark:text-white">{p.date}</span>
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        p.applicableRate > 0
+                        Number(p.applicableRate || 0) > 0
                           ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60'
-                          : p.applicableRate < 0
+                          : Number(p.applicableRate || 0) < 0
                           ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                       }`}
                     >
-                      {p.applicableRate > 0
-                        ? `+${(p.applicableRate * 100).toFixed(2)}% Profit`
-                        : p.applicableRate < 0
-                        ? `${(p.applicableRate * 100).toFixed(2)}% Loss`
+                      {Number(p.applicableRate || 0) > 0
+                        ? `+${(Number(p.applicableRate || 0) * 100).toFixed(2)}% Profit`
+                        : Number(p.applicableRate || 0) < 0
+                        ? `${(Number(p.applicableRate || 0) * 100).toFixed(2)}% Loss`
                         : '0.00% Safe (No Trade)'}
                     </span>
                   </div>
@@ -1200,20 +1200,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   <div className="text-right">
                     <p
                       className={`text-sm font-bold ${
-                        p.totalDistributed > 0
+                        Number(p.totalDistributed || 0) > 0
                           ? 'text-blue-600 dark:text-blue-400'
-                          : p.totalDistributed < 0
+                          : Number(p.totalDistributed || 0) < 0
                           ? 'text-rose-600 dark:text-rose-400'
                           : 'text-slate-500 dark:text-slate-400'
                       }`}
                     >
-                      {p.totalDistributed > 0
-                        ? `+$${p.totalDistributed.toFixed(2)} USDT`
-                        : p.totalDistributed < 0
-                        ? `-$${Math.abs(p.totalDistributed).toFixed(2)} USDT`
+                      {Number(p.totalDistributed || 0) > 0
+                        ? `+$${Number(p.totalDistributed || 0).toFixed(2)} USDT`
+                        : Number(p.totalDistributed || 0) < 0
+                        ? `-$${Math.abs(Number(p.totalDistributed || 0)).toFixed(2)} USDT`
                         : '$0.00 USDT (Safe)'}
                     </p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.appliedCount} Users Calculated</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.appliedCount || 0} Users Calculated</p>
                   </div>
                   <button
                     onClick={() => {
@@ -1275,7 +1275,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 <option value="">Select User</option>
                 {users.map(u => (
                   <option key={u.id} value={u.id}>
-                    {u.fullName} ({u.email}) - Current: ${u.balance?.availableBalance?.toFixed(2)}
+                    {u.fullName} ({u.email}) - Current: ${Number(u.balance?.availableBalance || 0).toFixed(2)}
                   </option>
                 ))}
               </select>
