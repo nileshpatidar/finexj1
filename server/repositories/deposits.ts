@@ -1,5 +1,6 @@
 import { getServerSupabase } from '../supabase';
 import { Deposit, DepositStatus } from '../types';
+import { resolveUserIdForDb } from './profiles';
 
 export function mapDbDepositToDeposit(d: any): Deposit {
   return {
@@ -100,7 +101,7 @@ export async function getDepositByTxHash(txHash: string): Promise<Deposit | null
 
 export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
   const supabase = getServerSupabase();
-  const userIdNum = !isNaN(Number(dep.userId)) ? Number(dep.userId) : dep.userId;
+  const userIdNum = await resolveUserIdForDb(dep.userId);
   const toAddress = dep.toAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9';
   const txHash = dep.txHash || `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`;
 

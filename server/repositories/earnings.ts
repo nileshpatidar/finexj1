@@ -2,7 +2,7 @@ import { getServerSupabase } from '../supabase';
 import { EarningEntry } from '../types';
 import { getDailyPerformances } from './performances';
 import { getDepositsByUserId } from './deposits';
-import { getAllProfiles } from './profiles';
+import { getAllProfiles, resolveUserIdForDb } from './profiles';
 
 export function mapDbEarningToEarning(e: any): EarningEntry {
   return {
@@ -88,8 +88,9 @@ export async function getEarningsByUserId(userId: string): Promise<EarningEntry[
 export async function createEarning(entry: Partial<EarningEntry>): Promise<EarningEntry> {
   try {
     const supabase = getServerSupabase();
+    const resolvedUserId = await resolveUserIdForDb(entry.userId);
     const payload: any = {
-      user_id: entry.userId,
+      user_id: resolvedUserId,
       daily_performance_id: entry.calculationId ? parseInt(entry.calculationId, 10) || 1 : 1,
       date: entry.performanceDate || new Date().toISOString().split('T')[0],
       active_principal: entry.baseEligibleAmount || 0,
@@ -102,7 +103,7 @@ export async function createEarning(entry: Partial<EarningEntry>): Promise<Earni
       .from('earnings')
       .insert(payload)
       .select()
-      .single();
+      .maybeSingle();
 
     if (!error && data) {
       return mapDbEarningToEarning(data);

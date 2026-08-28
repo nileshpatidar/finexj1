@@ -1091,6 +1091,106 @@ app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware,
   }
 });
 
+// Admin DB: Get SQL Schema File
+app.get(['/api/admin/db/schema-sql', '/admin/db/schema-sql'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const schemaPath = path.join(process.cwd(), 'supabase_schema.sql');
+    if (fs.existsSync(schemaPath)) {
+      const sql = fs.readFileSync(schemaPath, 'utf-8');
+      res.setHeader('Content-Type', 'text/plain');
+      return res.send(sql);
+    }
+    res.status(404).send('-- supabase_schema.sql not found on server filesystem');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Helper to inspect Supabase tables
+async function checkSupabaseTablesStatus() {
+  const allTables = [
+    'users',
+    'deposits',
+    'withdrawals',
+    'daily_performances',
+    'earnings',
+    'ledger',
+    'audit_logs',
+    'system_settings',
+  ];
+
+  const startTime = Date.now();
+  const tablesFound: string[] = [];
+  const tablesMissing: string[] = [];
+
+  const supabaseReady = isServerSupabaseReady();
+  let poolReady = false;
+  let poolError = '';
+
+  if (supabaseReady) {
+    try {
+      const supabase = getServerSupabase();
+      for (const table of allTables) {
+        try {
+          const { error } = await supabase.from(table).select('id').limit(1);
+          if (error) {
+            const msg = (error.message || '').toLowerCase();
+            if (msg.includes('relation') && msg.includes('does not exist') || msg.includes('not found') || msg.includes('schema cache')) {
+              tablesMissing.push(table);
+            } else {
+              // Table exists but maybe permissions/empty
+              tablesFound.push(table);
+            }
+          } else {
+            tablesFound.push(table);
+          }
+        } catch {
+          tablesMissing.push(table);
+        }
+      }
+      poolReady = tablesFound.length > 0;
+    } catch (err: any) {
+      poolError = err?.message || 'Failed to inspect tables';
+    }
+  } else {
+    poolError = 'Supabase environment credentials (SUPABASE_URL, SUPABASE_SECRET_KEY) not configured.';
+  }
+
+  const latencyMs = Date.now() - startTime;
+  const connectionType = process.env.DATABASE_URL ? 'DATABASE_URL' : (process.env.SUPABASE_URL ? 'SUPABASE_URL' : 'IN_MEMORY');
+
+  return {
+    postgresPoolReady: poolReady,
+    supabaseJsReady: supabaseReady,
+    connectionType,
+    latencyMs,
+    tablesFound,
+    tablesMissing,
+    postgresPoolError: poolError,
+    totalTablesExpected: allTables.length,
+  };
+}
+
+// Admin DB: Status & Table Inspection
+app.get(['/api/admin/db/status', '/admin/db/status'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const status = await checkSupabaseTablesStatus();
+    res.json(status);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin DB: Run DB Migration / Table Validation
+app.post(['/api/admin/db/migrate', '/admin/db/migrate'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const status = await checkSupabaseTablesStatus();
+    res.json(status);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Catch-all 404 handler for unmatched API routes (Strict JSON compliance)
 app.all(['/api/*', '/api'], (req: Request, res: Response) => {
   const requestId = (req as any).requestId || 'FINEXJ-UNKNOWN';

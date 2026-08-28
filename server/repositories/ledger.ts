@@ -1,6 +1,7 @@
 import { getServerSupabase } from '../supabase';
 import { LedgerEntry, LedgerType } from '../types';
 import { getEarningsByUserId } from './earnings';
+import { resolveUserIdForDb } from './profiles';
 
 export function mapDbLedgerToLedger(l: any): LedgerEntry {
   return {
@@ -123,8 +124,9 @@ export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<Le
 
   try {
     const supabase = getServerSupabase();
+    const resolvedUserId = await resolveUserIdForDb(entry.userId);
     const payload: any = {
-      user_id: entry.userId,
+      user_id: resolvedUserId,
       type: entry.type || 'deposit',
       amount: entry.amount || 0,
       balance_after: entry.balanceAfter || 0,
@@ -137,18 +139,21 @@ export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<Le
       .from('ledger')
       .insert(payload)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.warn('[Supabase Notice] ledger insert skipped:', error.message);
       return fallbackResult;
     }
 
-    return mapDbLedgerToLedger(data);
+    if (data) {
+      return mapDbLedgerToLedger(data);
+    }
   } catch (err: any) {
     console.warn('[Supabase Notice] createLedgerEntry exception:', err?.message);
-    return fallbackResult;
   }
+
+  return fallbackResult;
 }
 
 export async function getAllLedger(): Promise<LedgerEntry[]> {

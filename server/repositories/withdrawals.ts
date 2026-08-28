@@ -1,6 +1,7 @@
 import { getServerSupabase } from '../supabase';
 import { Withdrawal, WithdrawalStatus } from '../types';
 import { db } from '../db';
+import { resolveUserIdForDb } from './profiles';
 
 export function mapDbWithdrawalToWithdrawal(w: any): Withdrawal {
   const reqAmount = Number(w.requested_amount || w.amount || 0);
@@ -56,15 +57,17 @@ export async function getWithdrawalsByUserId(userId: string): Promise<Withdrawal
 
     if (error) {
       console.warn(`[Supabase Warn] getWithdrawalsByUserId(${userId}):`, error.message);
-      // fallback to memory
       return db.getWithdrawals().filter(w => w.userId === String(userId));
     }
 
-    return (data || []).map(mapDbWithdrawalToWithdrawal);
+    if (data && data.length > 0) {
+      return data.map(mapDbWithdrawalToWithdrawal);
+    }
   } catch (err: any) {
     console.warn(`[Supabase Exception] getWithdrawalsByUserId(${userId}):`, err?.message);
-    return db.getWithdrawals().filter(w => w.userId === String(userId));
   }
+
+  return db.getWithdrawals().filter(w => w.userId === String(userId));
 }
 
 export async function getWithdrawalById(id: string): Promise<Withdrawal | null> {
@@ -99,24 +102,23 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
   const feeAmount = wd.feeAmount !== undefined ? Number(wd.feeAmount) : Number((amount * (feePct / 100)).toFixed(4));
   const netAmount = wd.netAmount !== undefined ? Number(wd.netAmount) : Number((amount - feeAmount).toFixed(4));
 
-  const payload: any = {
-    user_id: String(wd.userId),
-    amount: amount,
+  const resolvedUserId = await resolveUserIdForDb(wd.userId);
+
+  // Core payload strictly aligned with Supabase PostgreSQL schema
+  const standardPayload: any = {
+    user_id: resolvedUserId,
     requested_amount: amount,
-    fee_percentage: feePct,
     fee_amount: feeAmount,
     net_amount: netAmount,
-    currency: 'USDT',
-    network: 'BEP-20',
     destination_address: destination,
     status: wd.status || 'pending',
     created_at: wd.createdAt || new Date().toISOString(),
   };
 
-  if (wd.userNotes) payload.user_notes = wd.userNotes;
-  if (wd.idempotencyKey) payload.idempotency_key = wd.idempotencyKey;
+  if (wd.txHash) standardPayload.tx_hash = wd.txHash;
+  if (wd.adminNotes) standardPayload.rejection_reason = wd.adminNotes;
 
-  // Add to in-memory store
+  // Add to in-memory store for instant responsive fallback
   const memWithdrawal: Withdrawal = {
     id: wd.id || `wd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     reference: wd.reference || `WD-${Date.now().toString(36).toUpperCase()}`,
@@ -135,17 +137,42 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
   db.addWithdrawal(memWithdrawal);
 
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('withdrawals')
-      .insert(payload)
+      .insert(standardPayload)
       .select()
-      .single();
+      .maybeSingle();
 
-    if (!error && data) {
-      return mapDbWithdrawalToWithdrawal(data);
+    if (error && error.message.includes('column')) {
+      console.warn('[Supabase Withdrawals Insert Fallback] Retrying with alternative column alias:', error.message);
+      const altPayload: any = {
+        user_id: resolvedUserId,
+        amount: amount,
+        fee_amount: feeAmount,
+        net_amount: netAmount,
+        destination_address: destination,
+        status: wd.status || 'pending',
+        created_at: wd.createdAt || new Date().toISOString(),
+      };
+      const retry = await supabase
+        .from('withdrawals')
+        .insert(altPayload)
+        .select()
+        .maybeSingle();
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (error) {
+      console.error('[Supabase Error] createWithdrawal:', error.message, error.details || '');
+    } else if (data) {
+      const savedWithdrawal = mapDbWithdrawalToWithdrawal(data);
+      // Synchronize in-memory record with generated DB id
+      db.updateWithdrawal(memWithdrawal.id, { id: savedWithdrawal.id });
+      return savedWithdrawal;
     }
   } catch (err: any) {
-    console.warn('[Supabase Error] createWithdrawal:', err?.message);
+    console.warn('[Supabase Exception] createWithdrawal:', err?.message);
   }
 
   return memWithdrawal;

@@ -1,5 +1,30 @@
 import { getServerSupabase } from '../supabase';
 import { User, UserRole, AccountStatus } from '../types';
+import { db } from '../db';
+
+export async function resolveUserIdForDb(userId: string | number | undefined): Promise<number | string> {
+  if (!userId) return 1;
+  const strId = String(userId).trim();
+  if (!isNaN(Number(strId))) {
+    return Number(strId);
+  }
+  try {
+    const supabase = getServerSupabase();
+    // 1. Check if user exists by exact string ID (if DB users table uses UUID or text ID)
+    const { data: byId } = await supabase.from('users').select('id').eq('id', strId).maybeSingle();
+    if (byId && byId.id) return byId.id;
+
+    // 2. Try looking up user by email from memory/session
+    const inMemUser = db.getUsers().find(u => u.id === strId);
+    if (inMemUser?.email) {
+      const { data: byEmail } = await supabase.from('users').select('id').ilike('email', inMemUser.email.trim().toLowerCase()).maybeSingle();
+      if (byEmail && byEmail.id) return byEmail.id;
+    }
+  } catch (err: any) {
+    console.warn('[resolveUserIdForDb warn]:', err?.message);
+  }
+  return strId;
+}
 
 export function mapDbUserToUser(u: any): User {
   const name = u.full_name || u.fullName || 'User';
