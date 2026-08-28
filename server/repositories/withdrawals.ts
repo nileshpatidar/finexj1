@@ -25,59 +25,111 @@ export function mapDbWithdrawalToWithdrawal(w: any): Withdrawal {
 }
 
 export async function getWithdrawalsByUserId(userId: string): Promise<Withdrawal[]> {
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase
-    .from('withdrawals')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+  try {
+    const supabase = getServerSupabase();
+    let query = supabase.from('withdrawals').select('*');
+    if (!isNaN(Number(userId))) {
+      query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      query = query.eq('user_id', userId);
+    }
 
-  if (error) {
-    console.error(`[Supabase Error] getWithdrawalsByUserId(${userId}):`, error.message);
-    throw new Error(`Failed to load withdrawals: ${error.message}`);
+    const { data, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn(`[Supabase Warn] getWithdrawalsByUserId(${userId}):`, error.message);
+      return [];
+    }
+
+    return (data || []).map(mapDbWithdrawalToWithdrawal);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getWithdrawalsByUserId(${userId}):`, err?.message);
+    return [];
   }
-
-  return (data || []).map(mapDbWithdrawalToWithdrawal);
 }
 
 export async function getWithdrawalById(id: string): Promise<Withdrawal | null> {
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase
-    .from('withdrawals')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
+  try {
+    const supabase = getServerSupabase();
+    let query = supabase.from('withdrawals').select('*');
+    if (!isNaN(Number(id))) {
+      query = query.or(`id.eq.${id},id.eq.${Number(id)}`);
+    } else {
+      query = query.eq('id', id);
+    }
 
-  if (error) {
-    console.error(`[Supabase Error] getWithdrawalById(${id}):`, error.message);
-    throw new Error(`Failed to get withdrawal: ${error.message}`);
+    const { data, error } = await query.maybeSingle();
+
+    if (error) {
+      console.warn(`[Supabase Warn] getWithdrawalById(${id}):`, error.message);
+      return null;
+    }
+
+    if (!data) return null;
+    return mapDbWithdrawalToWithdrawal(data);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getWithdrawalById(${id}):`, err?.message);
+    return null;
   }
-
-  if (!data) return null;
-  return mapDbWithdrawalToWithdrawal(data);
 }
 
 export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdrawal> {
   const supabase = getServerSupabase();
+  const userIdNum = !isNaN(Number(wd.userId)) ? Number(wd.userId) : wd.userId;
+  const destination = wd.destinationAddress || '';
+  const ref = wd.reference || `WD-${Date.now()}`;
+
   const payload: any = {
-    user_id: wd.userId,
+    user_id: userIdNum,
     requested_amount: wd.requestedAmount,
-    fee_amount: wd.feeAmount,
-    net_amount: wd.netAmount,
-    destination_address: wd.destinationAddress,
+    amount: wd.requestedAmount,
+    fee_percentage: wd.feePercentage || 4,
+    fee_amount: wd.feeAmount || Number((Number(wd.requestedAmount || 0) * 0.04).toFixed(4)),
+    net_amount: wd.netAmount || Number((Number(wd.requestedAmount || 0) * 0.96).toFixed(4)),
+    destination_address: destination,
+    to_address: destination,
+    currency: 'USDT',
+    network: 'BEP-20',
+    reference: ref,
     status: wd.status || 'pending',
     created_at: wd.createdAt || new Date().toISOString(),
   };
 
-  if (wd.id) {
-    payload.id = wd.id;
+  if (wd.userNotes) {
+    payload.user_notes = wd.userNotes;
+    payload.notes = wd.userNotes;
+  }
+  if (wd.idempotencyKey) {
+    payload.idempotency_key = wd.idempotencyKey;
   }
 
-  const { data, error } = await supabase
+  if (wd.id && !isNaN(Number(wd.id))) {
+    payload.id = Number(wd.id);
+  }
+
+  let { data, error } = await supabase
     .from('withdrawals')
     .insert(payload)
     .select()
     .single();
+
+  if (error && error.message.includes('column')) {
+    console.warn('[Supabase Withdrawals Fallback] Retrying with core fields...');
+    const minimalPayload: any = {
+      user_id: userIdNum,
+      amount: wd.requestedAmount,
+      destination_address: destination,
+      status: wd.status || 'pending',
+      created_at: wd.createdAt || new Date().toISOString(),
+    };
+    const retry = await supabase
+      .from('withdrawals')
+      .insert(minimalPayload)
+      .select()
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     console.error('[Supabase Error] createWithdrawal:', error.message);

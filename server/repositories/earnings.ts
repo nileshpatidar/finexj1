@@ -20,11 +20,14 @@ export function mapDbEarningToEarning(e: any): EarningEntry {
 export async function getEarningsByUserId(userId: string): Promise<EarningEntry[]> {
   try {
     const supabase = getServerSupabase();
-    const { data, error } = await supabase
-      .from('earnings')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+    let query = supabase.from('earnings').select('*');
+    if (!isNaN(Number(userId))) {
+      query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       console.warn(`[Supabase Notice] getEarningsByUserId(${userId}):`, error.message);

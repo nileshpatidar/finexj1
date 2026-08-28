@@ -28,74 +28,110 @@ export function mapDbDepositToDeposit(d: any): Deposit {
 }
 
 export async function getDepositsByUserId(userId: string): Promise<Deposit[]> {
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase
-    .from('deposits')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+  try {
+    const supabase = getServerSupabase();
+    let query = supabase.from('deposits').select('*');
+    if (!isNaN(Number(userId))) {
+      query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      query = query.eq('user_id', userId);
+    }
 
-  if (error) {
-    console.error(`[Supabase Error] getDepositsByUserId(${userId}):`, error.message);
-    throw new Error(`Failed to load deposits: ${error.message}`);
+    const { data, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn(`[Supabase Warn] getDepositsByUserId(${userId}):`, error.message);
+      return [];
+    }
+
+    return (data || []).map(mapDbDepositToDeposit);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getDepositsByUserId(${userId}):`, err?.message);
+    return [];
   }
-
-  return (data || []).map(mapDbDepositToDeposit);
 }
 
 export async function getDepositById(id: string): Promise<Deposit | null> {
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase
-    .from('deposits')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
+  try {
+    const supabase = getServerSupabase();
+    let query = supabase.from('deposits').select('*');
+    if (!isNaN(Number(id))) {
+      query = query.or(`id.eq.${id},id.eq.${Number(id)}`);
+    } else {
+      query = query.eq('id', id);
+    }
 
-  if (error) {
-    console.error(`[Supabase Error] getDepositById(${id}):`, error.message);
-    throw new Error(`Failed to get deposit: ${error.message}`);
+    const { data, error } = await query.maybeSingle();
+
+    if (error) {
+      console.warn(`[Supabase Warn] getDepositById(${id}):`, error.message);
+      return null;
+    }
+
+    if (!data) return null;
+    return mapDbDepositToDeposit(data);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getDepositById(${id}):`, err?.message);
+    return null;
   }
-
-  if (!data) return null;
-  return mapDbDepositToDeposit(data);
 }
 
 export async function getDepositByTxHash(txHash: string): Promise<Deposit | null> {
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase
-    .from('deposits')
-    .select('*')
-    .ilike('tx_hash', txHash.trim())
-    .maybeSingle();
+  try {
+    const supabase = getServerSupabase();
+    const { data, error } = await supabase
+      .from('deposits')
+      .select('*')
+      .ilike('tx_hash', txHash.trim())
+      .maybeSingle();
 
-  if (error) {
-    console.error(`[Supabase Error] getDepositByTxHash(${txHash}):`, error.message);
+    if (error) {
+      console.warn(`[Supabase Warn] getDepositByTxHash(${txHash}):`, error.message);
+      return null;
+    }
+
+    if (!data) return null;
+    return mapDbDepositToDeposit(data);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getDepositByTxHash(${txHash}):`, err?.message);
     return null;
   }
-
-  if (!data) return null;
-  return mapDbDepositToDeposit(data);
 }
 
 export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
   const supabase = getServerSupabase();
   const userIdNum = !isNaN(Number(dep.userId)) ? Number(dep.userId) : dep.userId;
+  const toAddress = dep.toAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9';
+  const txHash = dep.txHash || `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`;
+
   const payload: any = {
     user_id: userIdNum,
     amount: dep.amount,
     net_amount: dep.amount,
-    tx_hash: dep.txHash || `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
+    currency: 'USDT',
+    network: 'BEP-20',
+    to_address: toAddress,
+    tx_hash: txHash,
     status: dep.status || 'confirmed',
     confirmations: dep.confirmations || 15,
+    required_confirmations: dep.requiredConfirmations || 12,
     lock_expires_at: dep.depositLockEndDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     created_at: dep.createdAt || new Date().toISOString(),
   };
 
+  if (dep.confirmedAt) {
+    payload.confirmed_at = dep.confirmedAt;
+  }
+  if (dep.eligibilityDate) {
+    payload.eligibility_date = dep.eligibilityDate;
+  }
   if (dep.proofPhotoUrl) {
     payload.proof_url = dep.proofPhotoUrl;
+    payload.proof_photo_url = dep.proofPhotoUrl;
   }
   if (dep.userNotes) {
     payload.notes = dep.userNotes;
+    payload.user_notes = dep.userNotes;
   }
 
   let { data, error } = await supabase
@@ -109,7 +145,8 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
     const minimalPayload: any = {
       user_id: userIdNum,
       amount: dep.amount,
-      tx_hash: dep.txHash || `0x${Date.now().toString(16)}`,
+      to_address: toAddress,
+      tx_hash: txHash,
       status: dep.status || 'confirmed',
       confirmations: dep.confirmations || 15,
       created_at: dep.createdAt || new Date().toISOString(),

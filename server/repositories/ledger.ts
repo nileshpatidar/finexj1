@@ -18,11 +18,14 @@ export function mapDbLedgerToLedger(l: any): LedgerEntry {
 export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> {
   const supabase = getServerSupabase();
   try {
-    const { data, error } = await supabase
-      .from('ledger')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+    let query = supabase.from('ledger').select('*');
+    if (!isNaN(Number(userId))) {
+      query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (!error && data && data.length > 0) {
       return data.map(mapDbLedgerToLedger);
@@ -33,10 +36,18 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
 
   // Graceful fallback: synthesize ledger entries from confirmed deposits & withdrawals
   try {
-    const [depRes, withRes] = await Promise.all([
-      supabase.from('deposits').select('*').eq('user_id', userId),
-      supabase.from('withdrawals').select('*').eq('user_id', userId),
-    ]);
+    let depQuery = supabase.from('deposits').select('*');
+    let withQuery = supabase.from('withdrawals').select('*');
+
+    if (!isNaN(Number(userId))) {
+      depQuery = depQuery.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+      withQuery = withQuery.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      depQuery = depQuery.eq('user_id', userId);
+      withQuery = withQuery.eq('user_id', userId);
+    }
+
+    const [depRes, withRes] = await Promise.all([depQuery, withQuery]);
 
     const entries: LedgerEntry[] = [];
     if (depRes.data) {
