@@ -66,8 +66,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   // Performance Form State
   const todayDateStr = new Date().toISOString().split('T')[0];
   const [perfDate, setPerfDate] = useState(todayDateStr);
-  const [perfRate, setPerfRate] = useState('0.0050'); // 0.50%
-  const [perfNotes, setPerfNotes] = useState('Institutional algorithmic yield & liquidity arbitrage allocation');
+  const [perfMode, setPerfMode] = useState<'profit' | 'loss' | 'safe'>('profit');
+  const [perfPercent, setPerfPercent] = useState('0.50'); // e.g. 0.50%
+  const [perfNotes, setPerfNotes] = useState('Profitable trading day (+0.50%).');
   const [allowOverwritePerf, setAllowOverwritePerf] = useState(false);
   const [isDistributing, setIsDistributing] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -124,17 +125,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     setActionError(null);
     setActionMessage(null);
 
+    const parsedPercent = parseFloat(perfPercent || '0');
+    const validPercent = isNaN(parsedPercent) ? 0 : parsedPercent;
+
+    const effectivePercentagePoints =
+      perfMode === 'safe'
+        ? 0
+        : perfMode === 'loss'
+        ? -Math.abs(validPercent)
+        : Math.abs(validPercent);
+
+    const effectiveApplicableRate = effectivePercentagePoints / 100;
+
     try {
       const res = await api.createDailyPerformance({
         date: perfDate,
-        actualFundPerformance: parseFloat(perfRate) * 100,
-        applicableRate: parseFloat(perfRate),
+        actualFundPerformance: effectivePercentagePoints,
+        applicableRate: effectiveApplicableRate,
         notes: perfNotes,
         overwriteExisting: allowOverwritePerf,
       });
 
       if (res.success) {
-        setActionMessage(`Successfully ${allowOverwritePerf ? 'updated & recalculated' : 'distributed'} ${(parseFloat(perfRate) * 100).toFixed(2)}% yield across ${res.affectedUsersCount || res.appliedCount || 0} eligible user accounts! Total: $${(res.totalDistributed || 0).toFixed(2)} USDT.`);
+        const sign = effectivePercentagePoints > 0 ? '+' : '';
+        setActionMessage(
+          `Successfully ${allowOverwritePerf ? 'updated & recalculated' : 'distributed'} ${sign}${effectivePercentagePoints.toFixed(2)}% yield across ${res.affectedUsersCount || res.appliedCount || 0} eligible user accounts! Total: $${(res.totalDistributed || 0).toFixed(2)} USDT.`
+        );
         setAllowOverwritePerf(false);
         await loadAllAdminData();
       }
@@ -511,40 +527,93 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
           </div>
 
           {/* Quick Daily Allocation Card */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center space-x-2">
-                <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span>Daily Performance Distribution (Profit, Loss, or Safe Day)</span>
-              </h2>
-              <div className="flex items-center space-x-1.5 text-xs">
+          <div className="p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center space-x-2">
+                  <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span>Daily Yield & Performance Distribution</span>
+                </h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Post authoritative daily trading returns (+Profit, -Loss, or 0.00% Safe Day) for all confirmed deposits.
+                </p>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 mr-1">Presets:</span>
                 <button
                   type="button"
                   onClick={() => {
-                    setPerfRate('0.01');
+                    setPerfMode('profit');
+                    setPerfPercent('1.00');
                     setPerfNotes('Profitable trading day (+1.00%).');
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800/60 transition cursor-pointer"
+                  className={`px-2.5 py-1 rounded-lg font-bold border transition cursor-pointer ${
+                    perfMode === 'profit' && perfPercent === '1.00'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60'
+                  }`}
                 >
                   +1.00% Profit
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setPerfRate('-0.005');
+                    setPerfMode('profit');
+                    setPerfPercent('0.50');
+                    setPerfNotes('Profitable trading day (+0.50%).');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-bold border transition cursor-pointer ${
+                    perfMode === 'profit' && perfPercent === '0.50'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60'
+                  }`}
+                >
+                  +0.50% Profit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPerfMode('loss');
+                    setPerfPercent('0.50');
                     setPerfNotes('Market adjustment / draw-down (-0.50%).');
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-bold border border-rose-200 dark:border-rose-800/60 transition cursor-pointer"
+                  className={`px-2.5 py-1 rounded-lg font-bold border transition cursor-pointer ${
+                    perfMode === 'loss' && perfPercent === '0.50'
+                      ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                      : 'bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60'
+                  }`}
                 >
                   -0.50% Loss
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setPerfRate('0');
+                    setPerfMode('loss');
+                    setPerfPercent('1.00');
+                    setPerfNotes('Market adjustment / draw-down (-1.00%).');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-bold border transition cursor-pointer ${
+                    perfMode === 'loss' && perfPercent === '1.00'
+                      ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                      : 'bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60'
+                  }`}
+                >
+                  -1.00% Loss
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPerfMode('safe');
+                    setPerfPercent('0.00');
                     setPerfNotes('We are safe today, no investment / trading today (Capital Preserved).');
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                  className={`px-2.5 py-1 rounded-lg font-bold border transition cursor-pointer ${
+                    perfMode === 'safe'
+                      ? 'bg-slate-700 text-white border-slate-700 shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                  }`}
                 >
                   0.00% Safe Day
                 </button>
@@ -555,14 +624,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             {(() => {
               const existingPerf = performances.find(p => p.date === perfDate);
               if (existingPerf) {
+                const isExistingPositive = Number(existingPerf.actualFundPerformance ?? existingPerf.ratePercentage ?? 0) > 0;
+                const isExistingNegative = Number(existingPerf.actualFundPerformance ?? existingPerf.ratePercentage ?? 0) < 0;
                 return (
-                  <div className="mb-3 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-xs text-amber-800 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-xs text-amber-800 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div className="flex items-center space-x-2">
                       <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
                       <div>
                         <span className="font-bold">Yield for {perfDate} is already calculated & recorded</span>
-                        <span className="ml-1 text-amber-700 dark:text-amber-300">
-                          ({Number(existingPerf.actualFundPerformance || 0) >= 0 ? '+' : ''}{Number(existingPerf.actualFundPerformance || 0).toFixed(2)}% | {existingPerf.appliedCount} accounts credited | ${Number(existingPerf.totalDistributed || 0).toFixed(2)} USDT)
+                        <span className="ml-1 text-amber-700 dark:text-amber-300 font-mono">
+                          ({isExistingPositive ? '+' : ''}{Number(existingPerf.actualFundPerformance ?? existingPerf.ratePercentage ?? 0).toFixed(2)}% | {existingPerf.appliedCount || 0} accounts credited | ${Number(existingPerf.totalDistributed || 0).toFixed(2)} USDT)
                         </span>
                       </div>
                     </div>
@@ -583,67 +654,174 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               return null;
             })()}
 
-            <form onSubmit={handleApplyPerformance} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">Performance Date</label>
-                <input
-                  type="date"
-                  value={perfDate}
-                  onChange={e => {
-                    setPerfDate(e.target.value);
-                    setAllowOverwritePerf(false);
-                  }}
-                  className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-semibold"
-                />
+            <form onSubmit={handleApplyPerformance} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                {/* 1. Date */}
+                <div className="sm:col-span-3">
+                  <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">
+                    Performance Date
+                  </label>
+                  <input
+                    type="date"
+                    value={perfDate}
+                    onChange={e => {
+                      setPerfDate(e.target.value);
+                      setAllowOverwritePerf(false);
+                    }}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-semibold text-xs"
+                  />
+                </div>
+
+                {/* 2. Type Selector (Profit / Loss / Safe) */}
+                <div className="sm:col-span-4">
+                  <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">
+                    Yield Result Type
+                  </label>
+                  <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPerfMode('profit');
+                        if (perfPercent === '0.00' || perfPercent === '0') setPerfPercent('0.50');
+                        setPerfNotes('Profitable trading day (+0.50%).');
+                      }}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 cursor-pointer ${
+                        perfMode === 'profit'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <span>+ Profit</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPerfMode('loss');
+                        if (perfPercent === '0.00' || perfPercent === '0') setPerfPercent('0.50');
+                        setPerfNotes('Market adjustment / draw-down (-0.50%).');
+                      }}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 cursor-pointer ${
+                        perfMode === 'loss'
+                          ? 'bg-rose-600 text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <span>- Loss</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPerfMode('safe');
+                        setPerfPercent('0.00');
+                        setPerfNotes('We are safe today, no investment / trading today (Capital Preserved).');
+                      }}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 cursor-pointer ${
+                        perfMode === 'safe'
+                          ? 'bg-slate-700 dark:bg-slate-800 text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <span>0.00% Safe</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Percentage Input */}
+                <div className="sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium">
+                      Rate (%)
+                    </label>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                      {perfMode === 'safe'
+                        ? 'x0.0000'
+                        : perfMode === 'loss'
+                        ? `-x${((parseFloat(perfPercent || '0') || 0) / 100).toFixed(4)}`
+                        : `+x${((parseFloat(perfPercent || '0') || 0) / 100).toFixed(4)}`}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      disabled={perfMode === 'safe'}
+                      value={perfMode === 'safe' ? '0.00' : perfPercent}
+                      onChange={e => {
+                        // Clean input, allow numbers and decimal point
+                        const val = e.target.value.replace(/[^0-9.]/g, '');
+                        setPerfPercent(val);
+                      }}
+                      placeholder="0.50"
+                      className={`w-full py-2 pl-3 pr-7 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono font-bold text-xs ${
+                        perfMode === 'profit'
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : perfMode === 'loss'
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-slate-400 dark:text-slate-600 bg-slate-100 dark:bg-slate-900 cursor-not-allowed'
+                      }`}
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold pointer-events-none">
+                      %
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4. Notes */}
+                <div className="sm:col-span-3">
+                  <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">
+                    Ledger Memo / Note
+                  </label>
+                  <input
+                    type="text"
+                    value={perfNotes}
+                    onChange={e => setPerfNotes(e.target.value)}
+                    placeholder="Note for audit log and user statement"
+                    className="w-full py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">
-                  Applicable Rate (e.g. 0.01 = +1%, -0.005 = -0.5%, 0 = 0%)
-                </label>
-                <input
-                  type="number"
-                  step="0.0001"
-                  value={perfRate}
-                  onChange={e => setPerfRate(e.target.value)}
-                  className={`w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold ${
-                    parseFloat(perfRate) > 0
-                      ? 'text-blue-600 dark:text-blue-400'
-                      : parseFloat(perfRate) < 0
-                      ? 'text-rose-600 dark:text-rose-400'
-                      : 'text-slate-700 dark:text-slate-300'
-                  }`}
-                />
-              </div>
+              {/* Submit Row */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-2">
+                  <span className="font-semibold">Selected Output:</span>
+                  <span
+                    className={`font-bold font-mono px-2 py-0.5 rounded text-[11px] ${
+                      perfMode === 'profit'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+                        : perfMode === 'loss'
+                        ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {perfMode === 'safe'
+                      ? '0.00% Safe (Capital Preserved)'
+                      : perfMode === 'loss'
+                      ? `-${(parseFloat(perfPercent || '0') || 0).toFixed(2)}% Loss`
+                      : `+${(parseFloat(perfPercent || '0') || 0).toFixed(2)}% Profit`}
+                  </span>
+                </div>
 
-              <div>
-                <label className="block text-slate-500 dark:text-slate-400 text-[11px] mb-1 font-medium">Custom Note / Condition</label>
-                <input
-                  type="text"
-                  value={perfNotes}
-                  onChange={e => setPerfNotes(e.target.value)}
-                  placeholder="e.g. We are safe today, no investment today"
-                  className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              <div className="flex items-end">
                 {(() => {
                   const existingPerf = performances.find(p => p.date === perfDate);
                   const isBlocked = existingPerf && !allowOverwritePerf;
+                  const currentPercentNum = parseFloat(perfPercent || '0') || 0;
+
                   return (
                     <button
                       type="submit"
                       disabled={isDistributing || Boolean(isBlocked)}
                       title={isBlocked ? `Date ${perfDate} has already been calculated. Enable Overwrite to recalculate.` : ''}
-                      className={`w-full py-2.5 px-4 rounded-xl disabled:opacity-50 font-bold transition flex items-center justify-center space-x-2 cursor-pointer ${
+                      className={`w-full sm:w-auto px-6 py-2.5 rounded-xl disabled:opacity-50 font-bold transition flex items-center justify-center space-x-2 cursor-pointer text-xs ${
                         isBlocked
                           ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed'
                           : allowOverwritePerf && existingPerf
                           ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-500/20'
-                          : parseFloat(perfRate) > 0
+                          : perfMode === 'profit'
                           ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20'
-                          : parseFloat(perfRate) < 0
+                          : perfMode === 'loss'
                           ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-500/20'
                           : 'bg-slate-700 hover:bg-slate-600 text-white'
                       }`}
@@ -659,11 +837,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         {isBlocked
                           ? `Already Posted (${(Number(existingPerf.applicableRate || 0) * 100).toFixed(2)}%)`
                           : allowOverwritePerf && existingPerf
-                          ? `Recalculate & Update (${(parseFloat(perfRate || '0') * 100).toFixed(2)}%)`
-                          : parseFloat(perfRate || '0') > 0
-                          ? `Post +${(parseFloat(perfRate || '0') * 100).toFixed(2)}% Profit`
-                          : parseFloat(perfRate || '0') < 0
-                          ? `Post ${(parseFloat(perfRate || '0') * 100).toFixed(2)}% Loss`
+                          ? `Recalculate & Update (${perfMode === 'loss' ? '-' : perfMode === 'profit' ? '+' : ''}${currentPercentNum.toFixed(2)}%)`
+                          : perfMode === 'profit'
+                          ? `Post +${currentPercentNum.toFixed(2)}% Profit`
+                          : perfMode === 'loss'
+                          ? `Post -${currentPercentNum.toFixed(2)}% Loss`
                           : 'Post Safe Day (0.00%)'}
                       </span>
                     </button>
@@ -1339,8 +1517,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                   <button
                     onClick={() => {
                       setPerfDate(p.date);
-                      setPerfRate(String(p.applicableRate));
-                      setPerfNotes(p.notes);
+                      const rate = Number(p.applicableRate ?? (Number(p.actualFundPerformance ?? p.ratePercentage ?? 0) / 100) ?? 0);
+                      if (rate > 0) {
+                        setPerfMode('profit');
+                        setPerfPercent((rate * 100).toFixed(2));
+                      } else if (rate < 0) {
+                        setPerfMode('loss');
+                        setPerfPercent(Math.abs(rate * 100).toFixed(2));
+                      } else {
+                        setPerfMode('safe');
+                        setPerfPercent('0.00');
+                      }
+                      setPerfNotes(p.notes || '');
                       setAllowOverwritePerf(true);
                       setActiveTab('overview');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
