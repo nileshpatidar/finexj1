@@ -1172,20 +1172,23 @@ app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware,
   }
 });
 
-// Admin DB: Get SQL Schema File
-app.get(['/api/admin/db/schema-sql', '/admin/db/schema-sql'], authMiddleware, adminMiddleware(), async (req, res, next) => {
-  try {
-    const schemaPath = path.join(process.cwd(), 'supabase_schema.sql');
-    if (fs.existsSync(schemaPath)) {
-      const sql = fs.readFileSync(schemaPath, 'utf-8');
-      res.setHeader('Content-Type', 'text/plain');
-      return res.send(sql);
+// Database Schema SQL File Endpoint
+app.get(
+  ['/api/admin/db/schema-sql', '/admin/db/schema-sql', '/api/schema.sql', '/schema.sql'],
+  async (req, res, next) => {
+    try {
+      const schemaPath = path.join(process.cwd(), 'supabase_schema.sql');
+      if (fs.existsSync(schemaPath)) {
+        const sql = fs.readFileSync(schemaPath, 'utf-8');
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        return res.send(sql);
+      }
+      res.status(404).send('-- supabase_schema.sql not found on server filesystem');
+    } catch (err) {
+      next(err);
     }
-    res.status(404).send('-- supabase_schema.sql not found on server filesystem');
-  } catch (err) {
-    next(err);
   }
-});
+);
 
 // Helper to inspect Supabase tables
 async function checkSupabaseTablesStatus() {
