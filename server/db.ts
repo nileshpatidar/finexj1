@@ -136,7 +136,7 @@ class Database {
     return createEarning(earning);
   }
 
-  public async addEarningsBatch(earnings: Partial<EarningEntry>[]): Promise<void> {
+  public async addEarningsBatch(earnings: Partial<EarningEntry>[]): Promise<EarningEntry[]> {
     return createEarningsBatch(earnings);
   }
 

@@ -111,21 +111,31 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
 
 
 export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<LedgerEntry> {
-  const fallbackResult: LedgerEntry = {
-    id: `led_${Date.now()}`,
-    userId: String(entry.userId),
-    type: (entry.type || 'deposit') as LedgerType,
+  const supabase = getServerSupabase();
+  const resolvedUserId = await resolveUserIdForDb(entry.userId);
+  const payload: any = {
+    user_id: resolvedUserId,
+    type: entry.type || 'deposit',
     amount: entry.amount || 0,
-    balanceAfter: entry.balanceAfter || 0,
-    referenceId: entry.referenceId || `TX-${Date.now()}`,
+    balance_after: entry.balanceAfter || 0,
+    reference_id: entry.referenceId || `TX-${Date.now()}`,
     description: entry.description || 'Ledger transaction',
-    createdAt: entry.createdAt || new Date().toISOString(),
+    created_at: entry.createdAt || new Date().toISOString(),
   };
 
-  try {
-    const supabase = getServerSupabase();
-    const resolvedUserId = await resolveUserIdForDb(entry.userId);
-    const payload: any = {
+  if (entry.performedBy) {
+    payload.performed_by = String(entry.performedBy);
+  }
+
+  let { data, error } = await supabase
+    .from('ledger')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error && error.message.includes('column')) {
+    // Retry with core columns if optional columns do not exist
+    const minimalPayload: any = {
       user_id: resolvedUserId,
       type: entry.type || 'deposit',
       amount: entry.amount || 0,
@@ -134,26 +144,21 @@ export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<Le
       description: entry.description || 'Ledger transaction',
       created_at: entry.createdAt || new Date().toISOString(),
     };
-
-    const { data, error } = await supabase
+    const retry = await supabase
       .from('ledger')
-      .insert(payload)
+      .insert(minimalPayload)
       .select()
-      .maybeSingle();
-
-    if (error) {
-      console.warn('[Supabase Notice] ledger insert skipped:', error.message);
-      return fallbackResult;
-    }
-
-    if (data) {
-      return mapDbLedgerToLedger(data);
-    }
-  } catch (err: any) {
-    console.warn('[Supabase Notice] createLedgerEntry exception:', err?.message);
+      .single();
+    data = retry.data;
+    error = retry.error;
   }
 
-  return fallbackResult;
+  if (error || !data) {
+    console.error('[Supabase Error] createLedgerEntry:', error?.message);
+    throw new Error(`Failed to persist financial ledger entry in Supabase: ${error?.message || 'Database error'}`);
+  }
+
+  return mapDbLedgerToLedger(data);
 }
 
 export async function getAllLedger(): Promise<LedgerEntry[]> {

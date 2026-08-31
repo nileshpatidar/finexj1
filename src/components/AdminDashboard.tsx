@@ -942,7 +942,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         {String(wd.status || 'pending').toUpperCase()}
                       </span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Net: ${Number(wd.netAmount || 0).toFixed(2)} ({wd.feePercentage ?? appSettings?.withdrawalFeePercentage ?? 9}% Fee: ${Number(wd.feeAmount || 0).toFixed(2)})
+                        Net: ${Number(wd.netAmount || 0).toFixed(2)} ({wd.feePercentage ?? appSettings?.withdrawalFeePercentage ?? 4}% Fee: ${Number(wd.feeAmount || 0).toFixed(2)})
                       </span>
                     </div>
 

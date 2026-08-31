@@ -57,7 +57,7 @@ export interface Withdrawal {
   reference: string;
   userId: string;
   requestedAmount: number;
-  feePercentage: number; // Configurable / Default 9%
+  feePercentage: number; // Configurable / Default 4%
   feeAmount: number;
   netAmount: number;
   destinationAddress: string;
@@ -167,7 +167,7 @@ export interface AppSettings {
   usdtContractAddress: string;
   requiredConfirmations: number;
   minimumDepositAmount: number; // 300 USDT
-  withdrawalFeePercentage: number; // Configurable / Default 9%
+  withdrawalFeePercentage: number; // Configurable / Default 4%
   accountAgeRequirementDays: number; // 30
   depositLockPeriodDays: number; // 30
   telegramSupportUrl: string;

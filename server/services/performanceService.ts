@@ -5,7 +5,7 @@ import {
   getDailyPerformanceByDate,
   updateDailyPerformance,
 } from '../repositories/performances';
-import { createEarning } from '../repositories/earnings';
+import { createEarning, deleteEarningsByDate } from '../repositories/earnings';
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { calculateUserBalanceAsync } from './balanceService';
@@ -41,6 +41,9 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
     let performanceRecord: DailyPerformance;
 
     if (existing && input.overwriteExisting) {
+      // Clear previous earnings for this date to prevent duplicate distribution
+      await deleteEarningsByDate(input.date);
+
       performanceRecord = await updateDailyPerformance(input.date, {
         overallFundAmount: input.overallFundAmount,
         actualFundPerformance: input.actualFundPerformance,
@@ -113,6 +116,12 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
         totalDistributed += yieldPayout;
       }
     }
+
+    // Update applied counts and totals in daily performance record
+    await updateDailyPerformance(input.date, {
+      appliedCount,
+      totalDistributed: Number(totalDistributed.toFixed(2)),
+    });
 
     await createAuditLog({
       action: 'DAILY_PERFORMANCE_APPLIED',

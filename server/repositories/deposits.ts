@@ -107,7 +107,7 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
   const supabase = getServerSupabase();
   const userIdNum = await resolveUserIdForDb(dep.userId);
   const toAddress = dep.toAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9';
-  const txHash = dep.txHash || `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`;
+  const txHash = dep.txHash ? dep.txHash.trim() : `0x${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`;
 
   const payload: any = {
     user_id: userIdNum,
@@ -116,8 +116,8 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
     network: 'BEP-20',
     to_address: toAddress,
     tx_hash: txHash,
-    status: dep.status || 'confirmed',
-    confirmations: dep.confirmations || 15,
+    status: dep.status || 'pending',
+    confirmations: dep.confirmations || 1,
     required_confirmations: dep.requiredConfirmations || 12,
     lock_expires_at: dep.depositLockEndDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     created_at: dep.createdAt || new Date().toISOString(),
@@ -149,8 +149,8 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
       amount: dep.amount,
       to_address: toAddress,
       tx_hash: txHash,
-      status: dep.status || 'confirmed',
-      confirmations: dep.confirmations || 15,
+      status: dep.status || 'pending',
+      confirmations: dep.confirmations || 1,
       proof_url: dep.proofPhotoUrl || null,
       notes: dep.userNotes || null,
       created_at: dep.createdAt || new Date().toISOString(),
@@ -166,6 +166,9 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
 
   if (error) {
     console.error('[Supabase Error] createDeposit:', error.message);
+    if (error.message.includes('unique') || error.message.includes('duplicate') || error.code === '23505') {
+      throw new Error('This blockchain transaction hash has already been registered in the system.');
+    }
     throw new Error(`Failed to create deposit: ${error.message}`);
   }
 

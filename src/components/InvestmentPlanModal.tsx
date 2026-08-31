@@ -23,7 +23,7 @@ export const InvestmentPlanModal: React.FC<InvestmentPlanModalProps> = ({
   onClose,
 }) => {
   const { withdrawalFeePercentage, minimumDepositAmount, depositLockPeriodDays, accountAgeRequirementDays } = useSettings();
-  const feePct = withdrawalFeePercentage ?? 9;
+  const feePct = withdrawalFeePercentage ?? 4;
   const [activeTab, setActiveTab] = useState<'overview' | 'strategies' | 'faq'>('overview');
   const [expandedFaq, setExpandedFaq] = useState<number | null>(0);
 

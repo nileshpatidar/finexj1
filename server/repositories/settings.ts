@@ -6,7 +6,7 @@ export const defaultSettings: AppSettings = {
   usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
   requiredConfirmations: 12,
   minimumDepositAmount: 300,
-  withdrawalFeePercentage: 9,
+  withdrawalFeePercentage: 4,
   accountAgeRequirementDays: 30,
   depositLockPeriodDays: 30,
   telegramSupportUrl: 'https://t.me/USDTFundOfficialSupport',
@@ -44,7 +44,7 @@ export async function getSettings(): Promise<AppSettings> {
     }
 
     // Ensure number types are numbers
-    merged.withdrawalFeePercentage = Number(merged.withdrawalFeePercentage) || 9;
+    merged.withdrawalFeePercentage = Number(merged.withdrawalFeePercentage) || 4;
     merged.accountAgeRequirementDays = Number(merged.accountAgeRequirementDays) || 30;
     merged.minimumDepositAmount = Number(merged.minimumDepositAmount) || 300;
     merged.depositLockPeriodDays = Number(merged.depositLockPeriodDays) || 30;

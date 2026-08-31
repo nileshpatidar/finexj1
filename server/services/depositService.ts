@@ -21,6 +21,7 @@ export interface ProcessDepositInput {
   proofPhotoUrl?: string;
   userNotes?: string;
   actorEmail?: string;
+  autoApprove?: boolean;
 }
 
 export async function processDepositAsync(input: ProcessDepositInput): Promise<{
@@ -52,20 +53,21 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     };
   }
 
-  // Duplicate txHash verification
-  if (input.txHash) {
-    const existing = await getDepositByTxHash(input.txHash);
+  // Duplicate txHash verification (case-insensitive)
+  if (input.txHash && input.txHash.trim()) {
+    const trimmedTx = input.txHash.trim();
+    const existing = await getDepositByTxHash(trimmedTx);
     if (existing) {
       return {
         success: false,
-        error: 'This blockchain transaction hash has already been submitted or processed.',
+        error: 'This blockchain transaction hash has already been submitted or processed in the system.',
       };
     }
   }
 
   const depositId = 'dep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
   const fallbackTxHash = '0x' + crypto.randomBytes(32).toString('hex');
-  const userTxHash = input.txHash ? input.txHash.trim() : fallbackTxHash;
+  const userTxHash = input.txHash && input.txHash.trim() ? input.txHash.trim() : fallbackTxHash;
 
   let storagePath: string | undefined = undefined;
   if (input.proofPhotoUrl) {
@@ -77,9 +79,9 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     }
   }
 
-  // Blockchain verification check if provided
+  // Blockchain verification check if provided and no proof screenshot
   let isConfirmed = false;
-  if (input.txHash && !input.proofPhotoUrl) {
+  if (input.txHash && !input.proofPhotoUrl && input.autoApprove) {
     const verification = await verifyBEP20Deposit(input.txHash, depositAmount);
     if (!verification.isValid) {
       return {
@@ -116,6 +118,13 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     proofPhotoUrl: storagePath,
     userNotes: input.userNotes,
   });
+
+  if (!newDeposit || !newDeposit.id) {
+    return {
+      success: false,
+      error: 'Failed to record deposit in Supabase database. Please try again.',
+    };
+  }
 
   if (isConfirmed) {
     const balance = await calculateUserBalanceAsync(user.id);

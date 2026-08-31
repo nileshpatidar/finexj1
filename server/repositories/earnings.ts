@@ -86,50 +86,91 @@ export async function getEarningsByUserId(userId: string): Promise<EarningEntry[
 }
 
 export async function createEarning(entry: Partial<EarningEntry>): Promise<EarningEntry> {
-  try {
-    const supabase = getServerSupabase();
-    const resolvedUserId = await resolveUserIdForDb(entry.userId);
-    const payload: any = {
+  const supabase = getServerSupabase();
+  const resolvedUserId = await resolveUserIdForDb(entry.userId);
+  const perfIdNum = entry.calculationId && !isNaN(Number(entry.calculationId))
+    ? parseInt(entry.calculationId, 10)
+    : null;
+
+  const targetDate = entry.performanceDate || new Date().toISOString().split('T')[0];
+  const payload: any = {
+    user_id: resolvedUserId,
+    date: targetDate,
+    performance_date: targetDate,
+    active_principal: entry.baseEligibleAmount || 0,
+    base_eligible_amount: entry.baseEligibleAmount || 0,
+    rate_percentage: entry.applicableRate || 0,
+    applicable_rate: entry.applicableRate || 0,
+    payout_amount: entry.earningsAmount || 0,
+    earnings_amount: entry.earningsAmount || 0,
+    status: entry.status || 'credited',
+    market_condition: entry.marketCondition || ((entry.applicableRate || 0) >= 0 ? 'profit' : 'loss'),
+    created_at: entry.createdAt || new Date().toISOString(),
+  };
+
+  if (perfIdNum !== null) {
+    payload.daily_performance_id = perfIdNum;
+  }
+  if (entry.calculationId) {
+    payload.calculation_id = String(entry.calculationId);
+  }
+  if (entry.note) {
+    payload.note = entry.note;
+  }
+
+  let { data, error } = await supabase
+    .from('earnings')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error && error.message.includes('column')) {
+    // Retry with core columns if optional columns do not exist
+    const minimalPayload: any = {
       user_id: resolvedUserId,
-      daily_performance_id: entry.calculationId ? parseInt(entry.calculationId, 10) || 1 : 1,
-      date: entry.performanceDate || new Date().toISOString().split('T')[0],
+      date: targetDate,
       active_principal: entry.baseEligibleAmount || 0,
       rate_percentage: entry.applicableRate || 0,
       payout_amount: entry.earningsAmount || 0,
       created_at: entry.createdAt || new Date().toISOString(),
     };
-
-    const { data, error } = await supabase
+    if (perfIdNum !== null) minimalPayload.daily_performance_id = perfIdNum;
+    const retry = await supabase
       .from('earnings')
-      .insert(payload)
+      .insert(minimalPayload)
       .select()
-      .maybeSingle();
-
-    if (!error && data) {
-      return mapDbEarningToEarning(data);
-    }
-  } catch (err: any) {
-    // fallback
+      .single();
+    data = retry.data;
+    error = retry.error;
   }
 
-  return {
-    id: `earn_${Date.now()}_${entry.userId}`,
-    userId: String(entry.userId),
-    calculationId: String(entry.calculationId || '1'),
-    baseEligibleAmount: entry.baseEligibleAmount || 0,
-    applicableRate: entry.applicableRate || 0,
-    earningsAmount: entry.earningsAmount || 0,
-    performanceDate: entry.performanceDate || new Date().toISOString().split('T')[0],
-    createdAt: entry.createdAt || new Date().toISOString(),
-    status: 'credited',
-    marketCondition: (entry.applicableRate || 0) >= 0 ? 'profit' : 'loss',
-    note: entry.note,
-  };
+  if (error || !data) {
+    console.error('[Supabase Error] createEarning:', error?.message);
+    throw new Error(`Failed to persist earnings in Supabase: ${error?.message || 'Unknown database error'}`);
+  }
+
+  return mapDbEarningToEarning(data);
 }
 
-export async function createEarningsBatch(entries: Partial<EarningEntry>[]): Promise<void> {
-  const promises = entries.map(e => createEarning(e));
-  await Promise.allSettled(promises);
+export async function deleteEarningsByDate(date: string): Promise<void> {
+  const supabase = getServerSupabase();
+  const { error } = await supabase
+    .from('earnings')
+    .delete()
+    .or(`date.eq.${date},performance_date.eq.${date}`);
+
+  if (error) {
+    console.warn(`[Supabase Notice] deleteEarningsByDate(${date}):`, error.message);
+  }
+}
+
+export async function createEarningsBatch(entries: Partial<EarningEntry>[]): Promise<EarningEntry[]> {
+  const results: EarningEntry[] = [];
+  for (const entry of entries) {
+    const created = await createEarning(entry);
+    results.push(created);
+  }
+  return results;
 }
 
 export async function getAllEarnings(): Promise<EarningEntry[]> {

@@ -99,7 +99,7 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
   const supabase = getServerSupabase();
   const destination = (wd.destinationAddress || '').trim();
   const amount = Number(wd.requestedAmount || 0);
-  const feePct = wd.feePercentage !== undefined ? Number(wd.feePercentage) : 9;
+  const feePct = wd.feePercentage !== undefined ? Number(wd.feePercentage) : 4;
   const feeAmount = wd.feeAmount !== undefined ? Number(wd.feeAmount) : Number((amount * (feePct / 100)).toFixed(4));
   const netAmount = wd.netAmount !== undefined ? Number(wd.netAmount) : Number((amount - feeAmount).toFixed(4));
 
