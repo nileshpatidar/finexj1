@@ -24,7 +24,7 @@ const defaultSettings: AppSettings = {
   usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
   requiredConfirmations: 12,
   minimumDepositAmount: 300,
-  withdrawalFeePercentage: 4,
+  withdrawalFeePercentage: 6,
   accountAgeRequirementDays: 30,
   depositLockPeriodDays: 30,
   telegramSupportUrl: 'https://t.me/FINEXJ_OfficialSupport',
@@ -38,7 +38,7 @@ const SettingsContext = createContext<SettingsContextType>({
   isLoading: false,
   error: null,
   refreshSettings: async () => {},
-  withdrawalFeePercentage: 4,
+  withdrawalFeePercentage: 6,
   accountAgeRequirementDays: 30,
   depositLockPeriodDays: 30,
   minimumDepositAmount: 300,
@@ -63,7 +63,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           ...defaultSettings,
           ...prev,
           ...data,
-          withdrawalFeePercentage: Number(data.withdrawalFeePercentage) || 4,
+          withdrawalFeePercentage: Number(data.withdrawalFeePercentage) || 6,
           accountAgeRequirementDays: Number(data.accountAgeRequirementDays) || 30,
           depositLockPeriodDays: Number(data.depositLockPeriodDays) || 30,
           minimumDepositAmount: Number(data.minimumDepositAmount) || 300,
@@ -88,7 +88,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => clearInterval(interval);
   }, [refreshSettings]);
 
-  const withdrawalFeePercentage = settings?.withdrawalFeePercentage ?? 4;
+  const withdrawalFeePercentage = settings?.withdrawalFeePercentage ?? 6;
   const accountAgeRequirementDays = settings?.accountAgeRequirementDays ?? 30;
   const depositLockPeriodDays = settings?.depositLockPeriodDays ?? 30;
   const minimumDepositAmount = settings?.minimumDepositAmount ?? 300;

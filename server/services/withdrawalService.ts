@@ -96,10 +96,10 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     };
   }
 
-  // 4. Dynamic fee calculation from database settings (canonical default 4%)
+  // 4. Dynamic fee calculation from database settings (canonical default 6%)
   const feePct = (settings.withdrawalFeePercentage !== undefined && !isNaN(Number(settings.withdrawalFeePercentage)))
     ? Number(settings.withdrawalFeePercentage)
-    : 4;
+    : 6;
   const feeRate = feePct / 100;
   const feeAmount = Number((requestedAmount * feeRate).toFixed(4));
   const netAmount = Number((requestedAmount - feeAmount).toFixed(4));

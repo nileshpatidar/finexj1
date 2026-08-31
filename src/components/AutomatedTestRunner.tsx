@@ -67,32 +67,32 @@ function runClientSideTestSuite(): TestSuiteResponse {
     'At Aug 31, 10:30 UTC (30 full days completed), withdrawal request is marked ELIGIBLE.'
   );
 
-  // 3. 4% Authoritative Fee Calculations
-  const fee100 = 100 * 0.04;
+  // 3. 6% Authoritative Fee Calculations
+  const fee100 = 100 * 0.06;
   const net100 = 100 - fee100;
-  const fee500 = 500 * 0.04;
+  const fee500 = 500 * 0.06;
   const net500 = 500 - fee500;
-  const fee1000 = 1000 * 0.04;
+  const fee1000 = 1000 * 0.06;
   const net1000 = 1000 - fee1000;
 
   assert(
-    'Authoritative 4% Fee: $100 -> $4 Fee, $96 Net',
+    'Authoritative 6% Fee: $100 -> $6 Fee, $94 Net',
     'Fee Calculations',
-    fee100 === 4 && net100 === 96,
+    fee100 === 6 && net100 === 94,
     `Calculated fee: $${fee100}, Net to receive: $${net100}.`
   );
 
   assert(
-    'Authoritative 4% Fee: $500 -> $20 Fee, $480 Net',
+    'Authoritative 6% Fee: $500 -> $30 Fee, $470 Net',
     'Fee Calculations',
-    fee500 === 20 && net500 === 480,
+    fee500 === 30 && net500 === 470,
     `Calculated fee: $${fee500}, Net to receive: $${net500}.`
   );
 
   assert(
-    'Authoritative 4% Fee: $1,000 -> $40 Fee, $960 Net',
+    'Authoritative 6% Fee: $1,000 -> $60 Fee, $940 Net',
     'Fee Calculations',
-    fee1000 === 40 && net1000 === 960,
+    fee1000 === 60 && net1000 === 940,
     `Calculated fee: $${fee1000}, Net to receive: $${net1000}.`
   );
 

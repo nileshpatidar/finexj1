@@ -90,35 +90,35 @@ export async function runAutomatedTestSuite(): Promise<{
     );
   }
 
-  // --- 3. 4% AUTHORITATIVE WITHDRAWAL FEE TESTS (TEST CASE SPECIFICATION) ---
+  // --- 3. 6% AUTHORITATIVE WITHDRAWAL FEE TESTS (TEST CASE SPECIFICATION) ---
   try {
-    const feeTest100 = { req: 100, fee: 100 * 0.04, net: 100 - 100 * 0.04 };
-    const feeTest500 = { req: 500, fee: 500 * 0.04, net: 500 - 500 * 0.04 };
-    const feeTest1000 = { req: 1000, fee: 1000 * 0.04, net: 1000 - 1000 * 0.04 };
+    const feeTest100 = { req: 100, fee: 100 * 0.06, net: 100 - 100 * 0.06 };
+    const feeTest500 = { req: 500, fee: 500 * 0.06, net: 500 - 500 * 0.06 };
+    const feeTest1000 = { req: 1000, fee: 1000 * 0.06, net: 1000 - 1000 * 0.06 };
 
     assert(
-      'Authoritative 4% Fee: $100 -> $4 Fee, $96 Net',
+      'Authoritative 6% Fee: $100 -> $6 Fee, $94 Net',
       'Fee Calculations',
-      feeTest100.fee === 4 && feeTest100.net === 96,
+      feeTest100.fee === 6 && feeTest100.net === 94,
       `Calculated fee: $${feeTest100.fee}, Net to receive: $${feeTest100.net}.`
     );
 
     assert(
-      'Authoritative 4% Fee: $500 -> $20 Fee, $480 Net',
+      'Authoritative 6% Fee: $500 -> $30 Fee, $470 Net',
       'Fee Calculations',
-      feeTest500.fee === 20 && feeTest500.net === 480,
+      feeTest500.fee === 30 && feeTest500.net === 470,
       `Calculated fee: $${feeTest500.fee}, Net to receive: $${feeTest500.net}.`
     );
 
     assert(
-      'Authoritative 4% Fee: $1,000 -> $40 Fee, $960 Net',
+      'Authoritative 6% Fee: $1,000 -> $60 Fee, $940 Net',
       'Fee Calculations',
-      feeTest1000.fee === 40 && feeTest1000.net === 960,
+      feeTest1000.fee === 60 && feeTest1000.net === 940,
       `Calculated fee: $${feeTest1000.fee}, Net to receive: $${feeTest1000.net}.`
     );
   } catch (err) {
     assert(
-      'Authoritative 4% Fee Verification',
+      'Authoritative 6% Fee Verification',
       'Fee Calculations',
       false,
       `Error calculating fee: ${(err as Error).message}`

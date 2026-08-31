@@ -108,7 +108,7 @@ BEGIN
 END $$;
 
 -- ==============================================================================
--- 3. Withdrawals Table (Strict 4% Fee, 30-Day Lock, Idempotency & Audit)
+-- 3. Withdrawals Table (Strict 6% Fee, 30-Day Lock, Idempotency & Audit)
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS withdrawals (
   id SERIAL PRIMARY KEY,
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS withdrawals (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   requested_amount NUMERIC(18, 4) NOT NULL,
   amount NUMERIC(18, 4) NOT NULL,
-  fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 4.0000, -- Canonical 4% withdrawal fee
+  fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 6.0000, -- Canonical 6% withdrawal fee
   fee_amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
   net_amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
   currency TEXT NOT NULL DEFAULT 'USDT',
@@ -390,14 +390,14 @@ CREATE INDEX IF NOT EXISTS idx_admin_messages_user_id ON admin_messages(user_id)
 CREATE INDEX IF NOT EXISTS idx_admin_messages_is_read ON admin_messages(is_read);
 
 -- ==============================================================================
--- Initial System Settings (Canonical 4% Withdrawal Fee & 30-Day Lock Rule)
+-- Initial System Settings (Canonical 6% Withdrawal Fee & 30-Day Lock Rule)
 -- ==============================================================================
 INSERT INTO system_settings (key, value, updated_at) VALUES
   ('bep20DepositAddress', '0x71C5A8c0B26D19543e49e29547d6e492211C54a9', NOW()),
   ('usdtContractAddress', '0x55d398326f99059fF775485246999027B3197955', NOW()),
   ('requiredConfirmations', '12', NOW()),
   ('minimumDepositAmount', '300', NOW()),
-  ('withdrawalFeePercentage', '4', NOW()), -- Canonical 4% Fee
+  ('withdrawalFeePercentage', '6', NOW()), -- Canonical 6% Fee
   ('accountAgeRequirementDays', '30', NOW()), -- Canonical 30-Day Account Age Lock
   ('depositLockPeriodDays', '30', NOW()), -- Canonical 30-Day Deposit Principal Lock
   ('telegramSupportUrl', 'https://t.me/FINEXJ_OfficialSupport', NOW()),

@@ -23,7 +23,7 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
   onOpenDetailedModal,
 }) => {
   const { withdrawalFeePercentage, minimumDepositAmount, depositLockPeriodDays, accountAgeRequirementDays } = useSettings();
-  const feePct = withdrawalFeePercentage ?? 4;
+  const feePct = withdrawalFeePercentage ?? 6;
   return (
     <div className="space-y-4">
       {/* Main Managed Fund Overview Card */}
