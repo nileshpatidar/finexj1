@@ -221,7 +221,7 @@ export const AutomatedTestRunner: React.FC<AutomatedTestRunnerProps> = ({ isOpen
                 )}
               </div>
               <p className="text-[11px] text-slate-400">
-                Validates 30-day rule, 9% fee, duplicate deposits, and ledger integrity
+                Validates 30-day rule, 6% fee, duplicate deposits, and ledger integrity
               </p>
             </div>
           </div>

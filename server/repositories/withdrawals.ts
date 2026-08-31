@@ -16,7 +16,7 @@ export function mapDbWithdrawalToWithdrawal(w: any): Withdrawal {
   if (reqAmount <= 0 && (netAmt > 0 || feeAmt > 0)) {
     reqAmount = Number((netAmt + feeAmt).toFixed(4));
   } else if (reqAmount > 0 && netAmt <= 0 && feeAmt <= 0) {
-    const defaultFeePct = w.fee_percentage !== undefined && w.fee_percentage !== null ? Number(w.fee_percentage) : 9;
+    const defaultFeePct = w.fee_percentage !== undefined && w.fee_percentage !== null ? Number(w.fee_percentage) : 6;
     feeAmt = Number((reqAmount * (defaultFeePct / 100)).toFixed(4));
     netAmt = Number((reqAmount - feeAmt).toFixed(4));
   } else if (reqAmount > 0 && netAmt > 0 && feeAmt <= 0) {
@@ -25,7 +25,7 @@ export function mapDbWithdrawalToWithdrawal(w: any): Withdrawal {
     netAmt = Math.max(0, Number((reqAmount - feeAmt).toFixed(4)));
   }
 
-  let feePct = 9;
+  let feePct = 6;
   if (w.fee_percentage !== undefined && w.fee_percentage !== null && Number(w.fee_percentage) > 0) {
     feePct = Number(w.fee_percentage);
   } else if (reqAmount > 0 && feeAmt > 0) {
@@ -81,14 +81,32 @@ export async function getWithdrawalById(id: string): Promise<Withdrawal | null> 
   if (!isNaN(Number(id))) {
     query = query.or(`id.eq.${id},id.eq.${Number(id)}`);
   } else {
-    query = query.or(`id.eq.${id},reference.eq.${id},idempotency_key.eq.${id}`);
+    query = query.or(`id.eq.${id},reference.eq.${id}`);
   }
 
   const { data, error } = await query.maybeSingle();
 
   if (error) {
-    console.warn(`[Supabase Warn] getWithdrawalById(${id}):`, error.message);
-    return null;
+    console.error(`[Supabase Error] getWithdrawalById(${id}):`, error.message);
+    throw new Error(`Database error fetching withdrawal: ${error.message}`);
+  }
+
+  if (!data) return null;
+  return mapDbWithdrawalToWithdrawal(data);
+}
+
+export async function getWithdrawalByIdempotencyKey(key: string): Promise<Withdrawal | null> {
+  if (!key || !key.trim()) return null;
+  const supabase = getServerSupabase();
+  const { data, error } = await supabase
+    .from('withdrawals')
+    .select('*')
+    .eq('idempotency_key', key.trim())
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[Supabase Error] getWithdrawalByIdempotencyKey(${key}):`, error.message);
+    throw new Error(`Database error querying idempotency key: ${error.message}`);
   }
 
   if (!data) return null;
@@ -125,38 +143,21 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
   if (wd.txHash) payload.tx_hash = wd.txHash;
   if (wd.adminNotes) payload.rejection_reason = wd.adminNotes;
 
-  let { data, error } = await supabase
+  const { data, error } = await supabase
     .from('withdrawals')
     .insert(payload)
     .select()
     .single();
 
-  if (error && error.message.includes('column')) {
-    console.warn('[Supabase Withdrawals Insert Fallback] Retrying with core schema columns:', error.message);
-    const altPayload: any = {
-      user_id: resolvedUserId,
-      amount: amount,
-      fee_percentage: feePct,
-      fee_amount: feeAmount,
-      net_amount: netAmount,
-      currency: 'USDT',
-      network: 'BEP-20',
-      destination_address: destination,
-      status: wd.status || 'pending',
-      created_at: wd.createdAt || new Date().toISOString(),
-    };
-    if (wd.userNotes) altPayload.notes = wd.userNotes;
-    const retry = await supabase
-      .from('withdrawals')
-      .insert(altPayload)
-      .select()
-      .single();
-    data = retry.data;
-    error = retry.error;
-  }
-
   if (error) {
     console.error('[Supabase Error] createWithdrawal:', error.message);
+    if (error.message.includes('unique') || error.message.includes('duplicate') || error.code === '23505') {
+      if (wd.idempotencyKey) {
+        const existing = await getWithdrawalByIdempotencyKey(wd.idempotencyKey);
+        if (existing) return existing;
+      }
+      throw new Error('A withdrawal with this reference or idempotency key already exists.');
+    }
     throw new Error(`Failed to create withdrawal in Supabase: ${error.message}`);
   }
 
@@ -193,25 +194,7 @@ export async function updateWithdrawal(id: string, updates: Partial<Withdrawal>)
     query = query.eq('id', id);
   }
 
-  let { data, error } = await query.select().maybeSingle();
-
-  if (error && error.message.includes('column')) {
-    // Retry with minimal columns
-    const minimalPayload: any = { status: dbStatus };
-    if (updates.txHash) minimalPayload.tx_hash = updates.txHash;
-    if (updates.adminNotes) minimalPayload.rejection_reason = updates.adminNotes;
-
-    let retryQuery = supabase.from('withdrawals').update(minimalPayload);
-    if (!isNaN(Number(id))) {
-      retryQuery = retryQuery.or(`id.eq.${id},id.eq.${Number(id)}`);
-    } else {
-      retryQuery = retryQuery.eq('id', id);
-    }
-
-    const retry = await retryQuery.select().maybeSingle();
-    data = retry.data;
-    error = retry.error;
-  }
+  const { data, error } = await query.select().maybeSingle();
 
   if (error) {
     console.error(`[Supabase Error] updateWithdrawal(${id}):`, error.message);

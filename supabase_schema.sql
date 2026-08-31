@@ -141,7 +141,7 @@ DO $$
 BEGIN
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS reference TEXT;
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS amount NUMERIC(18, 4);
-  ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 4.0000;
+  ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 6.0000;
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'USDT';
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'BEP-20';
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_tx_hash TEXT;
@@ -375,6 +375,10 @@ CREATE INDEX IF NOT EXISTS idx_daily_performances_created_at ON daily_performanc
 CREATE INDEX IF NOT EXISTS idx_earnings_user_id ON earnings(user_id);
 CREATE INDEX IF NOT EXISTS idx_earnings_date ON earnings(date);
 CREATE INDEX IF NOT EXISTS idx_earnings_created_at ON earnings(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_earnings_user_daily_perf ON earnings(user_id, daily_performance_id) WHERE daily_performance_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_earnings_user_date ON earnings(user_id, date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_withdrawals_idempotency_key_uniq ON withdrawals(idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deposits_tx_hash_uniq ON deposits(tx_hash) WHERE tx_hash IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ledger_user_id ON ledger(user_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_type ON ledger(type);
@@ -628,6 +632,103 @@ BEGIN
   WHERE id = p_user_id;
 
   RETURN jsonb_build_object('success', true, 'withdrawal', to_jsonb(v_new_wd));
+END;
+$$;
+
+-- Atomic Deposit Confirmation (PostgreSQL Transaction)
+CREATE OR REPLACE FUNCTION confirm_deposit_atomic(
+  p_deposit_id INTEGER,
+  p_admin_id TEXT,
+  p_admin_notes TEXT,
+  p_tx_hash TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_dep deposits%ROWTYPE;
+  v_user users%ROWTYPE;
+  v_now TIMESTAMPTZ := NOW();
+  v_available_balance NUMERIC := 0;
+  v_total_deposited NUMERIC := 0;
+  v_total_earnings NUMERIC := 0;
+  v_total_withdrawn NUMERIC := 0;
+  v_total_pending_withdrawn NUMERIC := 0;
+BEGIN
+  -- 1. Lock deposit row for update to prevent concurrent confirmations
+  SELECT * INTO v_dep FROM deposits WHERE id = p_deposit_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', format('Deposit record %s not found in database', p_deposit_id));
+  END IF;
+
+  -- 2. Verify current status - prevent double confirmation
+  IF v_dep.status = 'confirmed' THEN
+    RETURN jsonb_build_object('success', false, 'is_duplicate', true, 'error', 'This deposit has already been confirmed.');
+  END IF;
+
+  -- 3. Lock associated user row
+  SELECT * INTO v_user FROM users WHERE id = v_dep.user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Associated user account not found');
+  END IF;
+
+  -- 4. Update deposit status to confirmed atomically
+  UPDATE deposits SET
+    status = 'confirmed',
+    confirmed_at = v_now,
+    notes = COALESCE(p_admin_notes, notes),
+    tx_hash = COALESCE(p_tx_hash, tx_hash),
+    confirmations = GREATEST(confirmations, 15),
+    updated_at = v_now
+  WHERE id = p_deposit_id
+  RETURNING * INTO v_dep;
+
+  -- 5. Calculate new authoritative available balance
+  SELECT COALESCE(SUM(amount), 0) INTO v_total_deposited FROM deposits WHERE user_id = v_dep.user_id AND status = 'confirmed';
+  SELECT COALESCE(SUM(COALESCE(earnings_amount, payout_amount, 0)), 0) INTO v_total_earnings FROM earnings WHERE user_id = v_dep.user_id AND status = 'credited';
+  SELECT COALESCE(SUM(COALESCE(requested_amount, amount, 0)), 0) INTO v_total_withdrawn FROM withdrawals WHERE user_id = v_dep.user_id AND status IN ('paid', 'completed');
+  SELECT COALESCE(SUM(COALESCE(requested_amount, amount, 0)), 0) INTO v_total_pending_withdrawn FROM withdrawals WHERE user_id = v_dep.user_id AND status IN ('pending', 'approved', 'processing', 'under_review');
+  v_available_balance := v_total_deposited + v_total_earnings - v_total_withdrawn - v_total_pending_withdrawn;
+
+  -- 6. Insert immutable double-entry ledger journal credit
+  INSERT INTO ledger (
+    user_id,
+    type,
+    amount,
+    balance_after,
+    reference_id,
+    description,
+    performed_by,
+    created_at
+  ) VALUES (
+    v_dep.user_id,
+    'deposit',
+    v_dep.amount,
+    v_available_balance,
+    v_dep.id::TEXT,
+    format('Confirmed BEP-20 USDT deposit of %s USDT (Tx: %s)', v_dep.amount, v_dep.tx_hash),
+    p_admin_id,
+    v_now
+  );
+
+  -- 7. Insert audit log event
+  INSERT INTO audit_logs (
+    action,
+    actor_id,
+    actor_role,
+    target_user_id,
+    reason,
+    created_at
+  ) VALUES (
+    'DEPOSIT_APPROVED',
+    p_admin_id,
+    'admin',
+    v_dep.user_id::TEXT,
+    COALESCE(p_admin_notes, format('Admin confirmed deposit #%s for %s USDT', p_deposit_id, v_dep.amount)),
+    v_now
+  );
+
+  RETURN jsonb_build_object('success', true, 'deposit', to_jsonb(v_dep));
 END;
 $$;
 

@@ -11,7 +11,7 @@ import {
 } from './types';
 import { getProfileById, getProfileByEmail, getAllProfiles, updateProfile, createProfile } from './repositories/profiles';
 import { getDepositsByUserId, getDepositById, getDepositByTxHash, createDeposit, updateDeposit, getAllDeposits } from './repositories/deposits';
-import { getWithdrawalsByUserId, getWithdrawalById, createWithdrawal, updateWithdrawal, getAllWithdrawals } from './repositories/withdrawals';
+import { getWithdrawalsByUserId, getWithdrawalById, getWithdrawalByIdempotencyKey, createWithdrawal, updateWithdrawal, getAllWithdrawals } from './repositories/withdrawals';
 import { getDailyPerformances, getDailyPerformanceByDate, createDailyPerformance } from './repositories/performances';
 import { getEarningsByUserId, createEarning, createEarningsBatch } from './repositories/earnings';
 import { getLedgerByUserId, createLedgerEntry } from './repositories/ledger';
@@ -100,7 +100,7 @@ class Database {
   }
 
   public async getWithdrawalByIdempotencyKey(key: string): Promise<Withdrawal | null> {
-    return getWithdrawalById(key);
+    return getWithdrawalByIdempotencyKey(key);
   }
 
   public async addWithdrawal(withdrawal: Partial<Withdrawal>): Promise<Withdrawal> {

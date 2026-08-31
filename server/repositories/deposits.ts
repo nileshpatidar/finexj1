@@ -33,74 +33,60 @@ export function mapDbDepositToDeposit(d: any): Deposit {
 }
 
 export async function getDepositsByUserId(userId: string): Promise<Deposit[]> {
-  try {
-    const supabase = getServerSupabase();
-    let query = supabase.from('deposits').select('*');
-    if (!isNaN(Number(userId))) {
-      query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
-    } else {
-      query = query.eq('user_id', userId);
-    }
-
-    const { data, error } = await query.order('created_at', { ascending: false });
-
-    if (error) {
-      console.warn(`[Supabase Warn] getDepositsByUserId(${userId}):`, error.message);
-      return [];
-    }
-
-    return (data || []).map(mapDbDepositToDeposit);
-  } catch (err: any) {
-    console.warn(`[Supabase Exception] getDepositsByUserId(${userId}):`, err?.message);
-    return [];
+  const supabase = getServerSupabase();
+  let query = supabase.from('deposits').select('*');
+  if (!isNaN(Number(userId))) {
+    query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+  } else {
+    query = query.eq('user_id', userId);
   }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
+
+  if (error) {
+    console.error(`[Supabase Error] getDepositsByUserId(${userId}):`, error.message);
+    throw new Error(`Failed to load deposits: ${error.message}`);
+  }
+
+  return (data || []).map(mapDbDepositToDeposit);
 }
 
 export async function getDepositById(id: string): Promise<Deposit | null> {
-  try {
-    const supabase = getServerSupabase();
-    let query = supabase.from('deposits').select('*');
-    if (!isNaN(Number(id))) {
-      query = query.or(`id.eq.${id},id.eq.${Number(id)}`);
-    } else {
-      query = query.eq('id', id);
-    }
-
-    const { data, error } = await query.maybeSingle();
-
-    if (error) {
-      console.warn(`[Supabase Warn] getDepositById(${id}):`, error.message);
-      return null;
-    }
-
-    if (!data) return null;
-    return mapDbDepositToDeposit(data);
-  } catch (err: any) {
-    console.warn(`[Supabase Exception] getDepositById(${id}):`, err?.message);
-    return null;
+  const supabase = getServerSupabase();
+  let query = supabase.from('deposits').select('*');
+  if (!isNaN(Number(id))) {
+    query = query.or(`id.eq.${id},id.eq.${Number(id)}`);
+  } else {
+    query = query.eq('id', id);
   }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    console.error(`[Supabase Error] getDepositById(${id}):`, error.message);
+    throw new Error(`Failed to load deposit: ${error.message}`);
+  }
+
+  if (!data) return null;
+  return mapDbDepositToDeposit(data);
 }
 
 export async function getDepositByTxHash(txHash: string): Promise<Deposit | null> {
-  try {
-    const supabase = getServerSupabase();
-    const { data, error } = await supabase
-      .from('deposits')
-      .select('*')
-      .ilike('tx_hash', txHash.trim())
-      .maybeSingle();
+  if (!txHash || !txHash.trim()) return null;
+  const supabase = getServerSupabase();
+  const { data, error } = await supabase
+    .from('deposits')
+    .select('*')
+    .ilike('tx_hash', txHash.trim())
+    .maybeSingle();
 
-    if (error) {
-      console.warn(`[Supabase Warn] getDepositByTxHash(${txHash}):`, error.message);
-      return null;
-    }
-
-    if (!data) return null;
-    return mapDbDepositToDeposit(data);
-  } catch (err: any) {
-    console.warn(`[Supabase Exception] getDepositByTxHash(${txHash}):`, err?.message);
-    return null;
+  if (error) {
+    console.error(`[Supabase Error] getDepositByTxHash(${txHash}):`, error.message);
+    throw new Error(`Failed to query deposit by txHash: ${error.message}`);
   }
+
+  if (!data) return null;
+  return mapDbDepositToDeposit(data);
 }
 
 export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
@@ -136,33 +122,11 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
     payload.notes = dep.userNotes;
   }
 
-  let { data, error } = await supabase
+  const { data, error } = await supabase
     .from('deposits')
     .insert(payload)
     .select()
     .single();
-
-  if (error && error.message.includes('column')) {
-    console.warn('[Supabase Deposits Fallback] Retrying insert with core deposit fields...');
-    const minimalPayload: any = {
-      user_id: userIdNum,
-      amount: dep.amount,
-      to_address: toAddress,
-      tx_hash: txHash,
-      status: dep.status || 'pending',
-      confirmations: dep.confirmations || 1,
-      proof_url: dep.proofPhotoUrl || null,
-      notes: dep.userNotes || null,
-      created_at: dep.createdAt || new Date().toISOString(),
-    };
-    const retry = await supabase
-      .from('deposits')
-      .insert(minimalPayload)
-      .select()
-      .single();
-    data = retry.data;
-    error = retry.error;
-  }
 
   if (error) {
     console.error('[Supabase Error] createDeposit:', error.message);

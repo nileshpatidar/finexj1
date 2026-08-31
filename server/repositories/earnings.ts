@@ -21,68 +21,22 @@ export function mapDbEarningToEarning(e: any): EarningEntry {
 }
 
 export async function getEarningsByUserId(userId: string): Promise<EarningEntry[]> {
-  try {
-    const supabase = getServerSupabase();
-    let query = supabase.from('earnings').select('*');
-    if (!isNaN(Number(userId))) {
-      query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
-    } else {
-      query = query.eq('user_id', userId);
-    }
-
-    const { data, error } = await query.order('created_at', { ascending: false });
-
-    if (!error && data && data.length > 0) {
-      return data.map(mapDbEarningToEarning);
-    }
-  } catch (err: any) {
-    // Proceed to derive from daily_performance
+  const supabase = getServerSupabase();
+  let query = supabase.from('earnings').select('*');
+  if (!isNaN(Number(userId))) {
+    query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+  } else {
+    query = query.eq('user_id', userId);
   }
 
-  // Derive earnings reliably from confirmed daily_performance records and confirmed deposits
-  try {
-    const performances = await getDailyPerformances();
-    const deposits = await getDepositsByUserId(userId);
-    const confirmedDeposits = deposits.filter(d => d.status === 'confirmed');
+  const { data, error } = await query.order('created_at', { ascending: false });
 
-    if (performances.length === 0 || confirmedDeposits.length === 0) {
-      return [];
-    }
-
-    const earnings: EarningEntry[] = [];
-    for (const perf of performances) {
-      // Find deposits confirmed on or before this performance date
-      const eligible = confirmedDeposits.filter(d => {
-        const depDate = d.eligibilityDate || d.confirmedAt || d.createdAt;
-        return depDate ? depDate.split('T')[0] <= perf.date : false;
-      });
-
-      const eligiblePrincipal = eligible.reduce((sum, d) => sum + d.amount, 0);
-      if (eligiblePrincipal > 0) {
-        const rate = perf.applicableRate || (perf.actualFundPerformance / 100);
-        const payout = Number((eligiblePrincipal * rate).toFixed(4));
-        earnings.push({
-          id: `earn_${perf.id}_${userId}`,
-          userId: String(userId),
-          calculationId: String(perf.id),
-          baseEligibleAmount: eligiblePrincipal,
-          applicableRate: rate,
-          earningsAmount: payout,
-          performanceDate: perf.date,
-          createdAt: perf.createdAt || `${perf.date}T12:00:00.000Z`,
-          status: 'credited',
-          marketCondition: rate >= 0 ? 'profit' : 'loss',
-          note: `Daily performance yield (${(rate * 100).toFixed(2)}%)`,
-        });
-      }
-    }
-
-    earnings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return earnings;
-  } catch (deriveErr: any) {
-    console.warn('[Earnings fallback] error deriving earnings:', deriveErr?.message);
-    return [];
+  if (error) {
+    console.error(`[Supabase Error] getEarningsByUserId(${userId}):`, error.message);
+    throw new Error(`Failed to load earnings: ${error.message}`);
   }
+
+  return (data || []).map(mapDbEarningToEarning);
 }
 
 export async function createEarning(entry: Partial<EarningEntry>): Promise<EarningEntry> {
@@ -118,35 +72,18 @@ export async function createEarning(entry: Partial<EarningEntry>): Promise<Earni
     payload.note = entry.note;
   }
 
-  let { data, error } = await supabase
+  const { data, error } = await supabase
     .from('earnings')
     .insert(payload)
     .select()
     .single();
 
-  if (error && error.message.includes('column')) {
-    // Retry with core columns if optional columns do not exist
-    const minimalPayload: any = {
-      user_id: resolvedUserId,
-      date: targetDate,
-      active_principal: entry.baseEligibleAmount || 0,
-      rate_percentage: entry.applicableRate || 0,
-      payout_amount: entry.earningsAmount || 0,
-      created_at: entry.createdAt || new Date().toISOString(),
-    };
-    if (perfIdNum !== null) minimalPayload.daily_performance_id = perfIdNum;
-    const retry = await supabase
-      .from('earnings')
-      .insert(minimalPayload)
-      .select()
-      .single();
-    data = retry.data;
-    error = retry.error;
-  }
-
   if (error || !data) {
     console.error('[Supabase Error] createEarning:', error?.message);
-    throw new Error(`Failed to persist earnings in Supabase: ${error?.message || 'Unknown database error'}`);
+    if (error?.message?.includes('unique') || error?.message?.includes('duplicate') || error?.code === '23505') {
+      throw new Error(`Yield for date ${targetDate} has already been credited to user ${entry.userId}.`);
+    }
+    throw new Error(`Failed to persist earnings in database: ${error?.message || 'Unknown database error'}`);
   }
 
   return mapDbEarningToEarning(data);
