@@ -4,6 +4,7 @@ import { processDeposit, requestWithdrawal, applyDailyPerformance, updateWithdra
 import { verifyBEP20Deposit, isValidTxHash, isValidBEP20Address } from './blockchain';
 import { getAllProfiles, getProfileByEmail } from './repositories/profiles';
 import { getAuditLogs } from './repositories/auditLogs';
+import { extractAndValidateRates, mapDbPerfToPerf } from './repositories/performances';
 import { isServerSupabaseReady } from './supabase';
 import { User, Deposit } from './types';
 
@@ -443,6 +444,158 @@ export async function runAutomatedTestSuite(): Promise<{
       'Security & Authentication',
       false,
       `Identity test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 14. DAILY PERFORMANCE: EXACT UI VALUE MAPPING (0.0050 -> 0.5000%) ---
+  try {
+    const extracted = extractAndValidateRates({
+      applicableRate: 0.0050,
+      date: '2026-08-02',
+    });
+
+    const isRatePercentageCorrect = extracted.ratePercentage === 0.5000;
+    const isApplicableRateCorrect = extracted.applicableRate === 0.0050;
+
+    assert(
+      'Daily Performance: UI Input Rate (0.0050 -> 0.5000% / 0.0050 Multiplier)',
+      'Daily Performance',
+      isRatePercentageCorrect && isApplicableRateCorrect,
+      `Applicable rate 0.0050 correctly maps to rate_percentage = ${extracted.ratePercentage}% and applicable_rate = ${extracted.applicableRate}.`
+    );
+  } catch (err) {
+    assert(
+      'Daily Performance: UI Input Rate',
+      'Daily Performance',
+      false,
+      `Mapping test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 15. DAILY PERFORMANCE: LOSS MAPPING (-0.0050 -> -0.5000%) ---
+  try {
+    const extracted = extractAndValidateRates({
+      applicableRate: -0.0050,
+      date: '2026-08-03',
+    });
+
+    const isLossRatePercentageCorrect = extracted.ratePercentage === -0.5000;
+    const isLossApplicableRateCorrect = extracted.applicableRate === -0.0050;
+
+    assert(
+      'Daily Performance: Negative Loss Rate (-0.0050 -> -0.5000%)',
+      'Daily Performance',
+      isLossRatePercentageCorrect && isLossApplicableRateCorrect,
+      `Applicable loss rate -0.0050 correctly maps to rate_percentage = ${extracted.ratePercentage}% and applicable_rate = ${extracted.applicableRate}.`
+    );
+  } catch (err) {
+    assert(
+      'Daily Performance: Negative Loss Rate',
+      'Daily Performance',
+      false,
+      `Loss mapping test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 16. DAILY PERFORMANCE: SAFE DAY MAPPING (0 -> 0.0000%) ---
+  try {
+    const extracted = extractAndValidateRates({
+      applicableRate: 0,
+      date: '2026-08-04',
+    });
+
+    const isSafeDayRateCorrect = extracted.ratePercentage === 0.0000 && extracted.applicableRate === 0.0000;
+
+    assert(
+      'Daily Performance: Safe Day (0 -> 0.0000%)',
+      'Daily Performance',
+      isSafeDayRateCorrect,
+      `Safe day rate 0 correctly maps to rate_percentage = 0.0000% and applicable_rate = 0.0000.`
+    );
+  } catch (err) {
+    assert(
+      'Daily Performance: Safe Day',
+      'Daily Performance',
+      false,
+      `Safe day mapping test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 17. DAILY PERFORMANCE: INVALID RATE REJECTION (NaN & Infinity) ---
+  try {
+    let nanCaught = false;
+    let infCaught = false;
+
+    try {
+      extractAndValidateRates({ applicableRate: NaN });
+    } catch {
+      nanCaught = true;
+    }
+
+    try {
+      extractAndValidateRates({ applicableRate: Infinity });
+    } catch {
+      infCaught = true;
+    }
+
+    assert(
+      'Daily Performance: Invalid Rate Validation (NaN & Infinity Rejection)',
+      'Daily Performance',
+      nanCaught && infCaught,
+      'Invalid numeric values (NaN and Infinity) are rejected before reaching database operations.'
+    );
+  } catch (err) {
+    assert(
+      'Daily Performance: Invalid Rate Validation',
+      'Daily Performance',
+      false,
+      `Validation test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 18. DAILY PERFORMANCE: MAP DB ROW CONSISTENCY ---
+  try {
+    const dbRow = {
+      id: 42,
+      date: '2026-08-02',
+      rate_percentage: '0.5000',
+      applicable_rate: '0.0050',
+      trading_profit_percentage: '0.5000',
+      gold_reserves_percentage: '0.0000',
+      total_yield_percentage: '0.5000',
+      is_yield_day: true,
+      overall_fund_amount: '2500000.0000',
+      total_fund_principal: '2500000.0000',
+      actual_fund_performance: '0.5000',
+      total_yield_distributed: '1250.0000',
+      applied_count: 5,
+      notes: 'Verified UI distribution test',
+      distributed_by: 'super_admin',
+      created_by: 'super_admin',
+      distributed_at: '2026-08-02T12:00:00.000Z',
+      created_at: '2026-08-02T12:00:00.000Z',
+      updated_at: '2026-08-02T12:00:00.000Z',
+    };
+
+    const mapped = mapDbPerfToPerf(dbRow);
+    const isValidMapping = mapped.date === '2026-08-02' &&
+      mapped.actualFundPerformance === 0.5 &&
+      mapped.applicableRate === 0.005 &&
+      mapped.overallFundAmount === 2500000 &&
+      mapped.marketCondition === 'profit';
+
+    assert(
+      'Daily Performance: Database Row Mapping Integrity',
+      'Daily Performance',
+      isValidMapping,
+      'Database row fields correctly mapped to domain model with exact rate_percentage (0.50%) and applicable_rate (0.0050).'
+    );
+  } catch (err) {
+    assert(
+      'Daily Performance: Database Row Mapping',
+      'Daily Performance',
+      false,
+      `DB Row mapping test error: ${(err as Error).message}`
     );
   }
 
