@@ -2,9 +2,11 @@ import { getProfileById, updateProfile } from '../repositories/profiles';
 import {
   createWithdrawal,
   getWithdrawalById,
+  getWithdrawalByIdempotencyKey,
   getWithdrawalsByUserId,
   updateWithdrawal,
   getAllWithdrawals,
+  mapDbWithdrawalToWithdrawal,
 } from '../repositories/withdrawals';
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
@@ -30,7 +32,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
 }> {
   const user = await getProfileById(input.userId);
   if (!user) {
-    return { success: false, error: 'User not found.' };
+    return { success: false, error: 'User account not found.' };
   }
 
   if (user.status !== 'active') {
@@ -38,24 +40,34 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
   }
 
   const requestedAmount = Number(input.requestedAmount);
-  if (isNaN(requestedAmount) || requestedAmount <= 0) {
+  if (isNaN(requestedAmount) || !isFinite(requestedAmount) || requestedAmount <= 0) {
     return { success: false, error: 'Please enter a valid withdrawal amount greater than 0 USDT.' };
   }
 
   // Destination address verification
-  if (!input.destinationAddress || !isValidBEP20Address(input.destinationAddress)) {
+  const destination = (input.destinationAddress || '').trim();
+  if (!destination || !isValidBEP20Address(destination)) {
     return {
       success: false,
-      error: 'Invalid BEP-20 destination address. Please provide a valid 0x BNB Chain address.',
+      error: 'Invalid BEP-20 destination address format. Must be a 0x-prefixed 40-hex BNB Smart Chain address.',
     };
   }
 
-  // Idempotency check: if user already submitted with this idempotencyKey, return existing record
-  if (input.idempotencyKey) {
-    const existingWds = await getWithdrawalsByUserId(user.id);
-    const matched = existingWds.find(w => w.idempotencyKey === input.idempotencyKey);
-    if (matched) {
-      return { success: true, withdrawal: matched };
+  // Idempotency check: verify key consistency
+  const cleanIdempotencyKey = input.idempotencyKey?.trim();
+  if (cleanIdempotencyKey) {
+    const existingWd = await getWithdrawalByIdempotencyKey(cleanIdempotencyKey);
+    if (existingWd) {
+      if (existingWd.userId !== user.id) {
+        return { success: false, error: 'Idempotency key conflict: key belongs to another account.' };
+      }
+      if (
+        Math.abs(existingWd.requestedAmount - requestedAmount) > 0.0001 ||
+        existingWd.destinationAddress.toLowerCase() !== destination.toLowerCase()
+      ) {
+        return { success: false, error: 'Idempotency key reuse conflict: request parameters do not match original request.' };
+      }
+      return { success: true, withdrawal: existingWd };
     }
   }
 
@@ -63,7 +75,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
   const balance = await calculateUserBalanceAsync(user.id);
   const settings = await getSettings();
 
-  // 1. Check account age rule (dynamically from settings, defaults to 30 days)
+  // 1. Authoritative 30-day account age rule
   const requiredDays = Number(settings.accountAgeRequirementDays) || 30;
   const createdAtTime = new Date(user.createdAt).getTime();
   const now = new Date();
@@ -80,11 +92,11 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     };
   }
 
-  // 2. Check active fund lock
+  // 2. Active fund lock check
   if (balance.isFundLocked) {
     return {
       success: false,
-      error: `30-Day Fund Lock is active. Withdrawals unlock in ${balance.fundLockRemainingDays} days ${balance.fundLockRemainingHours} hours.`,
+      error: `30-Day Post-Withdrawal Fund Lock is active. Withdrawals unlock in ${balance.fundLockRemainingDays} days ${balance.fundLockRemainingHours} hours.`,
     };
   }
 
@@ -96,26 +108,23 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     };
   }
 
-  // 4. Dynamic fee calculation from database settings (canonical default 6%)
-  const feePct = (settings.withdrawalFeePercentage !== undefined && !isNaN(Number(settings.withdrawalFeePercentage)))
-    ? Number(settings.withdrawalFeePercentage)
-    : 6;
-  const feeRate = feePct / 100;
-  const feeAmount = Number((requestedAmount * feeRate).toFixed(4));
+  // 4. Authoritative 6% fee calculation
+  const feePct = 6.0000;
+  const feeAmount = Number((requestedAmount * 0.06).toFixed(4));
   const netAmount = Number((requestedAmount - feeAmount).toFixed(4));
 
   const reference = 'WD-' + Date.now().toString(36).toUpperCase();
   const lockDays = Number(settings.depositLockPeriodDays) || 30;
 
-  // Attempt atomic PostgreSQL RPC call
+  // Attempt atomic PostgreSQL RPC call (Gold Standard for Atomicity & Row-Level Lock)
   try {
     const supabase = getServerSupabase();
     const { data: rpcData, error: rpcError } = await supabase.rpc('create_withdrawal_atomic', {
       p_user_id: parseInt(user.id, 10) || 1,
       p_requested_amount: requestedAmount,
-      p_destination_address: input.destinationAddress.trim(),
+      p_destination_address: destination,
       p_reference: reference,
-      p_idempotency_key: input.idempotencyKey || null,
+      p_idempotency_key: cleanIdempotencyKey || null,
       p_user_notes: input.userNotes || null,
       p_fee_percentage: feePct,
       p_fee_amount: feeAmount,
@@ -129,40 +138,14 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
       }
       const rawWd = rpcData.withdrawal;
       if (rawWd) {
-        const createdWd: Withdrawal = {
-          id: String(rawWd.id),
-          reference: rawWd.reference || reference,
-          userId: String(rawWd.user_id),
-          requestedAmount: Number(rawWd.requested_amount || rawWd.amount || requestedAmount),
-          feePercentage: Number(rawWd.fee_percentage || feePct),
-          feeAmount: Number(rawWd.fee_amount || feeAmount),
-          netAmount: Number(rawWd.net_amount || netAmount),
-          destinationAddress: rawWd.destination_address || input.destinationAddress.trim(),
-          network: 'BEP-20',
-          status: 'pending',
-          createdAt: rawWd.created_at || now.toISOString(),
-          userNotes: rawWd.user_notes || input.userNotes,
-          idempotencyKey: rawWd.idempotency_key || input.idempotencyKey,
-        };
-
-        await createAuditLog({
-          action: 'WITHDRAWAL_REQUESTED',
-          actorId: user.id,
-          actorEmail: user.email,
-          actorRole: user.role,
-          targetUserId: user.id,
-          reason: `User requested withdrawal of ${requestedAmount} USDT to ${input.destinationAddress}`,
-          timestamp: now.toISOString(),
-        });
-
-        return { success: true, withdrawal: createdWd };
+        return { success: true, withdrawal: mapDbWithdrawalToWithdrawal(rawWd) };
       }
     }
   } catch (rpcErr) {
-    // If RPC is not supported on this schema instance, proceed with multi-step verified Supabase writes
+    // If RPC is not available, proceed to robust fallback
   }
 
-  // Fallback to verified direct Supabase writes
+  // Fallback path: strict verified direct writes
   const withdrawalId = 'wd_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
   const newWithdrawal = await createWithdrawal({
@@ -173,12 +156,12 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     feePercentage: feePct,
     feeAmount,
     netAmount,
-    destinationAddress: input.destinationAddress.trim(),
+    destinationAddress: destination,
     network: 'BEP-20',
     status: 'pending',
     createdAt: now.toISOString(),
     userNotes: input.userNotes,
-    idempotencyKey: input.idempotencyKey,
+    idempotencyKey: cleanIdempotencyKey,
   });
 
   if (!newWithdrawal || !newWithdrawal.id) {
@@ -198,7 +181,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     amount: -requestedAmount,
     balanceAfter: updatedBalance.availableBalance,
     referenceId: newWithdrawal.id,
-    description: `Withdrawal request submitted for ${requestedAmount} USDT (${feePct}% Fee: ${feeAmount} USDT, Net: ${netAmount} USDT)`,
+    description: `Withdrawal request submitted for ${requestedAmount} USDT (6% Fee: ${feeAmount} USDT, Net: ${netAmount} USDT)`,
     createdAt: now.toISOString(),
     performedBy: user.id,
   });
@@ -217,7 +200,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     actorEmail: user.email,
     actorRole: user.role,
     targetUserId: user.id,
-    reason: `User requested withdrawal of ${requestedAmount} USDT to ${input.destinationAddress}`,
+    reason: `User requested withdrawal of ${requestedAmount} USDT to ${destination}`,
     timestamp: now.toISOString(),
   });
 
@@ -232,6 +215,36 @@ export async function updateWithdrawalStatusAsync(
   adminNotes?: string
 ): Promise<{ success: boolean; withdrawal?: Withdrawal; error?: string }> {
   try {
+    const normalizedTxHash = txHash?.trim() || undefined;
+
+    // 1. Try atomic PostgreSQL RPC execution first
+    try {
+      const supabase = getServerSupabase();
+      const numId = parseInt(withdrawalId, 10);
+      if (!isNaN(numId)) {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('process_withdrawal_status_atomic', {
+          p_admin_id: adminId,
+          p_admin_role: 'admin',
+          p_withdrawal_id: numId,
+          p_new_status: newStatus,
+          p_tx_hash: normalizedTxHash || null,
+          p_admin_notes: adminNotes || null,
+        });
+
+        if (!rpcError && rpcData) {
+          if (rpcData.success === false) {
+            return { success: false, error: rpcData.error };
+          }
+          if (rpcData.withdrawal) {
+            return { success: true, withdrawal: mapDbWithdrawalToWithdrawal(rpcData.withdrawal) };
+          }
+        }
+      }
+    } catch (rpcErr) {
+      // Fall through to fallback
+    }
+
+    // 2. Fallback execution with identical strict validation
     const withdrawal = await getWithdrawalById(withdrawalId);
     if (!withdrawal) {
       return { success: false, error: `Withdrawal record (${withdrawalId}) not found.` };
@@ -268,8 +281,14 @@ export async function updateWithdrawalStatusAsync(
     }
 
     // If new status is 'paid', validate txHash if provided and ensure uniqueness
-    let normalizedTxHash = txHash?.trim();
-    if (newStatus === 'paid' && normalizedTxHash) {
+    if (newStatus === 'paid') {
+      if (!normalizedTxHash) {
+        return {
+          success: false,
+          error: 'BNB Smart Chain Payout Transaction Hash (TxID) is required to mark withdrawal as paid.',
+        };
+      }
+
       if (!isValidTxHash(normalizedTxHash)) {
         return {
           success: false,
@@ -279,7 +298,9 @@ export async function updateWithdrawalStatusAsync(
 
       // Check if another withdrawal already used this payout txHash
       const { withdrawals: allWds } = await getAllWithdrawals({ limit: 1000 });
-      const duplicate = allWds.find(w => w.id !== withdrawal.id && w.txHash?.toLowerCase() === normalizedTxHash?.toLowerCase());
+      const duplicate = allWds.find(
+        w => w.id !== withdrawal.id && w.txHash?.toLowerCase() === normalizedTxHash.toLowerCase()
+      );
       if (duplicate) {
         return {
           success: false,
@@ -352,3 +373,4 @@ export async function updateWithdrawalStatusAsync(
     return { success: false, error: err?.message || 'Failed to update withdrawal' };
   }
 }
+

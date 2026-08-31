@@ -577,7 +577,15 @@ app.get(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, async (r
 app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financialRateLimiter, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const { requestedAmount, destinationAddress, password, twoFactorCode, idempotencyKey, userNotes } = req.body;
+    const { requestedAmount, destinationAddress, network, password, twoFactorCode, idempotencyKey, userNotes } = req.body;
+
+    if (user.status !== 'active') {
+      throw Errors.forbidden(`Your account is currently ${user.status}. Withdrawals are disabled.`);
+    }
+
+    if (network && !['BEP-20', 'BEP20', 'BSC', 'BNB Smart Chain'].includes(network.trim())) {
+      throw Errors.validation('Unsupported network. Withdrawals are exclusively supported on BNB Smart Chain (BEP-20 USDT).');
+    }
 
     if (!password) {
       throw Errors.validation('Account password confirmation is required for withdrawal.');
@@ -598,11 +606,15 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
       }
     }
 
+    if (idempotencyKey && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8 || idempotencyKey.trim().length > 128)) {
+      throw Errors.validation('Invalid idempotency key length. Must be between 8 and 128 characters.');
+    }
+
     const result = await createWithdrawalRequestAsync({
-      userId: user.id,
+      userId: user.id, // Strictly derived from session, never from req.body
       requestedAmount: Number(requestedAmount),
       destinationAddress,
-      idempotencyKey,
+      idempotencyKey: idempotencyKey ? idempotencyKey.trim() : undefined,
       userNotes,
       actorEmail: user.email,
     });

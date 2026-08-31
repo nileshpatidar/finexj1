@@ -495,7 +495,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
             {/* 6. Withdrawal Fees */}
             <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Withdrawal Fees ({appSettings?.withdrawalFeePercentage ?? 9}%)</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Withdrawal Fees ({appSettings?.withdrawalFeePercentage ?? 6}%)</span>
               <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
                 ${(stats?.totalWithdrawalFees || 0).toFixed(2)} USDT
               </p>
