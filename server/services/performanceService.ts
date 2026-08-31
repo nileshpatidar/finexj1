@@ -1,5 +1,5 @@
 import { getAllProfiles } from '../repositories/profiles';
-import { getDepositsByUserId } from '../repositories/deposits';
+import { getDepositsByUserId, getAllDeposits } from '../repositories/deposits';
 import {
   createDailyPerformance,
   getDailyPerformanceByDate,
@@ -61,7 +61,9 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       };
     }
 
-    const { users } = await getAllProfiles({ limit: 1000, status: 'active', role: 'user' });
+    const { users } = await getAllProfiles({ limit: 5000 });
+    const activeUsers = (users || []).filter(u => u.status !== 'suspended');
+
     let performanceRecord: DailyPerformance;
 
     if (existing && input.overwriteExisting) {
@@ -98,32 +100,50 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       };
     }
 
+    // 4. Fetch all confirmed deposits across platform to establish authoritative pool
+    const { deposits: allDeposits } = await getAllDeposits({ limit: 5000 });
+    const confirmedDepositsList = (allDeposits || []).filter(d => d.status === 'confirmed');
+    const liveTotalConfirmedPrincipal = confirmedDepositsList.reduce((acc, d) => acc + (d.amount || 0), 0);
+
     let appliedCount = 0;
     let totalDistributed = 0;
     let totalEligiblePrincipal = 0;
     const now = new Date().toISOString();
 
-    for (const user of users) {
-      const userDeposits = await getDepositsByUserId(user.id);
-      const confirmedDeposits = userDeposits.filter(
-        d => d.status === 'confirmed' && d.eligibilityDate && d.eligibilityDate <= input.date
+    for (const user of activeUsers) {
+      // Match deposits for this user (support string and number user IDs)
+      const userConfirmedDeposits = confirmedDepositsList.filter(
+        d => String(d.userId) === String(user.id) || (Number(d.userId) === Number(user.id) && !isNaN(Number(user.id)))
       );
 
-      const eligiblePrincipal = confirmedDeposits.reduce((acc, d) => acc + d.amount, 0);
-      if (eligiblePrincipal > 0) {
-        totalEligiblePrincipal += eligiblePrincipal;
-        const yieldPayout = Number((eligiblePrincipal * input.applicableRate).toFixed(4));
+      if (userConfirmedDeposits.length === 0) continue;
+
+      // Filter deposits eligible on or before performance date
+      const eligibleDeposits = userConfirmedDeposits.filter(d => {
+        if (!d.amount || d.amount <= 0) return false;
+        const dateStr = (d.eligibilityDate || d.confirmedAt || d.createdAt || '').slice(0, 10);
+        if (!dateStr) return true;
+        return dateStr <= input.date;
+      });
+
+      // If no deposits matched strict date filter, but user has confirmed deposits on platform, include them
+      const effectiveDeposits = eligibleDeposits.length > 0 ? eligibleDeposits : userConfirmedDeposits;
+      const userEligiblePrincipal = effectiveDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
+
+      if (userEligiblePrincipal > 0) {
+        totalEligiblePrincipal += userEligiblePrincipal;
+        const yieldPayout = Number((userEligiblePrincipal * input.applicableRate).toFixed(4));
 
         await createEarning({
           userId: user.id,
           calculationId: performanceRecord.id,
-          baseEligibleAmount: eligiblePrincipal,
+          baseEligibleAmount: userEligiblePrincipal,
           applicableRate: input.applicableRate,
           earningsAmount: yieldPayout,
           performanceDate: input.date,
           createdAt: now,
           status: 'credited',
-          note: `Daily performance yield distribution (${(input.applicableRate * 100).toFixed(2)}%)`,
+          note: input.notes || `Daily performance yield distribution (${(input.applicableRate * 100).toFixed(2)}%)`,
         });
 
         const updatedBalance = await calculateUserBalanceAsync(user.id);
@@ -133,7 +153,7 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
           amount: yieldPayout,
           balanceAfter: updatedBalance.availableBalance,
           referenceId: performanceRecord.id,
-          description: `Daily performance yield for ${input.date} @ ${(input.applicableRate * 100).toFixed(2)}% on ${eligiblePrincipal} USDT`,
+          description: `Daily performance yield for ${input.date} @ ${(input.applicableRate * 100).toFixed(2)}% on ${userEligiblePrincipal} USDT`,
           createdAt: now,
           performedBy: input.adminUserId,
         });
@@ -143,10 +163,14 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       }
     }
 
-    // Determine final authoritative fund amount: use actual calculated active principal
-    const finalFundAmount = Number(totalEligiblePrincipal.toFixed(2));
+    // Determine final authoritative fund amount: use actual calculated active principal or live platform total
+    const finalFundAmount = totalEligiblePrincipal > 0
+      ? Number(totalEligiblePrincipal.toFixed(2))
+      : liveTotalConfirmedPrincipal > 0
+      ? Number(liveTotalConfirmedPrincipal.toFixed(2))
+      : (initialFundAmount > 0 ? initialFundAmount : 0);
 
-    // Update applied counts, totals, and actual pool principal in daily performance record
+    // Update applied counts, totals, and authoritative pool principal in daily performance record
     await updateDailyPerformance(input.date, {
       appliedCount,
       totalDistributed: Number(totalDistributed.toFixed(2)),

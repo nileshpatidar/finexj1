@@ -530,10 +530,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
           <div className="p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="space-y-0.5">
-                <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center space-x-2">
-                  <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span>Daily Yield & Performance Distribution</span>
-                </h2>
+                <div className="flex items-center space-x-2">
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center space-x-2">
+                    <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span>Daily Yield & Performance Distribution</span>
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-200 dark:border-emerald-800/60 animate-pulse">
+                    ● Live Fund Pool
+                  </span>
+                </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   Post authoritative daily trading returns (+Profit, -Loss, or 0.00% Safe Day) for all confirmed deposits.
                 </p>
@@ -619,6 +624,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                 </button>
               </div>
             </div>
+
+            {/* Live Overall Fund & Distribution Banner */}
+            {(() => {
+              const liveConfirmedDeposits = deposits.filter(d => d.status === 'confirmed');
+              const liveFundPrincipal = liveConfirmedDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
+              const currentPercentNum = parseFloat(perfPercent || '0') || 0;
+              const multiplier = perfMode === 'safe' ? 0 : perfMode === 'loss' ? -currentPercentNum / 100 : currentPercentNum / 100;
+              const estDistribution = liveFundPrincipal * multiplier;
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-950/60 flex items-center justify-center text-blue-600 dark:text-blue-400 flex-shrink-0">
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">
+                        Live Fund Pool
+                      </span>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white font-mono">
+                        ${liveFundPrincipal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2.5 border-t sm:border-t-0 sm:border-l border-slate-200 dark:border-slate-800 pt-2 sm:pt-0 sm:pl-3">
+                    <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-950/60 flex items-center justify-center text-purple-600 dark:text-purple-400 flex-shrink-0">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">
+                        Active Confirmed Deposits
+                      </span>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white font-mono">
+                        {liveConfirmedDeposits.length} deposits active
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2.5 border-t sm:border-t-0 sm:border-l border-slate-200 dark:border-slate-800 pt-2 sm:pt-0 sm:pl-3">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                        perfMode === 'profit'
+                          ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                          : perfMode === 'loss'
+                          ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <Activity className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">
+                        Est. Distribution Total
+                      </span>
+                      <span
+                        className={`text-sm font-bold font-mono ${
+                          perfMode === 'profit'
+                            ? 'text-blue-600 dark:text-blue-400'
+                            : perfMode === 'loss'
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        {perfMode === 'safe'
+                          ? '$0.00 USDT (Capital Preserved)'
+                          : `${estDistribution >= 0 ? '+' : '-'}$${Math.abs(estDistribution).toFixed(2)} USDT`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Date already distributed notice */}
             {(() => {
@@ -1471,7 +1549,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             {performances.map(p => (
               <div
                 key={p.id}
-                className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-sm"
+                className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm"
               >
                 <div>
                   <div className="flex items-center space-x-2">
@@ -1491,14 +1569,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         ? `${(Number(p.applicableRate || 0) * 100).toFixed(2)}% Loss`
                         : '0.00% Safe (No Trade)'}
                     </span>
+                    {Number(p.overallFundAmount || 0) > 0 && (
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                        Pool: ${Number(p.overallFundAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                      </span>
+                    )}
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{p.notes}</p>
                 </div>
 
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3 self-end sm:self-center">
                   <div className="text-right">
                     <p
-                      className={`text-sm font-bold ${
+                      className={`text-sm font-bold font-mono ${
                         Number(p.totalDistributed || 0) > 0
                           ? 'text-blue-600 dark:text-blue-400'
                           : Number(p.totalDistributed || 0) < 0
@@ -1512,7 +1595,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                         ? `-$${Math.abs(Number(p.totalDistributed || 0)).toFixed(2)} USDT`
                         : '$0.00 USDT (Safe)'}
                     </p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.appliedCount || 0} Users Calculated</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.appliedCount || 0} Accounts Credited</p>
                   </div>
                   <button
                     onClick={() => {
