@@ -169,6 +169,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     }
   };
 
+  const handleAdminVerifyDeposit = async (depositId: string) => {
+    setIsProcessingDepositAction(depositId);
+    try {
+      setActionError(null);
+      setActionMessage(null);
+      const res = await api.verifyAdminDeposit(depositId);
+      if (res.success) {
+        if (res.deposit?.status === 'confirmed') {
+          setActionMessage(res.message || `Deposit verified on BNB Smart Chain and confirmed!`);
+        } else {
+          setActionMessage(res.message || `BSC verification checked. Confirmations: ${res.confirmations || 0}/${res.requiredConfirmations || 12}`);
+        }
+        await loadAllAdminData();
+      } else {
+        setActionError(res.error || 'Verification on BNB Smart Chain failed.');
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to query BNB Smart Chain RPC node.');
+    } finally {
+      setIsProcessingDepositAction(null);
+    }
+  };
+
   const handleWithdrawalAction = async (withdrawalId: string, action: string, txHash?: string) => {
     if (action === 'paid' && (!txHash || !txHash.trim())) {
       setActionError('BNB Smart Chain Payout Tx Hash is a required field to complete payout confirmation.');
@@ -801,7 +824,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
                       {/* Admin Decision Action Buttons */}
                       {dep.status === 'pending' ? (
-                        <div className="flex items-center space-x-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={Boolean(isProcessingDepositAction)}
+                            onClick={() => handleAdminVerifyDeposit(dep.id)}
+                            className="py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-200 font-bold transition cursor-pointer flex items-center space-x-1 border border-slate-200 dark:border-slate-700"
+                            title="Query live BNB Smart Chain RPC node for this deposit tx"
+                          >
+                            {isProcessingDepositAction === dep.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                            )}
+                            <span>Verify on BSC</span>
+                          </button>
                           <button
                             disabled={Boolean(isProcessingDepositAction)}
                             onClick={() => setSelectedDepositForAction({ deposit: dep, action: 'confirmed' })}
@@ -824,10 +861,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
                           </button>
                         </div>
                       ) : (
-                        <div className="text-right">
-                          <span className="text-[11px] text-slate-400">
-                            {dep.status === 'confirmed' ? 'Credited to Balance' : 'Rejected'}
+                        <div className="text-right space-y-0.5">
+                          <span className="text-[11px] font-bold block text-blue-600 dark:text-blue-400">
+                            {dep.status === 'confirmed' ? '✓ Credited to Balance' : '✕ Rejected'}
                           </span>
+                          {dep.blockNumber && (
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              Block #{dep.blockNumber}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>

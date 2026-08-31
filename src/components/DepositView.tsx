@@ -18,7 +18,8 @@ import {
   X,
   FileCheck,
   Clock,
-  Sparkles,
+  RefreshCw,
+  Layers,
 } from 'lucide-react';
 
 interface DepositViewProps {
@@ -36,7 +37,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
   const [previewModalImage, setPreviewModalImage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGeneratingMock, setIsGeneratingMock] = useState(false);
+  const [verifyingDepositId, setVerifyingDepositId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastSubmittedDeposit, setLastSubmittedDeposit] = useState<DepositItem | null>(null);
@@ -99,17 +100,27 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
     }
   };
 
-  const handleGenerateMockTx = async () => {
-    setIsGeneratingMock(true);
+  const handleReverifyDeposit = async (depId: string) => {
+    setVerifyingDepositId(depId);
+    setErrorMessage(null);
+    setSuccessMessage(null);
     try {
-      const res = await api.getMockTxHash();
-      if (res && res.txHash) {
-        setTxHash(res.txHash);
+      const res = await api.verifyUserDeposit(depId);
+      if (res.success) {
+        if (res.deposit?.status === 'confirmed') {
+          setSuccessMessage(res.message || 'Deposit successfully verified on BNB Smart Chain and credited!');
+          onDepositConfirmed();
+        } else {
+          setSuccessMessage(res.message || `Current BSC confirmations: ${res.confirmations || 0}/${res.requiredConfirmations || 12}`);
+        }
+        await loadData();
+      } else {
+        setErrorMessage(res.error || 'Verification on BNB Smart Chain did not succeed.');
       }
-    } catch (err) {
-      console.warn('Could not generate mock hash', err);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to query BNB Smart Chain RPC.');
     } finally {
-      setIsGeneratingMock(false);
+      setVerifyingDepositId(null);
     }
   };
 
@@ -145,12 +156,12 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
       });
 
       if (res.success && res.deposit) {
-        const isPending = res.deposit.status === 'pending';
+        const isConfirmed = res.deposit.status === 'confirmed';
         const depAmt = Number(res.deposit.amount || 0);
         setSuccessMessage(
-          isPending
-            ? `Deposit confirmation of $${depAmt.toFixed(2)} USDT submitted successfully! Our finance department will review your proof and confirm it shortly.`
-            : `Deposit of $${depAmt.toFixed(2)} USDT successfully verified on BNB Smart Chain and credited!`
+          isConfirmed
+            ? `Deposit of $${depAmt.toFixed(2)} USDT verified on BNB Smart Chain and credited to your account!`
+            : `Deposit of $${depAmt.toFixed(2)} USDT submitted. Awaiting BSC network confirmations (${res.deposit.confirmations || 0}/${res.deposit.requiredConfirmations || 12}).`
         );
         setLastSubmittedDeposit(res.deposit);
         setTxHash('');
@@ -175,11 +186,11 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
             Deposit USDT
           </h1>
           <span className="px-2.5 py-0.5 text-xs font-bold bg-blue-600 text-white rounded-md shadow-xs">
-            BEP-20 (BSC)
+            BEP-20 (BSC Mainnet)
           </span>
         </div>
         <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-          Deposit USDT on the BNB Smart Chain network to start earning daily fund performance.
+          Deposit USDT on the BNB Smart Chain network to start earning daily fund performance. Real-time RPC verified.
         </p>
       </div>
 
@@ -246,33 +257,33 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
             <span className="text-blue-600 dark:text-blue-400 font-bold block text-sm">1. Transfer USDT</span>
             <p className="text-slate-600 dark:text-slate-400 text-xs mt-1 leading-relaxed">
-              Send BEP-20 USDT from your wallet (Binance, Trust Wallet, MetaMask, etc.)
+              Send BEP-20 USDT from your wallet (Binance, Trust Wallet, MetaMask, OKX, etc.)
             </p>
           </div>
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-            <span className="text-blue-600 dark:text-blue-400 font-bold block text-sm">2. Upload Receipt & TxID</span>
+            <span className="text-blue-600 dark:text-blue-400 font-bold block text-sm">2. Enter TxID & Receipt</span>
             <p className="text-slate-600 dark:text-slate-400 text-xs mt-1 leading-relaxed">
-              Upload payment screenshot and enter transaction hash for verification
+              Paste your BNB Smart Chain transaction hash for automated node verification
             </p>
           </div>
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-            <span className="text-blue-600 dark:text-blue-400 font-bold block text-sm">3. Verification & Yield</span>
+            <span className="text-blue-600 dark:text-blue-400 font-bold block text-sm">3. Real On-Chain Credit</span>
             <p className="text-slate-600 dark:text-slate-400 text-xs mt-1 leading-relaxed">
-              Confirmed on BNB Smart Chain and added to your principal portfolio
+              Verified on BSC and automatically credited to your principal balance
             </p>
           </div>
         </div>
       </div>
 
-      {/* Deposit Confirmation & Payment Proof Form */}
+      {/* Deposit Confirmation Form */}
       <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-5">
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3.5">
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center space-x-2">
             <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span>Deposit Confirmation & Payment Proof</span>
+            <span>Deposit Verification & Registration</span>
           </h2>
           <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-            Quick Verification
+            BSC Mainnet RPC
           </span>
         </div>
 
@@ -335,7 +346,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
           {/* Payment Proof Photo Upload */}
           <div>
             <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              Upload Payment Proof / Screenshot (Receipt)
+              Upload Payment Proof / Screenshot (Optional Receipt)
             </label>
 
             {!proofPhotoUrl ? (
@@ -416,22 +427,16 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
               <label className="font-semibold text-slate-700 dark:text-slate-300">
                 BNB Smart Chain Transaction Hash (TxID) <span className="text-rose-500 font-bold">*Required</span>
               </label>
-              <button
-                type="button"
-                onClick={handleGenerateMockTx}
-                disabled={isGeneratingMock}
-                className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center space-x-1 cursor-pointer"
-              >
-                <Sparkles className="w-3 h-3" />
-                <span>Fill Sample TxHash</span>
-              </button>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                Found in your wallet or exchange withdrawal history
+              </span>
             </div>
             <input
               type="text"
               required
               value={txHash}
               onChange={e => setTxHash(e.target.value)}
-              placeholder="0x... (from Binance, Trust Wallet, MetaMask, or BSCScan)"
+              placeholder="0x... (66-character BEP-20 transaction hash)"
               className="w-full py-3 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition"
             />
             {txHash && (
@@ -458,7 +463,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
               type="text"
               value={userNotes}
               onChange={e => setUserNotes(e.target.value)}
-              placeholder="e.g. Sent from Trust Wallet 0x123..."
+              placeholder="e.g. Sent from Trust Wallet / Binance"
               className="w-full py-2.5 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition"
             />
           </div>
@@ -471,12 +476,12 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
             {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Submitting Deposit for Review...</span>
+                <span>Verifying on BNB Smart Chain...</span>
               </>
             ) : (
               <>
                 <ArrowDownToLine className="w-4 h-4" />
-                <span>Submit Deposit for Confirmation</span>
+                <span>Submit & Verify on BNB Smart Chain</span>
               </>
             )}
           </button>
@@ -490,7 +495,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
             <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-400 font-bold text-sm">
               <CheckCircle2 className="w-4 h-4" />
               <span>
-                {lastSubmittedDeposit.status === 'confirmed' ? 'Deposit Confirmed & Credited' : 'Deposit Submitted for Review'}
+                {lastSubmittedDeposit.status === 'confirmed' ? 'Deposit Confirmed & Credited' : 'Deposit Registered on BSC'}
               </span>
             </div>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-blue-600 text-white">
@@ -508,13 +513,15 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
               <p className="font-semibold text-slate-800 dark:text-slate-200">BEP-20 (BSC)</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Status</p>
-              <p className="font-semibold text-blue-600 dark:text-blue-400 capitalize">{lastSubmittedDeposit.status}</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Confirmations</p>
+              <p className="font-semibold text-blue-600 dark:text-blue-400">
+                {lastSubmittedDeposit.confirmations || 0} / {lastSubmittedDeposit.requiredConfirmations || 12}
+              </p>
             </div>
             <div>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">First Earning Date</p>
               <p className="font-semibold text-slate-800 dark:text-slate-200">
-                {lastSubmittedDeposit.eligibilityDate ? new Date(lastSubmittedDeposit.eligibilityDate).toLocaleDateString() : 'Next Server Day (Upon Confirmation)'}
+                {lastSubmittedDeposit.eligibilityDate ? new Date(lastSubmittedDeposit.eligibilityDate).toLocaleDateString() : 'Next Server Day'}
               </p>
             </div>
           </div>
@@ -555,9 +562,19 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
       {/* Past Deposit History */}
       <div className="space-y-3">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-          Your Deposit History & BSC Tracking
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+            Your Deposit History & BSC Tracking
+          </h2>
+          <button
+            type="button"
+            onClick={loadData}
+            className="flex items-center space-x-1 text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Refresh</span>
+          </button>
+        </div>
 
         {deposits.length === 0 ? (
           <div className="p-8 text-center rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs">
@@ -569,6 +586,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
               const isConfirmed = dep.status === 'confirmed';
               const isPending = dep.status === 'pending' || dep.status === 'confirming';
               const isRejected = dep.status === 'rejected';
+              const isVerifying = verifyingDepositId === dep.id;
 
               return (
                 <div
@@ -621,6 +639,26 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                      {isPending && (
+                        <button
+                          type="button"
+                          onClick={() => handleReverifyDeposit(dep.id)}
+                          disabled={isVerifying}
+                          className="flex items-center space-x-1.5 py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-[11px] transition shadow-xs cursor-pointer"
+                        >
+                          {isVerifying ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Checking BSC...</span>
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-3 h-3" />
+                              <span>Re-verify on BSC</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                       {dep.txHash && (
                         <a
                           href={`https://bscscan.com/tx/${dep.txHash}`}
@@ -639,15 +677,21 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                           className="flex items-center space-x-1 py-1.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-[11px] transition cursor-pointer"
                         >
                           <ImageIcon className="w-3 h-3" />
-                          <span>View Proof Photo</span>
+                          <span>View Proof</span>
                         </button>
                       )}
                     </div>
                   </div>
 
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between text-[11px] gap-1 text-slate-500 dark:text-slate-400">
-                    <div className="font-mono truncate max-w-sm">
-                      TxID: {dep.txHash || 'Pending blockchain broadcast'}
+                    <div className="font-mono truncate max-w-sm flex items-center space-x-2">
+                      <span>TxID: {dep.txHash || 'Pending blockchain broadcast'}</span>
+                      {dep.blockNumber && (
+                        <span className="text-slate-400 flex items-center space-x-0.5">
+                          <Layers className="w-3 h-3 inline" />
+                          <span>Block #{dep.blockNumber}</span>
+                        </span>
+                      )}
                     </div>
                     <div>
                       {isConfirmed ? (
@@ -660,11 +704,11 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                       ) : isPending ? (
                         <span className="text-amber-600 dark:text-amber-400 font-medium flex items-center space-x-1">
                           <Clock className="w-3 h-3" />
-                          <span>Under verification by finance admin</span>
+                          <span>Confirmations: {dep.confirmations || 0} / {dep.requiredConfirmations || 12}</span>
                         </span>
                       ) : (
                         <span className="text-rose-600 dark:text-rose-400">
-                          Rejected: {dep.adminNotes || 'Verification failed'}
+                          Rejected: {dep.adminNotes || 'Verification failed on BSC'}
                         </span>
                       )}
                     </div>
@@ -732,4 +776,3 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
     </div>
   );
 };
-

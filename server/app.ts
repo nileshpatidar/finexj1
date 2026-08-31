@@ -22,11 +22,12 @@ import { getAuditLogs, createAuditLog } from './repositories/auditLogs';
 import { getSystemLogs } from './repositories/systemLogs';
 import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
 import { calculateUserBalanceAsync } from './services/balanceService';
-import { processDepositAsync, updateDepositStatusAsync } from './services/depositService';
+import { processDepositAsync, updateDepositStatusAsync, verifyDepositOnChainAsync } from './services/depositService';
 import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync } from './services/withdrawalService';
 import { applyDailyPerformanceAsync } from './services/performanceService';
 import { getSignedDepositProofUrl } from './storage';
-import { generateMockTxHash, isValidBEP20Address } from './blockchain';
+import { verifyBEP20Deposit, isValidBEP20Address, isValidTxHash } from './blockchain';
+import { runAutomatedTestSuite } from './tests';
 import { getMarketPrices } from './market';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
 import { UserRole, User } from './types';
@@ -127,9 +128,23 @@ app.get(['/api/market/prices', '/market/prices'], async (req, res) => {
   res.json(prices);
 });
 
-// Blockchain mock tx hash generator
-app.get(['/api/blockchain/mock-tx', '/blockchain/mock-tx'], (req, res) => {
-  res.json({ txHash: generateMockTxHash(), network: 'BEP-20', currency: 'USDT' });
+// Blockchain Network Status (BNB Smart Chain BEP-20)
+app.get(['/api/blockchain/status', '/blockchain/status'], async (req, res) => {
+  try {
+    const settings = await getSettings();
+    res.json({
+      network: 'BNB Smart Chain (BSC Mainnet)',
+      chainId: 56,
+      currency: 'USDT',
+      tokenStandard: 'BEP-20',
+      tokenContract: settings.usdtContractAddress || '0x55d398326f99059fF775485246999027B3197955',
+      depositWallet: settings.bep20DepositAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
+      requiredConfirmations: settings.requiredConfirmations || 12,
+      minimumDeposit: settings.minimumDepositAmount || 300,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to query blockchain settings.' });
+  }
 });
 
 // User Registration
@@ -484,7 +499,51 @@ app.post(['/api/user/deposits', '/user/deposits'], authMiddleware, financialRate
     }
 
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ success: true, deposit: result.deposit, balance });
+    res.json({ success: true, deposit: result.deposit, balance, message: result.message });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Re-verify User BEP-20 Deposit on BNB Smart Chain
+app.post(['/api/user/deposits/:id/verify', '/user/deposits/:id/verify'], authMiddleware, financialRateLimiter, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { id } = req.params;
+    const deposit = await getDepositById(id);
+
+    if (!deposit || deposit.userId !== user.id) {
+      throw Errors.notFound('DEPOSIT_NOT_FOUND', 'Deposit record not found.');
+    }
+
+    const result = await verifyDepositOnChainAsync(id, user.id);
+    const balance = await calculateUserBalanceAsync(user.id);
+    res.json({ ...result, balance });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Public / Authenticated Blockchain Tx Verification Inspector
+app.post(['/api/blockchain/verify-tx', '/blockchain/verify-tx'], async (req, res, next) => {
+  try {
+    const { txHash, claimedAmount } = req.body;
+    if (!txHash || typeof txHash !== 'string' || !txHash.trim()) {
+      throw Errors.validation('BNB Smart Chain Transaction Hash (TxID) is required.');
+    }
+
+    const result = await verifyBEP20Deposit(txHash.trim(), claimedAmount ? Number(claimedAmount) : undefined);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Automated Test Suite Runner (Point #1-#5 Financial & System Integrity Verification)
+app.post(['/api/tests/run', '/tests/run'], async (req, res, next) => {
+  try {
+    const results = await runAutomatedTestSuite();
+    res.json(results);
   } catch (err) {
     next(err);
   }
@@ -789,6 +848,18 @@ app.post(['/api/admin/deposits/:id/action', '/admin/deposits/:id/action'], authM
     }
 
     res.json({ success: true, deposit: result.deposit });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin verify deposit on BNB Smart Chain RPC
+app.post(['/api/admin/deposits/:id/verify', '/admin/deposits/:id/verify'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { id } = req.params;
+    const result = await verifyDepositOnChainAsync(id, admin.id);
+    res.json(result);
   } catch (err) {
     next(err);
   }

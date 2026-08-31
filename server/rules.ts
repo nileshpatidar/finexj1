@@ -15,12 +15,11 @@ import { createLedgerEntry } from './repositories/ledger';
 
 export interface ProcessDepositInput {
   userId: string;
-  txHash?: string;
+  txHash: string;
   amount?: number;
   proofPhotoUrl?: string;
   userNotes?: string;
   actorEmail?: string;
-  autoApprove?: boolean;
 }
 
 export interface RequestWithdrawalInput {

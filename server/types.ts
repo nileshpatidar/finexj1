@@ -30,16 +30,20 @@ export interface Deposit {
   id: string;
   userId: string;
   amount: number;
+  actualAmount?: number;
   currency: 'USDT';
   network: 'BEP-20';
   txHash: string;
   fromAddress?: string;
   toAddress: string;
+  tokenContract?: string;
+  blockNumber?: number;
   status: DepositStatus;
   confirmations: number;
   requiredConfirmations: number;
   createdAt: string;
   confirmedAt?: string;
+  verifiedAt?: string;
   eligibilityDate?: string; // Eligible for performance earnings (next server day)
   depositLockEndDate?: string; // 30 days lock period for withdrawal
   proofPhotoUrl?: string; // Uploaded payment proof screenshot / photo data URL

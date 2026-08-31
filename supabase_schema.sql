@@ -63,18 +63,22 @@ CREATE TABLE IF NOT EXISTS deposits (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   amount NUMERIC(18, 4) NOT NULL,
+  actual_amount NUMERIC(18, 4),
   currency TEXT NOT NULL DEFAULT 'USDT',
   network TEXT NOT NULL DEFAULT 'BEP-20',
   tx_hash TEXT NOT NULL UNIQUE,
   from_address TEXT,
   to_address TEXT NOT NULL DEFAULT '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
-  status TEXT NOT NULL DEFAULT 'confirmed', -- 'pending' | 'confirmed' | 'rejected'
-  confirmations INTEGER NOT NULL DEFAULT 15,
+  token_contract TEXT NOT NULL DEFAULT '0x55d398326f99059fF775485246999027B3197955',
+  block_number BIGINT,
+  status TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'confirming' | 'confirmed' | 'rejected'
+  confirmations INTEGER NOT NULL DEFAULT 0,
   required_confirmations INTEGER NOT NULL DEFAULT 12,
   lock_expires_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
   deposit_lock_end_date TIMESTAMP WITH TIME ZONE,
   eligibility_date TIMESTAMP WITH TIME ZONE,
   confirmed_at TIMESTAMP WITH TIME ZONE,
+  verified_at TIMESTAMP WITH TIME ZONE,
   proof_url TEXT,
   proof_photo_url TEXT,
   notes TEXT,
@@ -93,10 +97,15 @@ BEGIN
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'BEP-20';
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS from_address TEXT;
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS to_address TEXT NOT NULL DEFAULT '0x71C5A8c0B26D19543e49e29547d6e492211C54a9';
+  ALTER TABLE deposits ADD COLUMN IF NOT EXISTS token_contract TEXT NOT NULL DEFAULT '0x55d398326f99059fF775485246999027B3197955';
+  ALTER TABLE deposits ADD COLUMN IF NOT EXISTS block_number BIGINT;
+  ALTER TABLE deposits ADD COLUMN IF NOT EXISTS actual_amount NUMERIC(18, 4);
+  ALTER TABLE deposits ADD COLUMN IF NOT EXISTS confirmations INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS required_confirmations INTEGER NOT NULL DEFAULT 12;
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS deposit_lock_end_date TIMESTAMP WITH TIME ZONE;
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS eligibility_date TIMESTAMP WITH TIME ZONE;
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP WITH TIME ZONE;
+  ALTER TABLE deposits ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE;
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS proof_url TEXT;
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS proof_photo_url TEXT;
   ALTER TABLE deposits ADD COLUMN IF NOT EXISTS notes TEXT;
@@ -640,7 +649,12 @@ CREATE OR REPLACE FUNCTION confirm_deposit_atomic(
   p_deposit_id INTEGER,
   p_admin_id TEXT,
   p_admin_notes TEXT,
-  p_tx_hash TEXT
+  p_tx_hash TEXT,
+  p_from_address TEXT DEFAULT NULL,
+  p_block_number BIGINT DEFAULT NULL,
+  p_token_contract TEXT DEFAULT NULL,
+  p_confirmations INTEGER DEFAULT NULL,
+  p_actual_amount NUMERIC(18, 4) DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -676,9 +690,15 @@ BEGIN
   UPDATE deposits SET
     status = 'confirmed',
     confirmed_at = v_now,
+    verified_at = v_now,
     notes = COALESCE(p_admin_notes, notes),
     tx_hash = COALESCE(p_tx_hash, tx_hash),
-    confirmations = GREATEST(confirmations, 15),
+    from_address = COALESCE(p_from_address, from_address),
+    block_number = COALESCE(p_block_number, block_number),
+    token_contract = COALESCE(p_token_contract, token_contract),
+    confirmations = COALESCE(p_confirmations, GREATEST(confirmations, 12)),
+    actual_amount = COALESCE(p_actual_amount, actual_amount, amount),
+    amount = COALESCE(p_actual_amount, amount),
     updated_at = v_now
   WHERE id = p_deposit_id
   RETURNING * INTO v_dep;
@@ -724,7 +744,7 @@ BEGIN
     p_admin_id,
     'admin',
     v_dep.user_id::TEXT,
-    COALESCE(p_admin_notes, format('Admin confirmed deposit #%s for %s USDT', p_deposit_id, v_dep.amount)),
+    COALESCE(p_admin_notes, format('Confirmed deposit #%s for %s USDT on BNB Smart Chain (Tx: %s)', p_deposit_id, v_dep.amount, v_dep.tx_hash)),
     v_now
   );
 

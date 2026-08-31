@@ -149,7 +149,17 @@ export const api = {
 
   getMarketPrices: () => request<MarketPrice>('/api/market/prices'),
 
-  getMockTxHash: () => request<{ txHash: string; network: string; currency: string }>('/api/blockchain/mock-tx'),
+  verifyUserDeposit: (depositId: string) =>
+    request<{ success: boolean; deposit?: DepositItem; balance: any; isPendingConfirmations?: boolean; confirmations?: number; requiredConfirmations?: number; message?: string; error?: string }>(
+      `/api/user/deposits/${depositId}/verify`,
+      { method: 'POST' }
+    ),
+
+  verifyBlockchainTx: (txHash: string, claimedAmount?: number) =>
+    request<any>('/api/blockchain/verify-tx', {
+      method: 'POST',
+      body: JSON.stringify({ txHash, claimedAmount }),
+    }),
 
   runTests: () => request<TestSuiteResponse>('/api/tests/run', { method: 'POST' }),
 
@@ -162,6 +172,11 @@ export const api = {
       body: JSON.stringify({ status }),
     }),
   getAdminDeposits: () => request<{ deposits: DepositItem[] }>('/api/admin/deposits'),
+  verifyAdminDeposit: (depositId: string) =>
+    request<{ success: boolean; deposit?: DepositItem; isPendingConfirmations?: boolean; confirmations?: number; requiredConfirmations?: number; message?: string; error?: string }>(
+      `/api/admin/deposits/${depositId}/verify`,
+      { method: 'POST' }
+    ),
   updateDepositAction: (depositId: string, payload: { action: string; adminNotes?: string; txHash?: string }) =>
     request<{ success: boolean; deposit: DepositItem }>(`/api/admin/deposits/${depositId}/action`, {
       method: 'POST',
