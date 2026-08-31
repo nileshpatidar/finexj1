@@ -111,20 +111,21 @@ export async function getProfileById(id: string): Promise<User | null> {
 }
 
 export async function getProfileByEmail(email: string): Promise<User | null> {
+  const normEmail = (email || '').trim().toLowerCase();
+  if (!normEmail) return null;
+
   try {
     const supabase = getServerSupabase();
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .ilike('email', email.trim().toLowerCase())
+      .ilike('email', normEmail)
       .maybeSingle();
 
-    if (error) {
-      console.warn(`[Supabase Warn] getProfileByEmail(${email}):`, error.message);
+    if (error || !data) {
+      if (error) console.warn(`[Supabase Warn] getProfileByEmail(${email}):`, error.message);
       return null;
     }
-
-    if (!data) return null;
     return mapDbUserToUser(data);
   } catch (err: any) {
     console.warn(`[Supabase Exception] getProfileByEmail(${email}):`, err?.message);
@@ -133,10 +134,11 @@ export async function getProfileByEmail(email: string): Promise<User | null> {
 }
 
 export async function createProfile(user: Partial<User>): Promise<User> {
+  const normEmail = (user.email || '').trim().toLowerCase();
   const supabase = getServerSupabase();
   const payload: any = {
     full_name: user.fullName || 'User',
-    email: user.email?.trim().toLowerCase(),
+    email: normEmail,
     phone: user.phone || '',
     country: user.country || 'India',
     password_hash: user.passwordHash || '',
@@ -163,7 +165,7 @@ export async function createProfile(user: Partial<User>): Promise<User> {
     // If optional columns (profile_picture_url, phone, country) are not yet migrated in DB, gracefully retry without them
     const fallbackPayload: any = {
       full_name: user.fullName || 'User',
-      email: user.email?.trim().toLowerCase(),
+      email: normEmail,
       password_hash: user.passwordHash || '',
       salt: user.passwordSalt || '',
       role: user.role || 'user',
@@ -222,7 +224,7 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
     .update(payload)
     .eq('id', id)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error && error.message.includes('column')) {
     delete payload.phone;
@@ -240,16 +242,15 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
       .update(payload)
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
     data = retry.data;
     error = retry.error;
   }
 
-  if (error) {
-    console.warn(`[Supabase Warn] updateProfile(${id}):`, error.message);
+  if (error || !data) {
     const current = await getProfileById(id);
     if (current) return current;
-    throw new Error(`Failed to update profile: ${error.message}`);
+    throw new Error(`Failed to update profile: ${error?.message || 'User not found'}`);
   }
 
   return mapDbUserToUser(data);
@@ -287,3 +288,4 @@ export async function getAllProfiles(options?: {
   const users = (data || []).map(mapDbUserToUser);
   return { users, total: count || users.length };
 }
+

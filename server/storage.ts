@@ -1,4 +1,4 @@
-import { getServerSupabase } from './supabase';
+import { getServerSupabase, isServerSupabaseReady } from './supabase';
 
 const DEPOSIT_PROOFS_BUCKET = 'deposit-proofs';
 
@@ -12,6 +12,10 @@ export async function uploadDepositProof(
   base64OrBuffer: string,
   originalFilename: string = 'proof.jpg'
 ): Promise<string> {
+  if (!isServerSupabaseReady()) {
+    return base64OrBuffer;
+  }
+
   const supabase = getServerSupabase();
 
   let fileBuffer: Buffer;
@@ -35,21 +39,26 @@ export async function uploadDepositProof(
   const filePath = `${userId}/${depositId}_${Date.now()}_${cleanFilename}`;
 
   // Ensure bucket exists or attempt upload directly
-  const { data, error } = await supabase.storage
-    .from(DEPOSIT_PROOFS_BUCKET)
-    .upload(filePath, fileBuffer, {
-      contentType,
-      upsert: true,
-    });
+  try {
+    const { data, error } = await supabase.storage
+      .from(DEPOSIT_PROOFS_BUCKET)
+      .upload(filePath, fileBuffer, {
+        contentType,
+        upsert: true,
+      });
 
-  if (error) {
-    console.warn(`[Supabase Storage Notice] Upload failed (${error.message}), falling back to direct image payload.`);
-    // Fallback: preserve base64 data uri directly so proof is retained
+    if (error) {
+      console.warn(`[Supabase Storage Notice] Upload failed (${error.message}), falling back to direct image payload.`);
+      // Fallback: preserve base64 data uri directly so proof is retained
+      return base64OrBuffer;
+    }
+
+    const { data: publicUrlData } = supabase.storage.from(DEPOSIT_PROOFS_BUCKET).getPublicUrl(data.path);
+    return publicUrlData?.publicUrl || data.path;
+  } catch (err: any) {
+    console.warn('[Supabase Storage Upload Exception]:', err?.message);
     return base64OrBuffer;
   }
-
-  const { data: publicUrlData } = supabase.storage.from(DEPOSIT_PROOFS_BUCKET).getPublicUrl(data.path);
-  return publicUrlData?.publicUrl || data.path;
 }
 
 /**
@@ -60,9 +69,16 @@ export function getPublicDepositProofUrl(storagePathOrUrl: string): string {
   if (storagePathOrUrl.startsWith('http://') || storagePathOrUrl.startsWith('https://') || storagePathOrUrl.startsWith('data:')) {
     return storagePathOrUrl;
   }
-  const supabase = getServerSupabase();
-  const { data } = supabase.storage.from(DEPOSIT_PROOFS_BUCKET).getPublicUrl(storagePathOrUrl);
-  return data?.publicUrl || storagePathOrUrl;
+  if (!isServerSupabaseReady()) {
+    return storagePathOrUrl;
+  }
+  try {
+    const supabase = getServerSupabase();
+    const { data } = supabase.storage.from(DEPOSIT_PROOFS_BUCKET).getPublicUrl(storagePathOrUrl);
+    return data?.publicUrl || storagePathOrUrl;
+  } catch {
+    return storagePathOrUrl;
+  }
 }
 
 /**
@@ -73,16 +89,23 @@ export async function getSignedDepositProofUrl(storagePath: string, expiresInSec
   if (storagePath.startsWith('http://') || storagePath.startsWith('https://') || storagePath.startsWith('data:')) {
     return storagePath;
   }
-
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase.storage
-    .from(DEPOSIT_PROOFS_BUCKET)
-    .createSignedUrl(storagePath, expiresInSeconds);
-
-  if (error || !data?.signedUrl) {
-    console.warn('[Supabase Storage Signed URL Error]:', error?.message);
-    return null;
+  if (!isServerSupabaseReady()) {
+    return storagePath;
   }
 
-  return data.signedUrl;
+  try {
+    const supabase = getServerSupabase();
+    const { data, error } = await supabase.storage
+      .from(DEPOSIT_PROOFS_BUCKET)
+      .createSignedUrl(storagePath, expiresInSeconds);
+
+    if (error || !data?.signedUrl) {
+      console.warn('[Supabase Storage Signed URL Error]:', error?.message);
+      return storagePath;
+    }
+
+    return data.signedUrl;
+  } catch {
+    return storagePath;
+  }
 }

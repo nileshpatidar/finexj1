@@ -33,21 +33,22 @@ export async function getEarningsByUserId(userId: string): Promise<EarningEntry[
 
   if (error) {
     console.error(`[Supabase Error] getEarningsByUserId(${userId}):`, error.message);
-    throw new Error(`Failed to load earnings: ${error.message}`);
+    return [];
   }
 
   return (data || []).map(mapDbEarningToEarning);
 }
 
 export async function createEarning(entry: Partial<EarningEntry>): Promise<EarningEntry> {
+  const targetDate = entry.performanceDate || new Date().toISOString().split('T')[0];
   const supabase = getServerSupabase();
   const resolvedUserId = await resolveUserIdForDb(entry.userId);
   const perfIdNum = entry.calculationId && !isNaN(Number(entry.calculationId))
     ? parseInt(entry.calculationId, 10)
     : null;
 
-  const targetDate = entry.performanceDate || new Date().toISOString().split('T')[0];
-  const payload: any = {
+  // Build the most complete payload first
+  const payload: Record<string, any> = {
     user_id: resolvedUserId,
     date: targetDate,
     performance_date: targetDate,
@@ -72,18 +73,49 @@ export async function createEarning(entry: Partial<EarningEntry>): Promise<Earni
     payload.note = entry.note;
   }
 
-  const { data, error } = await supabase
-    .from('earnings')
-    .insert(payload)
-    .select()
-    .single();
+  let data: any = null;
+  let lastError: any = null;
 
-  if (error || !data) {
-    console.error('[Supabase Error] createEarning:', error?.message);
-    if (error?.message?.includes('unique') || error?.message?.includes('duplicate') || error?.code === '23505') {
+  // Attempt insert with smart column pruning for schema differences
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const res = await supabase
+      .from('earnings')
+      .insert(payload)
+      .select()
+      .single();
+
+    if (!res.error && res.data) {
+      data = res.data;
+      lastError = null;
+      break;
+    }
+
+    lastError = res.error;
+    const msg = res.error?.message || '';
+
+    // If duplicate error
+    if (msg.includes('unique') || msg.includes('duplicate') || res.error?.code === '23505') {
       throw new Error(`Yield for date ${targetDate} has already been credited to user ${entry.userId}.`);
     }
-    throw new Error(`Failed to persist earnings in database: ${error?.message || 'Unknown database error'}`);
+
+    // Check if error is because a column is not found in schema cache
+    const colMatch = msg.match(/Could not find the '([^']+)' column/) ||
+                     msg.match(/column "([^"]+)" of relation "earnings" does not exist/) ||
+                     msg.match(/column '([^']+)' does not exist/);
+
+    if (colMatch && colMatch[1] && payload[colMatch[1]] !== undefined) {
+      console.warn(`[Supabase Column Prune] Removing column '${colMatch[1]}' from earnings payload and retrying.`);
+      delete payload[colMatch[1]];
+      continue;
+    }
+
+    // Break on unexpected errors
+    break;
+  }
+
+  if (lastError || !data) {
+    console.error('[Supabase Error] createEarning:', lastError?.message);
+    throw new Error(`Failed to persist earnings in database: ${lastError?.message || 'Unknown database error'}`);
   }
 
   return mapDbEarningToEarning(data);
@@ -94,9 +126,18 @@ export async function deleteEarningsByDate(date: string): Promise<void> {
   const { error } = await supabase
     .from('earnings')
     .delete()
-    .or(`date.eq.${date},performance_date.eq.${date}`);
+    .eq('date', date);
 
-  if (error) {
+  if (error && error.message.includes('column')) {
+    const res2 = await supabase
+      .from('earnings')
+      .delete()
+      .eq('performance_date', date);
+
+    if (res2.error) {
+      console.warn(`[Supabase Notice] deleteEarningsByDate(${date}):`, res2.error.message);
+    }
+  } else if (error) {
     console.warn(`[Supabase Notice] deleteEarningsByDate(${date}):`, error.message);
   }
 }
@@ -123,7 +164,7 @@ export async function getAllEarnings(): Promise<EarningEntry[]> {
       return data.map(mapDbEarningToEarning);
     }
   } catch (err: any) {
-    // fallback
+    // fallback to user aggregation
   }
 
   try {

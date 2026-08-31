@@ -85,13 +85,13 @@ export async function getDailyPerformanceByDate(date: string): Promise<DailyPerf
 }
 
 export async function createDailyPerformance(perf: Partial<DailyPerformance>): Promise<DailyPerformance> {
-  const supabase = getServerSupabase();
   const ratePct = perf.applicableRate !== undefined
     ? Number((perf.applicableRate * 100).toFixed(4))
     : Number((perf.actualFundPerformance || 0).toFixed(4));
 
   const targetDate = perf.date || new Date().toISOString().split('T')[0];
 
+  const supabase = getServerSupabase();
   const payload = {
     date: targetDate,
     trading_profit_percentage: ratePct,
@@ -133,11 +133,11 @@ export async function createDailyPerformance(perf: Partial<DailyPerformance>): P
 }
 
 export async function updateDailyPerformance(date: string, perf: Partial<DailyPerformance>): Promise<DailyPerformance> {
-  const supabase = getServerSupabase();
   const ratePct = perf.applicableRate !== undefined
     ? Number((perf.applicableRate * 100).toFixed(4))
     : Number((perf.actualFundPerformance || 0).toFixed(4));
 
+  const supabase = getServerSupabase();
   const payload = {
     trading_profit_percentage: ratePct,
     gold_reserves_percentage: 0,
@@ -177,5 +177,6 @@ export async function updateDailyPerformance(date: string, perf: Partial<DailyPe
 
   return mapDbPerfToPerf(data);
 }
+
 
 

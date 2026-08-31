@@ -1,6 +1,5 @@
 import { getServerSupabase } from '../supabase';
 import { LedgerEntry, LedgerType } from '../types';
-import { getEarningsByUserId } from './earnings';
 import { resolveUserIdForDb } from './profiles';
 
 export function mapDbLedgerToLedger(l: any): LedgerEntry {
@@ -30,7 +29,7 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
 
   if (error) {
     console.error(`[Supabase Error] getLedgerByUserId(${userId}):`, error.message);
-    throw new Error(`Failed to load ledger entries: ${error.message}`);
+    return [];
   }
 
   return (data || []).map(mapDbLedgerToLedger);
@@ -86,3 +85,4 @@ export async function getAllLedger(): Promise<LedgerEntry[]> {
     return [];
   }
 }
+

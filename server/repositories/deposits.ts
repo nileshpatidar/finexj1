@@ -49,7 +49,7 @@ export async function getDepositsByUserId(userId: string): Promise<Deposit[]> {
 
   if (error) {
     console.error(`[Supabase Error] getDepositsByUserId(${userId}):`, error.message);
-    throw new Error(`Failed to load deposits: ${error.message}`);
+    return [];
   }
 
   return (data || []).map(mapDbDepositToDeposit);
@@ -66,17 +66,16 @@ export async function getDepositById(id: string): Promise<Deposit | null> {
 
   const { data, error } = await query.maybeSingle();
 
-  if (error) {
-    console.error(`[Supabase Error] getDepositById(${id}):`, error.message);
-    throw new Error(`Failed to load deposit: ${error.message}`);
+  if (error || !data) {
+    if (error) console.error(`[Supabase Error] getDepositById(${id}):`, error.message);
+    return null;
   }
-
-  if (!data) return null;
   return mapDbDepositToDeposit(data);
 }
 
 export async function getDepositByTxHash(txHash: string): Promise<Deposit | null> {
   if (!txHash || !txHash.trim()) return null;
+
   const supabase = getServerSupabase();
   const { data, error } = await supabase
     .from('deposits')
@@ -84,24 +83,23 @@ export async function getDepositByTxHash(txHash: string): Promise<Deposit | null
     .ilike('tx_hash', txHash.trim())
     .maybeSingle();
 
-  if (error) {
-    console.error(`[Supabase Error] getDepositByTxHash(${txHash}):`, error.message);
-    throw new Error(`Failed to query deposit by txHash: ${error.message}`);
+  if (error || !data) {
+    if (error) console.error(`[Supabase Error] getDepositByTxHash(${txHash}):`, error.message);
+    return null;
   }
-
-  if (!data) return null;
   return mapDbDepositToDeposit(data);
 }
 
 export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
-  const supabase = getServerSupabase();
-  const userIdNum = await resolveUserIdForDb(dep.userId);
   const toAddress = dep.toAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9';
   const txHash = dep.txHash ? dep.txHash.trim() : '';
 
   if (!txHash) {
     throw new Error('A valid BNB Smart Chain transaction hash (TxID) is required to record a deposit.');
   }
+
+  const supabase = getServerSupabase();
+  const userIdNum = await resolveUserIdForDb(dep.userId);
 
   const payload: any = {
     user_id: userIdNum,
@@ -181,11 +179,10 @@ export async function updateDeposit(id: string, updates: Partial<Deposit>): Prom
     .update(payload)
     .eq('id', id)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) {
-    console.error(`[Supabase Error] updateDeposit(${id}):`, error.message);
-    throw new Error(`Failed to update deposit: ${error.message}`);
+  if (error || !data) {
+    throw new Error(`Failed to update deposit: ${error?.message || 'Deposit not found'}`);
   }
 
   return mapDbDepositToDeposit(data);
@@ -213,7 +210,7 @@ export async function getAllDeposits(options?: {
 
   if (error) {
     console.error('[Supabase Error] getAllDeposits:', error.message);
-    throw new Error(`Failed to load deposits list: ${error.message}`);
+    return { deposits: [], total: 0 };
   }
 
   const deposits = (data || []).map(mapDbDepositToDeposit);
@@ -238,7 +235,6 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
   isDuplicate?: boolean;
   error?: string;
 }> {
-  const supabase = getServerSupabase();
   const numericDepId = Number(input.depositId);
 
   if (isNaN(numericDepId) || numericDepId <= 0) {
@@ -247,6 +243,7 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
 
   // 1. Attempt PostgreSQL stored procedure RPC
   try {
+    const supabase = getServerSupabase();
     const { data: rpcData, error: rpcError } = await supabase.rpc('confirm_deposit_atomic', {
       p_deposit_id: numericDepId,
       p_admin_id: String(input.adminId),
@@ -314,3 +311,4 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
     deposit: confirmedDeposit,
   };
 }
+

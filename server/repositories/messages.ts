@@ -22,7 +22,6 @@ export async function getAdminMessagesForUser(userId: string): Promise<AdminMess
     .order('created_at', { ascending: false });
 
   if (error) {
-    // If admin_messages table doesn't exist yet, return empty list gracefully
     console.warn('[Supabase Warn] getAdminMessagesForUser:', error.message);
     return [];
   }
@@ -94,3 +93,4 @@ export async function markMessageRead(messageId: string, userId: string): Promis
   }
   return true;
 }
+

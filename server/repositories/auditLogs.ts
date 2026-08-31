@@ -46,3 +46,4 @@ export async function createAuditLog(log: Partial<AuditLog>): Promise<void> {
     console.warn('[Supabase AuditLog Exception]:', err?.message);
   }
 }
+

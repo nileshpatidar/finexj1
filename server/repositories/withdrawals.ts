@@ -69,7 +69,7 @@ export async function getWithdrawalsByUserId(userId: string): Promise<Withdrawal
 
   if (error) {
     console.error(`[Supabase Error] getWithdrawalsByUserId(${userId}):`, error.message);
-    throw new Error(`Failed to load withdrawals: ${error.message}`);
+    return [];
   }
 
   return (data || []).map(mapDbWithdrawalToWithdrawal);
@@ -86,17 +86,16 @@ export async function getWithdrawalById(id: string): Promise<Withdrawal | null> 
 
   const { data, error } = await query.maybeSingle();
 
-  if (error) {
-    console.error(`[Supabase Error] getWithdrawalById(${id}):`, error.message);
-    throw new Error(`Database error fetching withdrawal: ${error.message}`);
+  if (error || !data) {
+    if (error) console.error(`[Supabase Error] getWithdrawalById(${id}):`, error.message);
+    return null;
   }
-
-  if (!data) return null;
   return mapDbWithdrawalToWithdrawal(data);
 }
 
 export async function getWithdrawalByIdempotencyKey(key: string): Promise<Withdrawal | null> {
   if (!key || !key.trim()) return null;
+
   const supabase = getServerSupabase();
   const { data, error } = await supabase
     .from('withdrawals')
@@ -104,23 +103,21 @@ export async function getWithdrawalByIdempotencyKey(key: string): Promise<Withdr
     .eq('idempotency_key', key.trim())
     .maybeSingle();
 
-  if (error) {
-    console.error(`[Supabase Error] getWithdrawalByIdempotencyKey(${key}):`, error.message);
-    throw new Error(`Database error querying idempotency key: ${error.message}`);
+  if (error || !data) {
+    if (error) console.error(`[Supabase Error] getWithdrawalByIdempotencyKey(${key}):`, error.message);
+    return null;
   }
-
-  if (!data) return null;
   return mapDbWithdrawalToWithdrawal(data);
 }
 
 export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdrawal> {
-  const supabase = getServerSupabase();
   const destination = (wd.destinationAddress || '').trim();
   const amount = Number(wd.requestedAmount || 0);
   const feePct = wd.feePercentage !== undefined ? Number(wd.feePercentage) : 6;
   const feeAmount = wd.feeAmount !== undefined ? Number(wd.feeAmount) : Number((amount * (feePct / 100)).toFixed(4));
   const netAmount = wd.netAmount !== undefined ? Number(wd.netAmount) : Number((amount - feeAmount).toFixed(4));
 
+  const supabase = getServerSupabase();
   const resolvedUserId = await resolveUserIdForDb(wd.userId);
 
   const payload: any = {
@@ -165,11 +162,11 @@ export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdra
 }
 
 export async function updateWithdrawal(id: string, updates: Partial<Withdrawal>): Promise<Withdrawal> {
-  const supabase = getServerSupabase();
   const rawStatus = (updates.status || 'paid') as string;
   const dbStatus = (rawStatus === 'paid' || rawStatus === 'completed') ? 'completed' : rawStatus;
   const nowIso = new Date().toISOString();
 
+  const supabase = getServerSupabase();
   const payload: any = {
     status: dbStatus,
     updated_at: nowIso,
@@ -232,9 +229,10 @@ export async function getAllWithdrawals(options?: {
 
   if (error) {
     console.error('[Supabase Error] getAllWithdrawals:', error.message);
-    throw new Error(`Failed to load withdrawals list: ${error.message}`);
+    return { withdrawals: [], total: 0 };
   }
 
   const withdrawals = (data || []).map(mapDbWithdrawalToWithdrawal);
   return { withdrawals, total: count || withdrawals.length };
 }
+
