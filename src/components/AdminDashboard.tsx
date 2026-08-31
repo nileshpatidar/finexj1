@@ -66,7 +66,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   // Performance Form State
   const todayDateStr = new Date().toISOString().split('T')[0];
   const [perfDate, setPerfDate] = useState(todayDateStr);
-  const [perfFundAmount, setPerfFundAmount] = useState('2500000');
   const [perfRate, setPerfRate] = useState('0.0050'); // 0.50%
   const [perfNotes, setPerfNotes] = useState('Institutional algorithmic yield & liquidity arbitrage allocation');
   const [allowOverwritePerf, setAllowOverwritePerf] = useState(false);
@@ -128,7 +127,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     try {
       const res = await api.createDailyPerformance({
         date: perfDate,
-        overallFundAmount: parseFloat(perfFundAmount),
         actualFundPerformance: parseFloat(perfRate) * 100,
         applicableRate: parseFloat(perfRate),
         notes: perfNotes,

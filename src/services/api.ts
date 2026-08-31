@@ -191,10 +191,10 @@ export const api = {
   getAdminPerformance: () => request<{ performances: any[] }>('/api/admin/performance'),
   createDailyPerformance: (payload: {
     date: string;
-    overallFundAmount: number;
+    overallFundAmount?: number;
     actualFundPerformance: number;
     applicableRate: number;
-    notes: string;
+    notes?: string;
     overwriteExisting?: boolean;
   }) => request<any>('/api/admin/performance', { method: 'POST', body: JSON.stringify(payload) }),
   getAdminAuditLogs: () => request<{ auditLogs: any[] }>('/api/admin/audit-logs'),

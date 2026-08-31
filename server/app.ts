@@ -959,17 +959,29 @@ app.post(['/api/admin/performance', '/admin/performance'], authMiddleware, admin
     const admin: User = (req as any).user;
     const { date, overallFundAmount, actualFundPerformance, applicableRate, notes, overwriteExisting, allowUpdate } = req.body;
 
-    if (!date || applicableRate === undefined) {
-      throw Errors.validation('Date and applicableRate are required.');
+    if (!date) {
+      throw Errors.validation('Date is required (YYYY-MM-DD).');
     }
+
+    if (applicableRate === undefined || applicableRate === null) {
+      throw Errors.validation('applicableRate is required and cannot be null.');
+    }
+
+    const parsedRate = typeof applicableRate === 'string' ? parseFloat(applicableRate) : Number(applicableRate);
+    if (isNaN(parsedRate) || !isFinite(parsedRate)) {
+      throw Errors.validation(`applicableRate '${applicableRate}' must be a valid finite number.`);
+    }
+
+    // Canonical percentage points (e.g. 0.0050 -> 0.5000%)
+    const derivedRatePercentage = Number((parsedRate * 100).toFixed(4));
 
     const result = await applyDailyPerformanceAsync({
       adminUserId: admin.id,
       date,
-      overallFundAmount: Number(overallFundAmount || 2500000),
-      actualFundPerformance: Number(actualFundPerformance || (applicableRate * 100)),
-      applicableRate: Number(applicableRate),
-      notes: notes || 'Daily verified fund yield distribution',
+      overallFundAmount: overallFundAmount !== undefined && overallFundAmount !== null ? Number(overallFundAmount) : undefined,
+      actualFundPerformance: derivedRatePercentage,
+      applicableRate: parsedRate,
+      notes: notes || `Daily verified fund yield distribution (${derivedRatePercentage >= 0 ? '+' : ''}${derivedRatePercentage.toFixed(2)}%)`,
       overwriteExisting: Boolean(overwriteExisting || allowUpdate),
     });
 

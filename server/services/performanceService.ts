@@ -14,10 +14,10 @@ import { DailyPerformance } from '../types';
 export interface AdminDailyPerformanceInput {
   adminUserId: string;
   date: string; // YYYY-MM-DD
-  overallFundAmount: number;
-  actualFundPerformance: number;
-  applicableRate: number; // e.g. 0.01 for 1%
-  notes: string;
+  overallFundAmount?: number;
+  actualFundPerformance?: number;
+  applicableRate: number; // e.g. 0.0050 for 0.50%
+  notes?: string;
   overwriteExisting?: boolean;
 }
 
@@ -29,6 +29,30 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
   error?: string;
 }> {
   try {
+    // 1. Strict Validation of Inputs
+    if (!input.date) {
+      return { success: false, error: 'Performance date is required (YYYY-MM-DD).' };
+    }
+
+    if (input.applicableRate === undefined || input.applicableRate === null) {
+      return { success: false, error: 'applicableRate is required and cannot be null.' };
+    }
+
+    const rawRate = typeof input.applicableRate === 'string' ? parseFloat(input.applicableRate) : Number(input.applicableRate);
+    if (isNaN(rawRate) || !isFinite(rawRate)) {
+      return { success: false, error: `Invalid applicableRate '${input.applicableRate}'. Must be a finite number.` };
+    }
+
+    // Derive canonical percentage points and decimal multiplier
+    // e.g., 0.0050 -> 0.5000% (rate_percentage = 0.5000, applicable_rate = 0.0050)
+    const ratePercentage = Number((rawRate * 100).toFixed(4));
+    const applicableRate = rawRate;
+    const initialFundAmount = input.overallFundAmount !== undefined && input.overallFundAmount !== null && !isNaN(Number(input.overallFundAmount))
+      ? Number(input.overallFundAmount)
+      : 0;
+    const notes = input.notes || `Daily verified fund yield distribution (${ratePercentage >= 0 ? '+' : ''}${ratePercentage.toFixed(2)}%)`;
+
+    // 2. Check for duplicate date
     const existing = await getDailyPerformanceByDate(input.date);
     if (existing && !input.overwriteExisting) {
       return {
@@ -45,19 +69,19 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       await deleteEarningsByDate(input.date);
 
       performanceRecord = await updateDailyPerformance(input.date, {
-        overallFundAmount: input.overallFundAmount,
-        actualFundPerformance: input.actualFundPerformance,
-        applicableRate: input.applicableRate,
-        notes: input.notes,
+        overallFundAmount: initialFundAmount,
+        actualFundPerformance: ratePercentage,
+        applicableRate,
+        notes,
         createdBy: input.adminUserId,
       });
     } else {
       performanceRecord = await createDailyPerformance({
         date: input.date,
-        overallFundAmount: input.overallFundAmount,
-        actualFundPerformance: input.actualFundPerformance,
-        applicableRate: input.applicableRate,
-        notes: input.notes,
+        overallFundAmount: initialFundAmount,
+        actualFundPerformance: ratePercentage,
+        applicableRate,
+        notes,
         createdBy: input.adminUserId,
         createdAt: new Date().toISOString(),
         appliedCount: 0,
@@ -65,7 +89,7 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       });
     }
 
-    // Verify record was actually saved in Supabase
+    // 3. Verify record was actually saved in daily_performances
     const verified = await getDailyPerformanceByDate(input.date);
     if (!verified) {
       return {
@@ -76,6 +100,7 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
 
     let appliedCount = 0;
     let totalDistributed = 0;
+    let totalEligiblePrincipal = 0;
     const now = new Date().toISOString();
 
     for (const user of users) {
@@ -86,6 +111,7 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
 
       const eligiblePrincipal = confirmedDeposits.reduce((acc, d) => acc + d.amount, 0);
       if (eligiblePrincipal > 0) {
+        totalEligiblePrincipal += eligiblePrincipal;
         const yieldPayout = Number((eligiblePrincipal * input.applicableRate).toFixed(4));
 
         await createEarning({
@@ -117,10 +143,14 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       }
     }
 
-    // Update applied counts and totals in daily performance record
+    // Determine final authoritative fund amount: use actual calculated active principal
+    const finalFundAmount = Number(totalEligiblePrincipal.toFixed(2));
+
+    // Update applied counts, totals, and actual pool principal in daily performance record
     await updateDailyPerformance(input.date, {
       appliedCount,
       totalDistributed: Number(totalDistributed.toFixed(2)),
+      overallFundAmount: finalFundAmount,
     });
 
     await createAuditLog({
