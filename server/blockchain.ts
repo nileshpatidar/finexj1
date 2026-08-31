@@ -1,5 +1,6 @@
-import { db } from './db';
 import { Deposit } from './types';
+import { getSettings } from './repositories/settings';
+import { getDepositByTxHash } from './repositories/deposits';
 
 export interface VerificationResult {
   isValid: boolean;
@@ -35,7 +36,7 @@ export async function verifyBEP20Deposit(
   claimedAmount?: number,
   overrideToAddress?: string
 ): Promise<VerificationResult> {
-  const settings = db.getSettings();
+  const settings = await getSettings();
   const normalizedHash = txHash.trim().toLowerCase();
 
   // 1. Syntax check
@@ -49,7 +50,7 @@ export async function verifyBEP20Deposit(
   }
 
   // 2. Duplicate protection check in Database
-  const existingDeposit = db.getDepositByTxHash(normalizedHash);
+  const existingDeposit = await getDepositByTxHash(normalizedHash);
   if (existingDeposit) {
     return {
       isValid: false,

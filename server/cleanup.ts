@@ -1,6 +1,7 @@
-import { db } from './db';
 import { logger } from './logger';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
+import { getSettings } from './repositories/settings';
+import { getAllDeposits } from './repositories/deposits';
 
 export interface StorageInspectionReport {
   timestamp: string;
@@ -24,12 +25,22 @@ class CleanupManager {
   private intervalId: NodeJS.Timeout | null = null;
 
   public startPeriodicCleanup(intervalMs = 60 * 60 * 1000) {
+    if (!isServerSupabaseReady()) {
+      return;
+    }
+
     // Run initial check after 10 seconds
-    setTimeout(() => this.runScheduledCleanup(), 10000);
+    setTimeout(() => {
+      this.runScheduledCleanup().catch((err: any) => {
+        console.warn('[cleanupManager initial run note]:', err?.message);
+      });
+    }, 10000);
 
     // Schedule hourly cleanup checks
     this.intervalId = setInterval(() => {
-      this.runScheduledCleanup();
+      this.runScheduledCleanup().catch((err: any) => {
+        console.warn('[cleanupManager scheduled run note]:', err?.message);
+      });
     }, intervalMs);
   }
 
@@ -44,7 +55,7 @@ class CleanupManager {
    * Run automated cleanup according to configured retention policies
    */
   public async runScheduledCleanup(): Promise<StorageInspectionReport> {
-    const settings = db.getSettings();
+    const settings = await getSettings();
     const systemLogDays = settings.systemLogRetentionDays || 30;
     const errorLogDays = settings.errorLogRetentionDays || 90;
     const now = new Date();
@@ -86,7 +97,13 @@ class CleanupManager {
     }
 
     // 2. Storage & Proof Analysis
-    const deposits = db.getDeposits();
+    let deposits: any[] = [];
+    try {
+      const depRes = await getAllDeposits({ limit: 5000 });
+      deposits = depRes.deposits || [];
+    } catch {
+      deposits = [];
+    }
     const totalDeposits = deposits.length;
     const depositsWithProof = deposits.filter(d => d.proofPhotoUrl && d.proofPhotoUrl.length > 0);
     const activeReviewProofs = deposits.filter(d => (d.status === 'pending' || d.status === 'confirming') && d.proofPhotoUrl);

@@ -65,32 +65,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       throw new Error(errMsg);
     }
 
-    // Cache successful GET responses for offline browsing
-    if (!options.method || options.method === 'GET') {
-      try {
-        localStorage.setItem(`cache_${endpoint}`, JSON.stringify({
-          data,
-          timestamp: Date.now(),
-        }));
-      } catch {
-        // LocalStorage full, ignore
-      }
-    }
-
     return data as T;
   } catch (err) {
-    // If offline or network error, attempt to load cached version for GET requests
-    if (!options.method || options.method === 'GET') {
-      const cached = localStorage.getItem(`cache_${endpoint}`);
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          return parsed.data as T;
-        } catch {
-          // Ignore
-        }
-      }
-    }
     throw err;
   }
 }

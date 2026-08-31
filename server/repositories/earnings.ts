@@ -127,6 +127,11 @@ export async function createEarning(entry: Partial<EarningEntry>): Promise<Earni
   };
 }
 
+export async function createEarningsBatch(entries: Partial<EarningEntry>[]): Promise<void> {
+  const promises = entries.map(e => createEarning(e));
+  await Promise.allSettled(promises);
+}
+
 export async function getAllEarnings(): Promise<EarningEntry[]> {
   try {
     const supabase = getServerSupabase();

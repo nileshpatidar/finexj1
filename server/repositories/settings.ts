@@ -1,4 +1,4 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { AppSettings } from '../types';
 
 export const defaultSettings: AppSettings = {
@@ -22,32 +22,41 @@ export const defaultSettings: AppSettings = {
 };
 
 export async function getSettings(): Promise<AppSettings> {
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase.from('system_settings').select('*');
-
-  if (error || !data || data.length === 0) {
+  if (!isServerSupabaseReady()) {
     return { ...defaultSettings };
   }
 
-  const merged: any = { ...defaultSettings };
-  for (const row of data) {
-    try {
-      merged[row.key] = JSON.parse(row.value);
-    } catch {
-      merged[row.key] = row.value;
+  try {
+    const supabase = getServerSupabase();
+    const { data, error } = await supabase.from('system_settings').select('*');
+
+    if (error || !data || data.length === 0) {
+      return { ...defaultSettings };
     }
+
+    const merged: any = { ...defaultSettings };
+    for (const row of data) {
+      try {
+        merged[row.key] = JSON.parse(row.value);
+      } catch {
+        merged[row.key] = row.value;
+      }
+    }
+
+    // Ensure number types are numbers
+    merged.withdrawalFeePercentage = Number(merged.withdrawalFeePercentage) || 9;
+    merged.accountAgeRequirementDays = Number(merged.accountAgeRequirementDays) || 30;
+    merged.minimumDepositAmount = Number(merged.minimumDepositAmount) || 300;
+    merged.depositLockPeriodDays = Number(merged.depositLockPeriodDays) || 30;
+    merged.maintenanceMode = Boolean(merged.maintenanceMode === true || merged.maintenanceMode === 'true');
+    merged.registrationEnabled = Boolean(merged.registrationEnabled !== false && merged.registrationEnabled !== 'false');
+    merged.loginEnabled = Boolean(merged.loginEnabled !== false && merged.loginEnabled !== 'false');
+
+    return merged as AppSettings;
+  } catch (err: any) {
+    console.warn('[getSettings fallback to defaultSettings]:', err?.message);
+    return { ...defaultSettings };
   }
-
-  // Ensure number types are numbers
-  merged.withdrawalFeePercentage = Number(merged.withdrawalFeePercentage) || 9;
-  merged.accountAgeRequirementDays = Number(merged.accountAgeRequirementDays) || 30;
-  merged.minimumDepositAmount = Number(merged.minimumDepositAmount) || 300;
-  merged.depositLockPeriodDays = Number(merged.depositLockPeriodDays) || 30;
-  merged.maintenanceMode = Boolean(merged.maintenanceMode === true || merged.maintenanceMode === 'true');
-  merged.registrationEnabled = Boolean(merged.registrationEnabled !== false && merged.registrationEnabled !== 'false');
-  merged.loginEnabled = Boolean(merged.loginEnabled !== false && merged.loginEnabled !== 'false');
-
-  return merged as AppSettings;
 }
 
 export async function updateSettings(updates: Partial<AppSettings>): Promise<AppSettings> {

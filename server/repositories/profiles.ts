@@ -1,6 +1,5 @@
 import { getServerSupabase } from '../supabase';
 import { User, UserRole, AccountStatus } from '../types';
-import { db } from '../db';
 
 export async function resolveUserIdForDb(userId: string | number | undefined): Promise<number | string> {
   if (!userId) return 1;
@@ -9,8 +8,7 @@ export async function resolveUserIdForDb(userId: string | number | undefined): P
     return Number(strId);
   }
 
-  const inMemUser = db.getUsers().find(u => u.id === strId || u.email?.toLowerCase() === strId.toLowerCase());
-  const userEmail = inMemUser?.email || (strId.includes('@') ? strId : undefined);
+  const userEmail = strId.includes('@') ? strId : undefined;
 
   try {
     const supabase = getServerSupabase();
@@ -28,31 +26,7 @@ export async function resolveUserIdForDb(userId: string | number | undefined): P
       }
     }
 
-    // 2. If user exists in memory but not yet in Supabase users table, sync/create them to satisfy foreign keys
-    if (inMemUser) {
-      try {
-        const { data: created, error } = await supabase
-          .from('users')
-          .insert({
-            full_name: inMemUser.fullName || 'Investor',
-            email: (inMemUser.email || `${strId}@finexj.local`).trim().toLowerCase(),
-            password_hash: inMemUser.passwordHash || '',
-            salt: inMemUser.passwordSalt || '',
-            role: inMemUser.role || 'user',
-            created_at: inMemUser.createdAt || new Date().toISOString(),
-          })
-          .select('id')
-          .maybeSingle();
-
-        if (!error && created && created.id !== undefined && created.id !== null) {
-          return created.id;
-        }
-      } catch (insertErr: any) {
-        console.warn('[resolveUserIdForDb sync user notice]:', insertErr?.message);
-      }
-    }
-
-    // 3. Try querying exact string ID if DB users.id is TEXT/UUID
+    // 2. Try querying exact string ID if DB users.id is TEXT/UUID
     try {
       const { data: byId } = await supabase.from('users').select('id').eq('id', strId).maybeSingle();
       if (byId && byId.id !== undefined && byId.id !== null) return byId.id;
@@ -60,7 +34,7 @@ export async function resolveUserIdForDb(userId: string | number | undefined): P
       // Ignore type mismatch if id is integer in DB
     }
 
-    // 4. Fallback to first active user in DB if any foreign key is strictly required
+    // 3. Fallback to first active user in DB if any foreign key is strictly required
     try {
       const { data: firstUser } = await supabase.from('users').select('id').limit(1).maybeSingle();
       if (firstUser && firstUser.id !== undefined && firstUser.id !== null) {
@@ -105,8 +79,6 @@ export function mapDbUserToUser(u: any): User {
 }
 
 export async function getProfileById(id: string): Promise<User | null> {
-  const inMemUser = db.getUsers().find(u => u.id === id);
-
   try {
     const supabase = getServerSupabase();
 
@@ -115,16 +87,6 @@ export async function getProfileById(id: string): Promise<User | null> {
         .from('users')
         .select('*')
         .or(`id.eq.${id},id.eq.${Number(id)}`)
-        .maybeSingle();
-
-      if (!error && data) return mapDbUserToUser(data);
-    }
-
-    if (inMemUser?.email) {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('email', inMemUser.email.trim().toLowerCase())
         .maybeSingle();
 
       if (!error && data) return mapDbUserToUser(data);
@@ -145,7 +107,7 @@ export async function getProfileById(id: string): Promise<User | null> {
     console.warn(`[Supabase Exception] getProfileById(${id}):`, err?.message);
   }
 
-  return inMemUser || null;
+  return null;
 }
 
 export async function getProfileByEmail(email: string): Promise<User | null> {

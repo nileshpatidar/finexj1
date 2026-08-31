@@ -1,5 +1,4 @@
 import { getProfileById, updateProfile } from '../repositories/profiles';
-import { db } from '../db';
 import {
   createWithdrawal,
   getWithdrawalById,
@@ -174,21 +173,7 @@ export async function updateWithdrawalStatusAsync(
   adminNotes?: string
 ): Promise<{ success: boolean; withdrawal?: Withdrawal; error?: string }> {
   try {
-    let withdrawal = await getWithdrawalById(withdrawalId);
-    if (!withdrawal) {
-      // Look up by reference or memory fallback
-      const inMem = db.getWithdrawals().find(
-        w => w.id === withdrawalId ||
-             w.reference === withdrawalId ||
-             (w as any).idempotencyKey === withdrawalId ||
-             `wd_${w.id}` === withdrawalId ||
-             String(w.id) === withdrawalId.replace(/^wd_/, '')
-      );
-      if (inMem) {
-        withdrawal = inMem;
-      }
-    }
-
+    const withdrawal = await getWithdrawalById(withdrawalId);
     if (!withdrawal) {
       return { success: false, error: `Withdrawal record (${withdrawalId}) not found.` };
     }
