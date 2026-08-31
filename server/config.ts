@@ -27,8 +27,12 @@ function requireEnv(key: string): string {
  */
 export const config = {
   // Supabase Configuration (Strictly server-side)
-  supabaseUrl: getEnv('SUPABASE_URL'),
-  supabaseServiceRoleKey: getEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  supabaseUrl: getEnv('SUPABASE_URL') || getEnv('VITE_SUPABASE_URL'),
+  supabaseServiceRoleKey:
+    getEnv('SUPABASE_SERVICE_ROLE_KEY') ||
+    getEnv('SUPABASE_SERVICE_KEY') ||
+    getEnv('SUPABASE_KEY') ||
+    getEnv('VITE_SUPABASE_SERVICE_ROLE_KEY'),
 
   // Authentication & Security
   sessionSecret: getEnv('SESSION_SECRET'),
