@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
+import { config } from './config';
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
@@ -37,6 +38,10 @@ const SENSITIVE_KEYS = new Set([
   'apikey',
   'service_role',
   'supabase_key',
+  'supabase_service_role_key',
+  'supabase_secret_key',
+  'supabase_anon_key',
+  'session_secret',
   'privatekey',
   'creditcard',
   'cvv',
@@ -84,15 +89,7 @@ export function sanitizeLogData(obj: any): any {
  * If not true: just print in terminal
  */
 export function isDbLoggingEnabled(): boolean {
-  const envVal =
-    process.env.ENABLE_LOGGING ||
-    process.env.ENABLE_DB_LOGGING ||
-    process.env.ENABLE_LOG_PERSISTENCE ||
-    process.env.LOG_TO_DATABASE;
-
-  if (!envVal) return false;
-  const normalized = envVal.trim().toLowerCase();
-  return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+  return config.enableLogging;
 }
 
 /**
@@ -171,7 +168,7 @@ class Logger {
 
   public debug(event: string, message: string, options?: Parameters<Logger['log']>[3]) {
     // Only in non-production or explicitly enabled
-    if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEBUG_LOGS === 'true') {
+    if (!config.isProduction || config.enableDebugLogs) {
       this.log('DEBUG', event, message, options);
     }
   }

@@ -1,5 +1,6 @@
 import { getPostgresPool } from './postgres';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
+import { config } from './config';
 import fs from 'fs';
 import path from 'path';
 
@@ -28,11 +29,11 @@ export async function testAndMigrateDatabase(): Promise<DbTestResult> {
   };
 
   // 1. Determine connection type
-  if (process.env.DATABASE_URL || process.env.SUPABASE_DB_URL) {
+  if (config.databaseUrl) {
     result.connectionType = 'DATABASE_URL';
-  } else if (process.env.SQL_HOST) {
+  } else if (config.sqlHost) {
     result.connectionType = 'HOST_PARAMS';
-  } else if (process.env.SUPABASE_URL) {
+  } else if (config.supabaseUrl) {
     result.connectionType = 'SUPABASE_URL';
   }
 
@@ -72,14 +73,13 @@ export async function testAndMigrateDatabase(): Promise<DbTestResult> {
       result.supabaseJsError = (err as Error).message;
     }
   } else {
-    result.supabaseJsError = 'SUPABASE_URL or keys not fully set in environment.';
+    result.supabaseJsError = 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not configured in environment.';
   }
 
   // 3. Test Direct Postgres Pool Connection & Run Schema Migrations
   const hasPostgresCredentials = Boolean(
-    process.env.DATABASE_URL ||
-    process.env.SUPABASE_DB_URL ||
-    (process.env.SQL_HOST && process.env.SQL_USER)
+    config.databaseUrl ||
+    (config.sqlHost && config.sqlUser)
   );
 
   if (hasPostgresCredentials) {

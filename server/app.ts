@@ -33,6 +33,7 @@ import { UserRole, User } from './types';
 import { generateRequestId, logger } from './logger';
 import { AppError, Errors, centralErrorHandler } from './errors';
 import { createRateLimiter } from './rateLimit';
+import { config } from './config';
 
 export const app = express();
 
@@ -1162,11 +1163,11 @@ async function checkSupabaseTablesStatus() {
       poolError = err?.message || 'Failed to inspect tables';
     }
   } else {
-    poolError = 'Supabase environment credentials (SUPABASE_URL, SUPABASE_SECRET_KEY) not configured.';
+    poolError = 'Supabase environment credentials (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) not configured.';
   }
 
   const latencyMs = Date.now() - startTime;
-  const connectionType = process.env.DATABASE_URL ? 'DATABASE_URL' : (process.env.SUPABASE_URL ? 'SUPABASE_URL' : 'IN_MEMORY');
+  const connectionType = config.databaseUrl ? 'DATABASE_URL' : (config.supabaseUrl ? 'SUPABASE_URL' : 'IN_MEMORY');
 
   return {
     postgresPoolReady: poolReady,

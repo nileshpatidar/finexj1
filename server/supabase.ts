@@ -1,33 +1,27 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { config } from './config';
 
 let serverSupabaseClient: SupabaseClient | null = null;
 
 /**
  * Server-side Supabase client initialization.
- * Reads SUPABASE_URL and SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY.
+ * Reads strictly SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
  * Never exposes secrets to client.
  */
 export function getServerSupabase(): SupabaseClient {
   if (!serverSupabaseClient) {
-    const supabaseUrl =
-      process.env.SUPABASE_URL ||
-      process.env.VITE_SUPABASE_URL;
+    const supabaseUrl = config.supabaseUrl;
+    const supabaseServiceRoleKey = config.supabaseServiceRoleKey;
 
-    const supabaseKey =
-      process.env.SUPABASE_SECRET_KEY ||
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.SUPABASE_PUBLISHABLE_KEY ||
-      process.env.SUPABASE_ANON_KEY ||
-      process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.VITE_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error(
-        'Supabase configuration missing. SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_ANON_KEY) must be provided in environment variables.'
-      );
+    if (!supabaseUrl) {
+      throw new Error('SUPABASE_URL is not configured');
     }
 
-    serverSupabaseClient = createClient(supabaseUrl, supabaseKey, {
+    if (!supabaseServiceRoleKey) {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+    }
+
+    serverSupabaseClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -39,10 +33,6 @@ export function getServerSupabase(): SupabaseClient {
 }
 
 export function isServerSupabaseReady(): boolean {
-  try {
-    const client = getServerSupabase();
-    return Boolean(client);
-  } catch {
-    return false;
-  }
+  return Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
 }
+

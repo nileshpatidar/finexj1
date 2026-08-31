@@ -3,8 +3,16 @@ import { getServerSupabase } from './supabase';
 import { getProfileById, getProfileByEmail } from './repositories/profiles';
 import { getSettings, updateSettings } from './repositories/settings';
 import { User, UserRole } from './types';
+import { config } from './config';
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'finexj_fund_master_jwt_secret_key_2026_prod';
+function getSessionSecret(): string {
+  const sessionSecret = config.sessionSecret || process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    throw new Error('SESSION_SECRET is not configured');
+  }
+  return sessionSecret;
+}
+
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days session validity
 
 interface TokenPayload {
@@ -26,6 +34,7 @@ export function generateSalt(): string {
 export function createSessionToken(user: User, sessionVersion: number = 1): string {
   const iat = Date.now();
   const exp = iat + TOKEN_TTL_MS;
+  const secret = getSessionSecret();
 
   const payload: TokenPayload = {
     userId: user.id,
@@ -37,7 +46,7 @@ export function createSessionToken(user: User, sessionVersion: number = 1): stri
 
   const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = crypto
-    .createHmac('sha256', SESSION_SECRET)
+    .createHmac('sha256', secret)
     .update(payloadBase64)
     .digest('base64url');
 
@@ -69,9 +78,10 @@ export async function verifySessionTokenAsync(token: string): Promise<{ userId: 
       const parts = token.slice(3).split('.');
       if (parts.length !== 2) return null;
       const [payloadBase64, signature] = parts;
+      const secret = getSessionSecret();
 
       const expectedSignature = crypto
-        .createHmac('sha256', SESSION_SECRET)
+        .createHmac('sha256', secret)
         .update(payloadBase64)
         .digest('base64url');
 

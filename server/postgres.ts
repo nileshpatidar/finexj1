@@ -1,4 +1,5 @@
 import pg, { Pool, PoolConfig } from 'pg';
+import { config } from './config';
 
 declare global {
   var _serverPgPool: Pool | undefined;
@@ -10,32 +11,32 @@ declare global {
  */
 export function getPostgresPool(): Pool {
   if (!global._serverPgPool) {
-    const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
-    const sslEnabled = process.env.SQL_SSL === 'true';
+    const connectionString = config.databaseUrl;
+    const sslEnabled = config.sqlSsl;
 
-    let config: PoolConfig;
+    let poolConfig: PoolConfig;
 
     if (connectionString) {
-      config = {
+      poolConfig = {
         connectionString,
         ssl: sslEnabled ? { rejectUnauthorized: false } : false,
         max: 10,
         connectionTimeoutMillis: 15000,
       };
     } else {
-      config = {
-        host: process.env.SQL_HOST || '127.0.0.1',
-        port: process.env.SQL_PORT ? parseInt(process.env.SQL_PORT, 10) : 5432,
-        user: process.env.SQL_USER || process.env.SQL_ADMIN_USER || 'postgres',
-        password: process.env.SQL_PASSWORD || process.env.SQL_ADMIN_PASSWORD || '',
-        database: process.env.SQL_DB_NAME || 'postgres',
+      poolConfig = {
+        host: config.sqlHost || '127.0.0.1',
+        port: config.sqlPort || 5432,
+        user: config.sqlUser || 'postgres',
+        password: config.sqlPassword || '',
+        database: config.sqlDbName || 'postgres',
         ssl: sslEnabled ? { rejectUnauthorized: false } : false,
         max: 10,
         connectionTimeoutMillis: 15000,
       };
     }
 
-    global._serverPgPool = new Pool(config);
+    global._serverPgPool = new Pool(poolConfig);
 
     global._serverPgPool.on('error', (err) => {
       console.error('PostgreSQL idle client notice:', err.message);
