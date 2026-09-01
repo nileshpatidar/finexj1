@@ -75,6 +75,12 @@ export function mapDbUserToUser(u: any): User {
     fundLockUntil: u.fund_lock_until || u.fundLockUntil,
     fundLockReason: u.fund_lock_reason || u.fundLockReason,
     lastWithdrawalAt: u.last_withdrawal_at || u.lastWithdrawalAt,
+    walletAddress: u.wallet_address || u.walletAddress,
+    referralCode: u.referral_code || u.referralCode,
+    referrerId: u.referrer_id !== undefined && u.referrer_id !== null ? String(u.referrer_id) : undefined,
+    isFlaggedForReview: Boolean(u.is_flagged_for_review || u.isFlaggedForReview),
+    riskScore: Number(u.risk_score || u.riskScore || 0),
+    fraudFlags: Array.isArray(u.fraud_flags) ? u.fraud_flags : (Array.isArray(u.fraudFlags) ? u.fraudFlags : []),
   };
 }
 
@@ -150,6 +156,11 @@ export async function createProfile(user: Partial<User>): Promise<User> {
     login_attempts: user.loginAttempts || 0,
     lock_until: user.lockUntil || null,
     is_locked: user.status === 'suspended',
+    referral_code: user.referralCode || null,
+    referrer_id: user.referrerId && !isNaN(Number(user.referrerId)) ? Number(user.referrerId) : null,
+    is_flagged_for_review: Boolean(user.isFlaggedForReview),
+    risk_score: user.riskScore || 0,
+    fraud_flags: user.fraudFlags || [],
     created_at: user.createdAt || new Date().toISOString(),
   };
 
@@ -221,6 +232,11 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
   if (updates.fundLockUntil !== undefined) payload.fund_lock_until = updates.fundLockUntil;
   if (updates.fundLockReason !== undefined) payload.fund_lock_reason = updates.fundLockReason;
   if (updates.lastLoginAt !== undefined) payload.last_login_at = updates.lastLoginAt;
+  if (updates.referralCode !== undefined) payload.referral_code = updates.referralCode;
+  if (updates.referrerId !== undefined) payload.referrer_id = updates.referrerId && !isNaN(Number(updates.referrerId)) ? Number(updates.referrerId) : null;
+  if (updates.isFlaggedForReview !== undefined) payload.is_flagged_for_review = updates.isFlaggedForReview;
+  if (updates.riskScore !== undefined) payload.risk_score = updates.riskScore;
+  if (updates.fraudFlags !== undefined) payload.fraud_flags = updates.fraudFlags;
 
   // If payload is completely empty, safely return existing profile
   if (Object.keys(payload).length === 0) {
@@ -306,4 +322,66 @@ export async function getAllProfiles(options?: {
   const users = (data || []).map(mapDbUserToUser);
   return { users, total: count || users.length };
 }
+
+export async function getProfileByReferralCode(code: string): Promise<User | null> {
+  const normCode = (code || '').trim();
+  if (!normCode) return null;
+
+  try {
+    const supabase = getServerSupabase();
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .ilike('referral_code', normCode)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return mapDbUserToUser(data);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getProfileByReferralCode(${code}):`, err?.message);
+    return null;
+  }
+}
+
+export async function getProfilesByWalletAddress(wallet: string): Promise<User[]> {
+  const normWallet = (wallet || '').trim().toLowerCase();
+  if (!normWallet) return [];
+
+  try {
+    const supabase = getServerSupabase();
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .ilike('wallet_address', normWallet);
+
+    if (error || !data) return [];
+    return data.map(mapDbUserToUser);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getProfilesByWalletAddress:`, err?.message);
+    return [];
+  }
+}
+
+export async function flagUserForReview(
+  id: string,
+  isFlagged: boolean,
+  riskScoreIncrement: number = 0,
+  flagReason?: string
+): Promise<User> {
+  const current = await getProfileById(id);
+  if (!current) throw new Error('User not found');
+
+  const existingFlags = current.fraudFlags || [];
+  const updatedFlags = flagReason && !existingFlags.includes(flagReason)
+    ? [...existingFlags, flagReason]
+    : existingFlags;
+  const newRiskScore = Math.max(0, (current.riskScore || 0) + riskScoreIncrement);
+
+  return updateProfile(id, {
+    isFlaggedForReview: isFlagged,
+    riskScore: newRiskScore,
+    fraudFlags: updatedFlags,
+  });
+}
+
 

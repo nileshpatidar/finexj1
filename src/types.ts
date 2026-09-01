@@ -15,6 +15,8 @@ export interface UserProfile {
   fundLockUntil?: string;
   fundLockReason?: string;
   lastWithdrawalAt?: string;
+  referralCode?: string;
+  referrerId?: string;
 }
 
 export interface UserBalanceSummary {

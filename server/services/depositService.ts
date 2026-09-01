@@ -12,6 +12,8 @@ import { getSettings } from '../repositories/settings';
 import { uploadDepositProof } from '../storage';
 import { verifyBEP20Deposit, isValidTxHash } from '../blockchain';
 import { calculateUserBalanceAsync } from './balanceService';
+import { checkWalletDuplication } from './fraudService';
+import { processReferralRewardForDepositAsync } from './referralService';
 import { Deposit } from '../types';
 
 export interface ProcessDepositInput {
@@ -144,6 +146,10 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
   }
 
   // 3. Persist Verified Deposit Record
+  if (verification.fromAddress) {
+    checkWalletDuplication(verification.fromAddress, user.id, 'deposit').catch(() => {});
+  }
+
   const newDeposit = await createDeposit({
     userId: user.id,
     amount: authoritativeAmount,
@@ -197,6 +203,9 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
       reason: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations} confirmations.`,
       timestamp: now.toISOString(),
     });
+
+    // Idempotently trigger referral commission if user has an active referrer
+    processReferralRewardForDepositAsync(newDeposit.id, authoritativeAmount, user.id).catch(() => {});
 
     return {
       success: true,
@@ -307,6 +316,9 @@ export async function verifyDepositOnChainAsync(
       reason: `Re-verification confirmed ${verifiedAmount} USDT on BSC with ${verification.confirmations} confirmations.`,
       timestamp: new Date().toISOString(),
     });
+
+    // Idempotently trigger referral commission if user has an active referrer
+    processReferralRewardForDepositAsync(deposit.id, verifiedAmount, deposit.userId).catch(() => {});
 
     return {
       success: true,

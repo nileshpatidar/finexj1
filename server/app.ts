@@ -27,6 +27,9 @@ import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './
 import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync } from './services/balanceService';
 import { processDepositAsync, updateDepositStatusAsync, verifyDepositOnChainAsync } from './services/depositService';
 import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync } from './services/withdrawalService';
+import { bindReferralAsync } from './services/referralService';
+import { getFraudSignals, resolveFraudSignal } from './services/fraudService';
+import { getReferralsByReferrerId } from './repositories/referrals';
 import { applyDailyPerformanceAsync } from './services/performanceService';
 import { getSignedDepositProofUrl } from './storage';
 import { verifyBEP20Deposit, isValidBEP20Address, isValidTxHash } from './blockchain';
@@ -311,6 +314,7 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
     const salt = generateSalt();
     const passwordHash = hashPassword(password);
     const now = new Date().toISOString();
+    const generatedReferralCode = 'FXJ' + Math.random().toString(36).substring(2, 8).toUpperCase();
 
     const newUser = await createProfile({
       fullName: fullName.trim(),
@@ -321,11 +325,17 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
       passwordSalt: salt,
       role: 'user',
       status: 'active',
+      referralCode: generatedReferralCode,
       createdAt: now,
       twoFactorEnabled: false,
       loginAttempts: 0,
       profilePictureUrl: profilePictureUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName)}`,
     });
+
+    // Bind incoming referral code if provided
+    if (req.body.referralCode) {
+      await bindReferralAsync(newUser, req.body.referralCode).catch(() => {});
+    }
 
     await createAuditLog({
       action: 'USER_REGISTERED',
@@ -1508,6 +1518,84 @@ app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware,
       balance: updatedBalance,
       adjustment: result,
       message: `Balance successfully adjusted by ${adjustAmount} USDT with immutable ledger and audit trace.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// User Referral Network & Stats
+app.get(['/api/referrals/my-network', '/referrals/my-network'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const directReferrals = await getReferralsByReferrerId(user.id);
+    
+    res.json({
+      success: true,
+      referralCode: user.referralCode || `FXJ-${user.id.padStart(4, '0')}`,
+      referrerId: user.referrerId,
+      totalReferred: directReferrals.length,
+      referrals: directReferrals,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Fraud Signals List
+app.get(['/api/admin/fraud-signals', '/admin/fraud-signals'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { status, severity, limit, offset } = req.query;
+    const result = await getFraudSignals({
+      status: status as string,
+      severity: severity as string,
+      limit: limit ? parseInt(limit as string, 10) : 50,
+      offset: offset ? parseInt(offset as string, 10) : 0,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Resolve Fraud Signal
+app.post(['/api/admin/fraud-signals/:id/resolve', '/admin/fraud-signals/:id/resolve'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const signalId = req.params.id;
+    const { action, notes } = req.body;
+
+    if (!action || (action !== 'dismissed' && action !== 'action_taken')) {
+      throw Errors.validation('Action must be either "dismissed" or "action_taken".');
+    }
+
+    await resolveFraudSignal(signalId, admin, action, notes);
+    res.json({ success: true, message: `Fraud signal #${signalId} resolved as ${action}.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Security Alerts Summary
+app.get(['/api/admin/security/alerts', '/admin/security/alerts'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const supabase = getServerSupabase();
+    const [
+      { count: openFraudSignalsCount },
+      { count: flaggedUsersCount },
+      recentAuditLogs,
+    ] = await Promise.all([
+      supabase.from('fraud_signals').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+      supabase.from('users').select('*', { count: 'exact', head: true }).eq('is_flagged_for_review', true),
+      getAuditLogs({ limit: 15 }),
+    ]);
+
+    res.json({
+      success: true,
+      openFraudSignals: openFraudSignalsCount || 0,
+      flaggedUsersForReview: flaggedUsersCount || 0,
+      recentSecurityEvents: recentAuditLogs.filter(a => a.action.includes('SECURITY') || a.action.includes('LOCKED') || a.action.includes('FRAUD')),
+      timestamp: new Date().toISOString(),
     });
   } catch (err) {
     next(err);

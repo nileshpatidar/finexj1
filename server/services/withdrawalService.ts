@@ -13,6 +13,7 @@ import { createAuditLog } from '../repositories/auditLogs';
 import { getSettings } from '../repositories/settings';
 import { isValidBEP20Address, isValidTxHash, verifyBEP20PayoutTx } from '../blockchain';
 import { calculateUserBalanceAsync } from './balanceService';
+import { checkWalletDuplication, checkRapidWithdrawalCycle } from './fraudService';
 import { Withdrawal, WithdrawalStatus } from '../types';
 import { getServerSupabase } from '../supabase';
 
@@ -52,6 +53,10 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
       error: 'Invalid BEP-20 destination address format. Must be a 0x-prefixed 40-hex BNB Smart Chain address.',
     };
   }
+
+  // Fraud risk detection: Wallet duplication & rapid withdrawal cycle checks
+  checkWalletDuplication(destination, user.id, 'withdrawal').catch(() => {});
+  checkRapidWithdrawalCycle(user.id, requestedAmount).catch(() => {});
 
   // Idempotency check: verify key consistency
   const cleanIdempotencyKey = input.idempotencyKey?.trim();

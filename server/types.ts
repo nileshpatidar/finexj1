@@ -24,6 +24,11 @@ export interface User {
   lastWithdrawalAt?: string;
   walletAddress?: string;
   isLocked?: boolean;
+  referralCode?: string;
+  referrerId?: string;
+  isFlaggedForReview?: boolean;
+  riskScore?: number;
+  fraudFlags?: string[];
 }
 
 export type DepositStatus = 'pending' | 'confirming' | 'confirmed' | 'rejected';
@@ -194,3 +199,43 @@ export interface MarketPrice {
   lastUpdated: string;
   isAvailable: boolean;
 }
+
+export interface Referral {
+  id: string;
+  referrerId: string;
+  referredId: string;
+  referralCodeUsed?: string;
+  status: 'active' | 'flagged' | 'revoked';
+  createdAt: string;
+}
+
+export interface ReferralReward {
+  id: string;
+  referralId?: string;
+  referrerId: string;
+  referredId: string;
+  depositId: string;
+  amount: number;
+  percentage: number;
+  reference: string;
+  status: 'credited' | 'pending_review' | 'flagged' | 'reversed';
+  notes?: string;
+  createdAt: string;
+}
+
+export interface FraudSignal {
+  id: string;
+  signalType: 'duplicate_wallet' | 'rapid_cycle' | 'self_referral_attempt' | 'replay_tx' | 'high_auth_failures' | 'suspicious_payout';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  userId?: string;
+  targetUserId?: string;
+  walletAddress?: string;
+  txHash?: string;
+  details?: Record<string, any>;
+  status: 'open' | 'reviewed' | 'dismissed' | 'action_taken';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  resolutionNotes?: string;
+  createdAt: string;
+}
+
