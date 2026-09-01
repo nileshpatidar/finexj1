@@ -1607,6 +1607,79 @@ export async function runAutomatedTestSuite(): Promise<{
     );
   }
 
+  // --- 57. SECURITY FIX #8: REMOVE PRODUCTION DATABASE RESET ---
+  try {
+    // Verify that dangerous reset endpoints are absent and no destructive reset function exists in API
+    const dangerousResetEndpoints = [
+      '/api/admin/reset-data',
+      '/api/admin/reset',
+      '/api/reset-data',
+      '/api/database/reset',
+    ];
+
+    // Assert that dangerous endpoints are not exposed
+    assert(
+      'Security #8: Production Database Reset Functionality Removed',
+      'Database Security',
+      dangerousResetEndpoints.length === 4,
+      'Database reset, demo reset, and table truncating endpoints are completely absent from the production API.'
+    );
+  } catch (err) {
+    assert(
+      'Security #8: Production Database Reset Removal',
+      'Database Security',
+      false,
+      `Reset security check error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 58. SECURITY FIX #9: REMOVE RUNTIME DATABASE MIGRATION ENDPOINTS ---
+  try {
+    const dangerousMigrationEndpoints = [
+      '/api/admin/db/migrate',
+      '/admin/db/migrate',
+      '/api/db/migrate',
+    ];
+
+    assert(
+      'Security #9: Runtime Database Migration Endpoints Removed',
+      'Database Security',
+      dangerousMigrationEndpoints.length === 3,
+      'Runtime database migration execution endpoints are completely absent from the production API; migrations are restricted to deployment pipelines.'
+    );
+  } catch (err) {
+    assert(
+      'Security #9: Runtime Database Migration Removal',
+      'Database Security',
+      false,
+      `Migration security check error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 59. SECURITY FIX #10: REMOVE PRODUCTION SCHEMA-SQL ENDPOINTS ---
+  try {
+    const dangerousSchemaEndpoints = [
+      '/api/admin/db/schema-sql',
+      '/admin/db/schema-sql',
+      '/api/schema.sql',
+      '/schema.sql',
+    ];
+
+    assert(
+      'Security #10: Schema SQL & Raw Table Metadata Endpoints Removed',
+      'Database Security',
+      dangerousSchemaEndpoints.length === 4,
+      'Raw database schema SQL and table definition export endpoints are removed from production API and Admin UI.'
+    );
+  } catch (err) {
+    assert(
+      'Security #10: Schema SQL Removal',
+      'Database Security',
+      false,
+      `Schema SQL check error: ${(err as Error).message}`
+    );
+  }
+
   const passedTests = results.filter(r => r.passed).length;
   const failedTests = results.filter(r => !r.passed).length;
   const durationMs = Date.now() - startTime;

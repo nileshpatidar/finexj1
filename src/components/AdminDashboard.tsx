@@ -21,10 +21,7 @@ import {
   Send,
   AlertTriangle,
   Database,
-  Copy,
   Check,
-  Play,
-  Terminal,
   ExternalLink,
   Eye,
   Image as ImageIcon,
@@ -41,7 +38,7 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'database' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'settings'>('overview');
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [deposits, setDeposits] = useState<any[]>([]);
@@ -56,12 +53,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [previewPhotoModal, setPreviewPhotoModal] = useState<{ url: string; title: string } | null>(null);
   const [selectedDepositForAction, setSelectedDepositForAction] = useState<{ deposit: any; action: 'confirmed' | 'rejected' } | null>(null);
   const [depositAdminNotes, setDepositAdminNotes] = useState('');
-
-  // Database / Supabase Migration State
-  const [dbStatus, setDbStatus] = useState<any>(null);
-  const [isTestingDb, setIsTestingDb] = useState(false);
-  const [dbMessage, setDbMessage] = useState<string | null>(null);
-  const [copiedSql, setCopiedSql] = useState(false);
 
   // Performance Form State
   const todayDateStr = new Date().toISOString().split('T')[0];
@@ -379,7 +370,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               { id: 'adjustments', label: 'Adjustments', icon: DollarSign },
               { id: 'logs', label: 'System Logs', icon: Activity },
               { id: 'audit', label: 'Audit Trail', icon: ShieldCheck },
-              { id: 'database', label: 'Supabase / DB', icon: Database },
               { id: 'settings', label: 'Settings', icon: Settings },
             ];
             const activeSecondary = secondaryTabs.find(t => t.id === activeTab);
@@ -1703,174 +1693,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               Apply Adjustment with Audit Log
             </button>
           </form>
-        </div>
-      )}
-
-      {/* TAB 7: DATABASE & SUPABASE MIGRATION */}
-      {activeTab === 'database' && (
-        <div className="space-y-6 p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-            <div>
-              <div className="flex items-center space-x-2">
-                <Database className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                  Supabase & PostgreSQL Database Manager
-                </h2>
-              </div>
-              <p className="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">
-                Test connection, execute automated schema migrations, and inspect table readiness.
-              </p>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={async () => {
-                  try {
-                    const sql = await api.getDbSchemaSql();
-                    await navigator.clipboard.writeText(sql);
-                    setCopiedSql(true);
-                    setTimeout(() => setCopiedSql(false), 3000);
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }}
-                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200 dark:border-slate-700 transition cursor-pointer text-xs"
-              >
-                {copiedSql ? <Check className="w-4 h-4 text-blue-600 dark:text-blue-400" /> : <Copy className="w-4 h-4" />}
-                <span>{copiedSql ? 'SQL Copied!' : 'Copy Schema SQL'}</span>
-              </button>
-
-              <button
-                onClick={async () => {
-                  setIsTestingDb(true);
-                  setDbMessage(null);
-                  try {
-                    const res = await api.runDbMigration();
-                    setDbStatus(res);
-                    if (res.postgresPoolReady) {
-                      setDbMessage(`Connected & verified ${res.tablesFound?.length || 0} tables successfully (${res.latencyMs}ms)!`);
-                    } else {
-                      setDbMessage(`Notice: ${res.postgresPoolError || 'Database parameters not yet detected in environment.'}`);
-                    }
-                  } catch (err) {
-                    setDbMessage((err as Error).message);
-                  } finally {
-                    setIsTestingDb(false);
-                  }
-                }}
-                disabled={isTestingDb}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition disabled:opacity-50 cursor-pointer text-xs shadow-md shadow-blue-500/20"
-              >
-                {isTestingDb ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                <span>Test Connection & Migrate</span>
-              </button>
-            </div>
-          </div>
-
-          {dbMessage && (
-            <div className={`p-4 rounded-2xl border text-xs font-semibold flex items-center space-x-2 ${
-              dbStatus?.postgresPoolReady
-                ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60'
-                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
-            }`}>
-              {dbStatus?.postgresPoolReady ? <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />}
-              <span>{dbMessage}</span>
-            </div>
-          )}
-
-          {/* Diagnostic Status Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Connection Method</span>
-              <span className="text-sm font-bold text-slate-900 dark:text-white">
-                {dbStatus?.connectionType || 'Checking...'}
-              </span>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                {dbStatus?.connectionType === 'DATABASE_URL' ? 'Direct Pooler URI' : dbStatus?.connectionType === 'HOST_PARAMS' ? 'Direct Host Params' : 'Environment credentials'}
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">PostgreSQL Pool & Schema</span>
-              <div className="flex items-center space-x-1.5">
-                <span className={`w-2 h-2 rounded-full ${dbStatus?.postgresPoolReady ? 'bg-blue-600 dark:bg-blue-400' : 'bg-amber-500'}`} />
-                <span className="text-sm font-bold text-slate-900 dark:text-white">
-                  {dbStatus?.postgresPoolReady ? 'Ready & Active' : 'Awaiting Config'}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                {dbStatus?.tablesFound?.length ? `${dbStatus.tablesFound.length} tables verified` : 'Ready to create tables'}
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">@supabase/server Client</span>
-              <div className="flex items-center space-x-1.5">
-                <span className={`w-2 h-2 rounded-full ${dbStatus?.supabaseJsReady ? 'bg-blue-600 dark:bg-blue-400' : 'bg-slate-400'}`} />
-                <span className="text-sm font-bold text-slate-900 dark:text-white">
-                  {dbStatus?.supabaseJsReady ? 'Connected' : 'Ready'}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                {dbStatus?.latencyMs ? `${dbStatus.latencyMs} ms latency` : 'Supabase JS SDK'}
-              </p>
-            </div>
-          </div>
-
-          {/* Database Tables Overview */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Database Table Schemas
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {[
-                { name: 'users', desc: 'Auth, roles & 2FA' },
-                { name: 'deposits', desc: 'BEP-20 transactions' },
-                { name: 'withdrawals', desc: 'Payout requests & fees' },
-                { name: 'daily_performances', desc: 'Fund yield history' },
-                { name: 'earnings', desc: 'User daily allocations' },
-                { name: 'ledger', desc: 'Double-entry journal' },
-                { name: 'audit_logs', desc: 'Compliance audit trail' },
-                { name: 'system_settings', desc: 'Fund parameters' },
-              ].map((table) => {
-                const isCreated = dbStatus?.tablesFound?.includes(table.name);
-                return (
-                  <div
-                    key={table.name}
-                    className={`p-3 rounded-2xl border transition ${
-                      isCreated
-                        ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300'
-                        : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-xs">{table.name}</span>
-                      {isCreated ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                      ) : (
-                        <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-600" />
-                      )}
-                    </div>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">{table.desc}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Manual Run Instructions */}
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-            <div className="flex items-center space-x-2 text-slate-900 dark:text-white font-bold">
-              <Terminal className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              <span>How to Apply Schema in Supabase</span>
-            </div>
-            <p>
-              <strong>Method 1 (Automatic via App):</strong> Once you save your <code className="text-blue-600 dark:text-blue-400 font-bold">DATABASE_URL</code> or <code className="text-blue-600 dark:text-blue-400 font-bold">SUPABASE_URL</code> in your environment, click the <strong>Test Connection & Migrate</strong> button above. The server will run the SQL schema file automatically.
-            </p>
-            <p>
-              <strong>Method 2 (Supabase Web Dashboard):</strong> Click <strong>Copy Schema SQL</strong>, open your <strong>Supabase Dashboard → SQL Editor</strong>, paste the script, and click <strong>Run</strong>. All tables, relationships, and indexes will be created instantly.
-            </p>
-          </div>
         </div>
       )}
 

@@ -208,22 +208,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  resetDatabase: () => request<{ success: boolean; message: string }>('/api/admin/reset-data', { method: 'POST' }),
-  getDbStatus: () => request<any>('/api/admin/db/status'),
-  runDbMigration: () => request<any>('/api/admin/db/migrate', { method: 'POST' }),
-  getDbSchemaSql: async () => {
-    const token = getAuthToken();
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    const res = await fetch(`${API_BASE}/api/admin/db/schema-sql`, { headers });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(errText || `Failed to fetch schema SQL: ${res.status}`);
-    }
-    return res.text();
-  },
 
   // User Notifications & Messages
   getUserMessages: () => request<{ messages: any[]; unreadCount: number }>('/api/user/messages'),
