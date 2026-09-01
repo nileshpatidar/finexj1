@@ -13,18 +13,16 @@ const BCRYPT_SALT_ROUNDS = 10;
 const devEphemeralSecret = crypto.randomBytes(32).toString('hex');
 
 function getSessionSecret(): string {
-  const sessionSecret =
-    config.sessionSecret ||
-    process.env.SESSION_SECRET ||
-    config.supabaseServiceRoleKey ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // SESSION_SECRET is the sole signing secret. Never reuse the Supabase
+  // service-role key for session signing, even as a fallback.
+  const sessionSecret = config.sessionSecret;
 
   if (sessionSecret && sessionSecret.trim() !== '') {
     return sessionSecret.trim();
   }
 
   if (config.isProduction) {
-    throw new Error('SESSION_SECRET or SUPABASE_SERVICE_ROLE_KEY environment variable is required for cryptographic session signing in production.');
+    throw new Error('SESSION_SECRET environment variable is required for cryptographic session signing in production.');
   }
 
   return devEphemeralSecret;
@@ -245,4 +243,3 @@ export function verify2FACode(secret: string, code: string): boolean {
     return false;
   }
 }
-
