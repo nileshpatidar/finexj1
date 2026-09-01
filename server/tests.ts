@@ -3,7 +3,7 @@ import { generate2FASecret, verify2FACode } from './auth';
 import { generateSync } from 'otplib';
 import { calculateUserBalance, reconcileLedger } from './ledger';
 import { processDeposit, requestWithdrawal, applyDailyPerformance, updateWithdrawalStatus } from './rules';
-import { verifyBEP20Deposit, isValidTxHash, isValidBEP20Address } from './blockchain';
+import { verifyBEP20Deposit, verifyBEP20PayoutTx, isValidTxHash, isValidBEP20Address } from './blockchain';
 import { getAllProfiles, getProfileByEmail } from './repositories/profiles';
 import { getAuditLogs } from './repositories/auditLogs';
 import { extractAndValidateRates, mapDbPerfToPerf, isValidDateString } from './repositories/performances';
@@ -428,11 +428,36 @@ export async function runAutomatedTestSuite(): Promise<{
     const isValidFormat = isValidTxHash(validPayoutHash);
     const isInvalidRejected = !isValidTxHash(invalidPayoutHash) && !isValidTxHash(emptyPayoutHash);
 
+    // Test verifyBEP20PayoutTx rejects invalid hash format
+    const invalidHashResult = await verifyBEP20PayoutTx(
+      invalidPayoutHash,
+      '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
+      100
+    );
+
+    // Test verifyBEP20PayoutTx rejects invalid recipient address
+    const invalidRecipientResult = await verifyBEP20PayoutTx(
+      validPayoutHash,
+      'not-a-valid-address',
+      100
+    );
+
+    // Test verifyBEP20PayoutTx on non-existent hash on BSC
+    const nonExistentResult = await verifyBEP20PayoutTx(
+      '0x0000000000000000000000000000000000000000000000000000000000000001',
+      '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
+      100
+    );
+
     assert(
-      'Payout Verification: Required & Unique On-Chain TxID',
+      'Payout Verification: Real BSC On-Chain Verification & Format Checks',
       'Payout Integrity',
-      isValidFormat && isInvalidRejected,
-      'Marking withdrawal as paid strictly requires a valid 66-character 0x-prefixed TxID and prevents hash collisions.'
+      isValidFormat &&
+        isInvalidRejected &&
+        invalidHashResult.isValid === false &&
+        invalidRecipientResult.isValid === false &&
+        nonExistentResult.isValid === false,
+      'Admin manual payouts strictly verify BSC on-chain transactions, recipient addresses, and formats before marking withdrawals as paid.'
     );
   } catch (err) {
     assert(

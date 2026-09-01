@@ -492,3 +492,280 @@ export async function verifyBEP20Deposit(
     status: 'confirmed',
   };
 }
+
+export interface PayoutVerificationResult {
+  isValid: boolean;
+  isPendingConfirmations?: boolean;
+  amount?: number;
+  expectedAmount?: number;
+  fromAddress?: string;
+  toAddress?: string;
+  tokenContract?: string;
+  confirmations: number;
+  requiredConfirmations: number;
+  txHash: string;
+  blockNumber?: number;
+  status: 'confirmed' | 'pending' | 'failed' | 'invalid';
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+/**
+ * Authoritative Blockchain Verification for Admin BEP-20 USDT Payouts on BNB Smart Chain.
+ * 
+ * Verifies the manual transaction performed by the administrator:
+ * 1. Transaction hash syntax format (0x-prefixed 64 hex chars).
+ * 2. Recipient address matches the user's withdrawal destination address.
+ * 3. Transaction exists on BNB Smart Chain mainnet.
+ * 4. Transaction execution status is confirmed / succeeded (status = 0x1).
+ * 5. Transaction contains canonical BEP-20 USDT Transfer event(s).
+ * 6. Transferred USDT amount meets or exceeds the user's expected net payout amount.
+ * 7. Transaction has the required block confirmations.
+ */
+export async function verifyBEP20PayoutTx(
+  txHash: string,
+  expectedRecipientAddress: string,
+  expectedMinNetAmount: number,
+  options?: {
+    overrideContract?: string;
+    minConfirmations?: number;
+    currentWithdrawalId?: string;
+  }
+): Promise<PayoutVerificationResult> {
+  let settings: any = {};
+  try {
+    settings = await getSettings();
+  } catch (err) {
+    settings = {
+      requiredConfirmations: DEFAULT_REQUIRED_CONFIRMATIONS,
+      usdtContractAddress: CANONICAL_BSC_USDT_CONTRACT,
+    };
+  }
+
+  const normalizedHash = txHash ? txHash.trim().toLowerCase() : '';
+  const normalizedRecipient = normalizeAddress(expectedRecipientAddress);
+  const requiredConfirmations = options?.minConfirmations !== undefined
+    ? options.minConfirmations
+    : Math.min(1, Number(settings.requiredConfirmations || 1));
+
+  // 1. Transaction Hash Syntax Validation
+  if (!isValidTxHash(normalizedHash)) {
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations,
+      status: 'invalid',
+      errorCode: 'INVALID_TX_HASH_FORMAT',
+      errorMessage: 'Invalid payout transaction hash format. Must be a 66-character hexadecimal string starting with 0x.',
+    };
+  }
+
+  // 2. Destination Address Validation
+  if (!isValidBEP20Address(normalizedRecipient)) {
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations,
+      status: 'invalid',
+      errorCode: 'INVALID_RECIPIENT_ADDRESS',
+      errorMessage: `User withdrawal destination address (${expectedRecipientAddress}) is not a valid BEP-20 address.`,
+    };
+  }
+
+  // 3. Resolve Configured USDT Contract
+  const configuredContract = normalizeAddress(
+    options?.overrideContract ||
+    process.env.BSC_USDT_CONTRACT_ADDRESS ||
+    settings.usdtContractAddress ||
+    CANONICAL_BSC_USDT_CONTRACT
+  );
+
+  // 4. Query Real BSC Node via JSON-RPC
+  let txData: any = null;
+  let receiptData: any = null;
+  let latestBlockHex: string | null = null;
+
+  try {
+    const [tx, receipt, latestBlock] = await Promise.all([
+      callBscRpc<any>('eth_getTransactionByHash', [normalizedHash]),
+      callBscRpc<any>('eth_getTransactionReceipt', [normalizedHash]),
+      callBscRpc<string>('eth_blockNumber', []),
+    ]);
+
+    txData = tx;
+    receiptData = receipt;
+    latestBlockHex = latestBlock;
+  } catch (rpcErr: any) {
+    console.error(`[BSC RPC Error] Payout verification failed for ${normalizedHash}:`, rpcErr?.message);
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations,
+      status: 'failed',
+      errorCode: 'RPC_UNAVAILABLE',
+      errorMessage: `BNB Smart Chain RPC node is currently unreachable: ${rpcErr?.message || 'Connection timeout'}. Payout could not be verified.`,
+    };
+  }
+
+  // 5. Verify Transaction Existence on BSC Mainnet
+  if (!txData) {
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations,
+      status: 'invalid',
+      errorCode: 'TX_NOT_FOUND',
+      errorMessage: 'Transaction hash was not found on BNB Smart Chain mainnet. Please ensure the USDT transfer was broadcast and mined.',
+    };
+  }
+
+  // 6. Verify Transaction Receipt and Mining Status
+  if (!receiptData) {
+    return {
+      isValid: false,
+      isPendingConfirmations: true,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations,
+      status: 'pending',
+      errorCode: 'TX_PENDING',
+      errorMessage: 'Transaction receipt is not yet available on BNB Smart Chain. The transaction is pending in the mempool.',
+    };
+  }
+
+  // 7. Verify Execution Status (0x1 = SUCCESS, 0x0 = REVERTED / FAILED)
+  const isReceiptSuccess = receiptData.status === '0x1' || receiptData.status === 1 || receiptData.status === true;
+  if (!isReceiptSuccess) {
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations,
+      status: 'failed',
+      errorCode: 'TX_REVERTED',
+      errorMessage: 'Transaction execution failed (reverted on BNB Smart Chain). No USDT was transferred to the user.',
+    };
+  }
+
+  // 8. Calculate Authoritative Block Confirmations
+  const txBlockNumber = parseInt(receiptData.blockNumber || txData.blockNumber, 16);
+  const currentBlockNumber = latestBlockHex ? parseInt(latestBlockHex, 16) : txBlockNumber;
+  const confirmations = calculateConfirmations(currentBlockNumber, txBlockNumber);
+
+  // 9. Inspect Logs and Decode BEP-20 USDT Transfers to the User's Destination Address
+  const allLogs: any[] = receiptData.logs || [];
+  const matchingTransfers = decodeBEP20TransferLogs(
+    allLogs,
+    configuredContract,
+    normalizedRecipient,
+    BEP20_USDT_DECIMALS
+  );
+
+  if (matchingTransfers.length === 0) {
+    // Provide detailed diagnostics to the administrator
+    const anyUsdtTransfers = decodeBEP20TransferLogs(allLogs, configuredContract, undefined, BEP20_USDT_DECIMALS);
+    if (anyUsdtTransfers.length > 0) {
+      const actualRecipient = anyUsdtTransfers[0].toAddress;
+      return {
+        isValid: false,
+        txHash: normalizedHash,
+        confirmations,
+        requiredConfirmations,
+        blockNumber: txBlockNumber,
+        status: 'invalid',
+        errorCode: 'RECIPIENT_MISMATCH',
+        errorMessage: `Payout recipient mismatch. Transaction transferred USDT to ${actualRecipient}, but user's registered withdrawal address is ${expectedRecipientAddress}.`,
+      };
+    }
+
+    const anyTransferEvents = decodeBEP20TransferLogs(allLogs, undefined, undefined, BEP20_USDT_DECIMALS);
+    if (anyTransferEvents.length > 0) {
+      const actualContract = anyTransferEvents[0].tokenContract;
+      return {
+        isValid: false,
+        txHash: normalizedHash,
+        confirmations,
+        requiredConfirmations,
+        blockNumber: txBlockNumber,
+        status: 'invalid',
+        errorCode: 'CONTRACT_MISMATCH',
+        errorMessage: `Token contract mismatch. Detected transfer on contract ${actualContract}, but expected canonical BSC USDT contract (${configuredContract}).`,
+      };
+    }
+
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations,
+      requiredConfirmations,
+      blockNumber: txBlockNumber,
+      status: 'invalid',
+      errorCode: 'NO_TRANSFER_EVENT',
+      errorMessage: `No BEP-20 USDT Transfer event to recipient (${expectedRecipientAddress}) was found in transaction logs.`,
+    };
+  }
+
+  // Aggregate verified transferred amount
+  const totalTransferred = matchingTransfers.reduce((acc, t) => acc + t.amount, 0);
+  const primarySender = matchingTransfers[0].fromAddress || normalizeAddress(txData.from);
+
+  // 10. Verify Transferred Amount vs Expected Net Amount (allowing 0.0001 precision tolerance)
+  const minRequiredAmount = Number(expectedMinNetAmount || 0);
+  if (minRequiredAmount > 0 && totalTransferred < minRequiredAmount - 0.0001) {
+    return {
+      isValid: false,
+      amount: totalTransferred,
+      expectedAmount: minRequiredAmount,
+      fromAddress: primarySender,
+      toAddress: normalizedRecipient,
+      tokenContract: configuredContract,
+      confirmations,
+      requiredConfirmations,
+      txHash: normalizedHash,
+      blockNumber: txBlockNumber,
+      status: 'invalid',
+      errorCode: 'INSUFFICIENT_AMOUNT',
+      errorMessage: `Transferred USDT amount ($${totalTransferred.toFixed(2)}) is less than the required net payout amount ($${minRequiredAmount.toFixed(2)} USDT).`,
+    };
+  }
+
+  // 11. Verify Block Confirmations Requirement
+  if (confirmations < requiredConfirmations) {
+    return {
+      isValid: false,
+      isPendingConfirmations: true,
+      amount: totalTransferred,
+      expectedAmount: minRequiredAmount,
+      fromAddress: primarySender,
+      toAddress: normalizedRecipient,
+      tokenContract: configuredContract,
+      confirmations,
+      requiredConfirmations,
+      txHash: normalizedHash,
+      blockNumber: txBlockNumber,
+      status: 'pending',
+      errorCode: 'AWAITING_CONFIRMATIONS',
+      errorMessage: `Transaction has ${confirmations} of ${requiredConfirmations} required confirmations on BNB Smart Chain. Please wait for block confirmations.`,
+    };
+  }
+
+  // 12. Payout Transaction Verification Succeeded!
+  return {
+    isValid: true,
+    isPendingConfirmations: false,
+    amount: totalTransferred,
+    expectedAmount: minRequiredAmount,
+    fromAddress: primarySender,
+    toAddress: normalizedRecipient,
+    tokenContract: configuredContract,
+    confirmations,
+    requiredConfirmations,
+    txHash: normalizedHash,
+    blockNumber: txBlockNumber,
+    status: 'confirmed',
+  };
+}

@@ -11,7 +11,7 @@ import {
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getSettings } from '../repositories/settings';
-import { isValidBEP20Address, isValidTxHash } from '../blockchain';
+import { isValidBEP20Address, isValidTxHash, verifyBEP20PayoutTx } from '../blockchain';
 import { calculateUserBalanceAsync } from './balanceService';
 import { Withdrawal, WithdrawalStatus } from '../types';
 import { getServerSupabase } from '../supabase';
@@ -217,34 +217,7 @@ export async function updateWithdrawalStatusAsync(
   try {
     const normalizedTxHash = txHash?.trim() || undefined;
 
-    // 1. Try atomic PostgreSQL RPC execution first
-    try {
-      const supabase = getServerSupabase();
-      const numId = parseInt(withdrawalId, 10);
-      if (!isNaN(numId)) {
-        const { data: rpcData, error: rpcError } = await supabase.rpc('process_withdrawal_status_atomic', {
-          p_admin_id: adminId,
-          p_admin_role: 'admin',
-          p_withdrawal_id: numId,
-          p_new_status: newStatus,
-          p_tx_hash: normalizedTxHash || null,
-          p_admin_notes: adminNotes || null,
-        });
-
-        if (!rpcError && rpcData) {
-          if (rpcData.success === false) {
-            return { success: false, error: rpcData.error };
-          }
-          if (rpcData.withdrawal) {
-            return { success: true, withdrawal: mapDbWithdrawalToWithdrawal(rpcData.withdrawal) };
-          }
-        }
-      }
-    } catch (rpcErr) {
-      // Fall through to fallback
-    }
-
-    // 2. Fallback execution with identical strict validation
+    // 1. Fetch withdrawal record to validate existence and state
     const withdrawal = await getWithdrawalById(withdrawalId);
     if (!withdrawal) {
       return { success: false, error: `Withdrawal record (${withdrawalId}) not found.` };
@@ -252,7 +225,7 @@ export async function updateWithdrawalStatusAsync(
 
     const currentStatus = withdrawal.status;
 
-    // Strict status transition validation
+    // 2. Strict status transition & terminal state validation
     if (currentStatus === 'paid' || (currentStatus as string) === 'completed') {
       return { success: false, error: 'Cannot modify a withdrawal that is already paid and completed.' };
     }
@@ -280,7 +253,7 @@ export async function updateWithdrawalStatusAsync(
       };
     }
 
-    // If new status is 'paid', validate txHash if provided and ensure uniqueness
+    // 3. Strict Real BSC On-Chain Verification when marking as Paid
     if (newStatus === 'paid') {
       if (!normalizedTxHash) {
         return {
@@ -296,7 +269,7 @@ export async function updateWithdrawalStatusAsync(
         };
       }
 
-      // Check if another withdrawal already used this payout txHash
+      // Check if another withdrawal already used this payout txHash (Anti-Replay / Anti-Collision)
       const { withdrawals: allWds } = await getAllWithdrawals({ limit: 1000 });
       const duplicate = allWds.find(
         w => w.id !== withdrawal.id && w.txHash?.toLowerCase() === normalizedTxHash.toLowerCase()
@@ -307,8 +280,51 @@ export async function updateWithdrawalStatusAsync(
           error: `Transaction hash ${normalizedTxHash} has already been assigned to withdrawal ${duplicate.reference || duplicate.id}.`,
         };
       }
+
+      // Query Real BNB Smart Chain blockchain for verification
+      const verification = await verifyBEP20PayoutTx(
+        normalizedTxHash,
+        withdrawal.destinationAddress,
+        withdrawal.netAmount,
+        { currentWithdrawalId: withdrawal.id }
+      );
+
+      if (!verification.isValid) {
+        return {
+          success: false,
+          error: verification.errorMessage || 'BNB Smart Chain payout transaction verification failed.',
+        };
+      }
     }
 
+    // 4. Atomic PostgreSQL Transaction Execution (Stored Procedure)
+    try {
+      const supabase = getServerSupabase();
+      const numId = parseInt(withdrawalId, 10);
+      if (!isNaN(numId)) {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('process_withdrawal_status_atomic', {
+          p_admin_id: adminId,
+          p_admin_role: 'admin',
+          p_withdrawal_id: numId,
+          p_new_status: newStatus,
+          p_tx_hash: normalizedTxHash || null,
+          p_admin_notes: adminNotes || null,
+        });
+
+        if (!rpcError && rpcData) {
+          if (rpcData.success === false) {
+            return { success: false, error: rpcData.error };
+          }
+          if (rpcData.withdrawal) {
+            return { success: true, withdrawal: mapDbWithdrawalToWithdrawal(rpcData.withdrawal) };
+          }
+        }
+      }
+    } catch (rpcErr) {
+      // Fall through to fallback atomic execution below
+    }
+
+    // 5. Atomic Fallback Execution with Ledger & Audit Logs
     const now = new Date();
     const updated = await updateWithdrawal(withdrawal.id, {
       status: newStatus,
