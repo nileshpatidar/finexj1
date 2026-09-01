@@ -588,11 +588,25 @@ export async function verifyBEP20PayoutTx(
   let latestBlockHex: string | null = null;
 
   try {
-    const [tx, receipt, latestBlock] = await Promise.all([
+    const [tx, receipt, latestBlock, chainIdHex] = await Promise.all([
       callBscRpc<any>('eth_getTransactionByHash', [normalizedHash]),
       callBscRpc<any>('eth_getTransactionReceipt', [normalizedHash]),
       callBscRpc<string>('eth_blockNumber', []),
+      callBscRpc<string>('eth_chainId', []).catch(() => BSC_CHAIN_ID_HEX),
     ]);
+
+    // Verify BSC Chain ID is 56 (0x38)
+    if (chainIdHex && parseInt(chainIdHex, 16) !== BSC_CHAIN_ID_DECIMAL) {
+      return {
+        isValid: false,
+        txHash: normalizedHash,
+        confirmations: 0,
+        requiredConfirmations,
+        status: 'invalid',
+        errorCode: 'CHAIN_ID_MISMATCH',
+        errorMessage: `RPC network mismatch. Connected to Chain ID ${parseInt(chainIdHex, 16)}, but expected BSC Mainnet (Chain ID 56).`,
+      };
+    }
 
     txData = tx;
     receiptData = receipt;

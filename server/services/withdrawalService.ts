@@ -271,13 +271,28 @@ export async function updateWithdrawalStatusAsync(
 
       // Check if another withdrawal already used this payout txHash (Anti-Replay / Anti-Collision)
       const { withdrawals: allWds } = await getAllWithdrawals({ limit: 1000 });
-      const duplicate = allWds.find(
-        w => w.id !== withdrawal.id && w.txHash?.toLowerCase() === normalizedTxHash.toLowerCase()
+      const duplicateWd = allWds.find(
+        w => w.id !== withdrawal.id && (
+          w.txHash?.toLowerCase() === normalizedTxHash.toLowerCase() ||
+          (w as any).payoutTxHash?.toLowerCase() === normalizedTxHash.toLowerCase()
+        )
       );
-      if (duplicate) {
+      if (duplicateWd) {
         return {
           success: false,
-          error: `Transaction hash ${normalizedTxHash} has already been assigned to withdrawal ${duplicate.reference || duplicate.id}.`,
+          error: `Transaction hash ${normalizedTxHash} has already been assigned to withdrawal ${duplicateWd.reference || duplicateWd.id}.`,
+        };
+      }
+
+      // Check if this hash was used in deposits (deposit tx hash cannot be reused as payout tx hash)
+      const { deposits: allDeps } = await (await import('../repositories/deposits')).getAllDeposits({ limit: 1000 });
+      const duplicateDep = allDeps.find(
+        d => d.txHash?.toLowerCase() === normalizedTxHash.toLowerCase()
+      );
+      if (duplicateDep) {
+        return {
+          success: false,
+          error: `Transaction hash ${normalizedTxHash} is associated with deposit #${duplicateDep.id} and cannot be reused for a payout.`,
         };
       }
 
