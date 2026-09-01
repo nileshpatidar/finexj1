@@ -17,14 +17,9 @@ import { getEarningsByUserId, createEarning, createEarningsBatch } from './repos
 import { getLedgerByUserId, createLedgerEntry } from './repositories/ledger';
 import { getAuditLogs, createAuditLog } from './repositories/auditLogs';
 import { getSettings, updateSettings, defaultSettings } from './repositories/settings';
+import { hashPassword, generateSalt, verifyPassword } from './auth';
 
-export function hashPassword(password: string, salt: string): string {
-  return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-}
-
-export function generateSalt(): string {
-  return crypto.randomBytes(16).toString('hex');
-}
+export { hashPassword, generateSalt, verifyPassword };
 
 /**
  * Direct Supabase PostgreSQL Database Interface

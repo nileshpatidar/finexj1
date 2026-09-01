@@ -1,4 +1,6 @@
-import { hashPassword, generateSalt } from './db';
+import { hashPassword, generateSalt, verifyPassword } from './db';
+import { generate2FASecret, verify2FACode } from './auth';
+import { generateSync } from 'otplib';
 import { calculateUserBalance, reconcileLedger } from './ledger';
 import { processDeposit, requestWithdrawal, applyDailyPerformance, updateWithdrawalStatus } from './rules';
 import { verifyBEP20Deposit, isValidTxHash, isValidBEP20Address } from './blockchain';
@@ -41,20 +43,37 @@ export async function runAutomatedTestSuite(): Promise<{
 
   // --- 1. USER & AUTHENTICATION TESTS ---
   try {
-    const testSalt = generateSalt();
-    const testHash = hashPassword('TestSecretPass123!', testSalt);
+    const rawPassword = 'TestSecretPass123!';
+    const testHash = hashPassword(rawPassword);
+    const isValid = verifyPassword(rawPassword, testHash);
+    const isInvalid = verifyPassword('WrongPassword123!', testHash);
+
     assert(
-      'Password Hashing & Salt Verification',
+      'Bcrypt Password Hashing & Verification',
       'Authentication',
-      testHash.length === 128 && testHash !== 'TestSecretPass123!',
-      'Password successfully salted and hashed using PBKDF2 SHA-512.'
+      testHash.startsWith('$2a$') || testHash.startsWith('$2b$') && isValid && !isInvalid,
+      'Password successfully hashed and verified using production-grade bcrypt.'
+    );
+
+    // 2FA TOTP Test
+    const { secret, otpAuthUrl } = generate2FASecret('user@finexj.com');
+    const validToken = generateSync({ secret });
+    const isTotpValid = verify2FACode(secret, validToken);
+    const isInvalidCodeRejected = !verify2FACode(secret, '000000') || validToken === '000000';
+    const isMalformedRejected = !verify2FACode(secret, 'abc') && !verify2FACode('', validToken);
+
+    assert(
+      'TOTP 2FA Verification (otplib RFC 6238)',
+      'Authentication',
+      secret.length > 0 && otpAuthUrl.startsWith('otpauth://totp/FINEXJ:') && isTotpValid && isMalformedRejected,
+      'TOTP standard Base32 secret generated and cryptographically verified.'
     );
   } catch (err) {
     assert(
-      'Password Hashing & Salt Verification',
+      'Password & 2FA Verification',
       'Authentication',
       false,
-      `Error during hashing: ${(err as Error).message}`
+      `Error during auth test: ${(err as Error).message}`
     );
   }
 

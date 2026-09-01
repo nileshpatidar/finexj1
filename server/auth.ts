@@ -1,16 +1,20 @@
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import { generateSecret, generateURI, verifySync } from 'otplib';
 import { getServerSupabase } from './supabase';
 import { getProfileById, getProfileByEmail } from './repositories/profiles';
 import { getSettings, updateSettings } from './repositories/settings';
 import { User, UserRole } from './types';
 import { config } from './config';
 
+const BCRYPT_SALT_ROUNDS = 10;
+
 function getSessionSecret(): string {
   const sessionSecret = config.sessionSecret || process.env.SESSION_SECRET;
-  if (!sessionSecret) {
-    return 'finexj_dev_session_secret_fallback_key_2026';
+  if (!sessionSecret || sessionSecret.trim() === '') {
+    throw new Error('SESSION_SECRET environment variable is not configured. A cryptographically secure session secret is required.');
   }
-  return sessionSecret;
+  return sessionSecret.trim();
 }
 
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days session validity
@@ -23,12 +27,63 @@ interface TokenPayload {
   iat: number;
 }
 
-export function hashPassword(password: string, salt: string): string {
-  return crypto.createHash('sha512').update(password + salt).digest('hex');
+/**
+ * Production-grade password hashing using bcrypt.
+ * Generates a salted, slow-hash resistant to rainbow table and brute-force attacks.
+ */
+export function hashPassword(password: string, _salt?: string): string {
+  if (!password || typeof password !== 'string') {
+    throw new Error('Password must be a valid non-empty string.');
+  }
+  return bcrypt.hashSync(password, BCRYPT_SALT_ROUNDS);
 }
 
 export function generateSalt(): string {
-  return crypto.randomBytes(12).toString('hex');
+  return crypto.randomBytes(16).toString('hex');
+}
+
+/**
+ * Authoritative password verification.
+ * Verifies bcrypt hashes, with fallback support for legacy PBKDF2/SHA-512 hashes for existing users.
+ */
+export function verifyPassword(password: string, storedHash: string, storedSalt?: string): boolean {
+  if (!password || !storedHash) return false;
+
+  // 1. Modern bcrypt hash check ($2a$, $2b$, $2y$)
+  if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$') || storedHash.startsWith('$2y$')) {
+    try {
+      return bcrypt.compareSync(password, storedHash);
+    } catch {
+      return false;
+    }
+  }
+
+  // 2. Backwards-compatible legacy hash check for existing database users
+  if (storedSalt) {
+    try {
+      const computedSha512 = crypto.createHash('sha512').update(password + storedSalt).digest('hex');
+      if (computedSha512 === storedHash) {
+        return true;
+      }
+      const computedPbkdf2 = crypto.pbkdf2Sync(password, storedSalt, 10000, 64, 'sha512').toString('hex');
+      if (computedPbkdf2 === storedHash) {
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Strips sensitive authentication fields (passwordHash, passwordSalt, twoFactorSecret)
+ * before returning user data in API responses.
+ */
+export function sanitizeUser(user: User): Omit<User, 'passwordHash' | 'passwordSalt' | 'twoFactorSecret'> {
+  const { passwordHash, passwordSalt, twoFactorSecret, ...safeUser } = user;
+  return safeUser;
 }
 
 export function createSessionToken(user: User, sessionVersion: number = 1): string {
@@ -111,7 +166,7 @@ export async function verifySessionTokenAsync(token: string): Promise<{ userId: 
   return null;
 }
 
-export function revokeSessionToken(token: string): void {
+export function revokeSessionToken(_token: string): void {
   // Stateless token invalidation can be extended with a Redis/Supabase blacklist if needed
 }
 
@@ -122,16 +177,44 @@ export async function forceLogoutAllUsersAsync(): Promise<number> {
   return newVersion;
 }
 
-export function generate2FASecret(): { secret: string; otpAuthUrl: string } {
-  const secret = crypto.randomBytes(20).toString('hex').substring(0, 16).toUpperCase();
-  const otpAuthUrl = `otpauth://totp/FINEXJ:${encodeURIComponent('User')}?secret=${secret}&issuer=FINEXJ`;
+/**
+ * Generates standard RFC 6238 Base32 TOTP Secret and Authenticator QR Key URI.
+ * Compatible with Google Authenticator, Microsoft Authenticator, Authy, etc.
+ */
+export function generate2FASecret(userEmail?: string): { secret: string; otpAuthUrl: string } {
+  const secret = generateSecret();
+  const label = userEmail && userEmail.trim() ? userEmail.trim().toLowerCase() : 'User';
+  const otpAuthUrl = generateURI({
+    secret,
+    issuer: 'FINEXJ',
+    label,
+  });
   return { secret, otpAuthUrl };
 }
 
+/**
+ * Cryptographically verifies 6-digit TOTP code against the user's secret.
+ * Allows a strict ±1 step (30s) clock-drift tolerance window.
+ * Strictly rejects malformed, empty, or non-matching codes.
+ */
 export function verify2FACode(secret: string, code: string): boolean {
-  if (!code) return false;
-  if (code.length === 6 && /^\d{6}$/.test(code)) {
-    return true;
+  if (!secret || typeof secret !== 'string' || !code || typeof code !== 'string') {
+    return false;
   }
-  return false;
+  const cleanCode = code.trim();
+  const cleanSecret = secret.trim();
+  if (cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
+    return false;
+  }
+  try {
+    const result = verifySync({
+      token: cleanCode,
+      secret: cleanSecret,
+      epochTolerance: 30,
+    });
+    return Boolean(result && result.valid);
+  } catch {
+    return false;
+  }
 }
+

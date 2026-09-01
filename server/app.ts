@@ -4,6 +4,8 @@ import fs from 'fs';
 import {
   hashPassword,
   generateSalt,
+  verifyPassword,
+  sanitizeUser,
   createSessionToken,
   verifySessionTokenAsync,
   revokeSessionToken,
@@ -175,7 +177,7 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
     }
 
     const salt = generateSalt();
-    const passwordHash = hashPassword(password, salt);
+    const passwordHash = hashPassword(password);
     const now = new Date().toISOString();
 
     const newUser = await createProfile({
@@ -248,8 +250,8 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
       throw new AppError('ACCOUNT_SUSPENDED', 'Account has been suspended. Please contact support.', 403);
     }
 
-    const computedHash = hashPassword(password, user.passwordSalt);
-    if (computedHash !== user.passwordHash) {
+    const isPasswordValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
+    if (!isPasswordValid) {
       await updateProfile(user.id, { loginAttempts: (user.loginAttempts || 0) + 1 });
       throw Errors.invalidCredentials('Invalid email or password.');
     }
@@ -263,6 +265,16 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
       const isValidCode = verify2FACode(user.twoFactorSecret || '', twoFactorCode);
       if (!isValidCode) {
         throw Errors.validation('Invalid 2FA authenticator code.');
+      }
+    }
+
+    // Lazy migration: Upgrade legacy SHA-512 hashes to bcrypt
+    if (user.passwordHash && !user.passwordHash.startsWith('$2a$') && !user.passwordHash.startsWith('$2b$')) {
+      try {
+        const modernHash = hashPassword(password);
+        await updateProfile(user.id, { passwordHash: modernHash });
+      } catch {
+        // Ignore background hash upgrade error
       }
     }
 
@@ -334,7 +346,7 @@ app.post(['/api/auth/update-profile', '/auth/update-profile'], authMiddleware, a
       ...(profilePictureUrl ? { profilePictureUrl } : {}),
     });
 
-    res.json({ success: true, user: updated });
+    res.json({ success: true, user: sanitizeUser(updated) });
   } catch (err) {
     next(err);
   }
@@ -354,13 +366,13 @@ app.post(['/api/auth/change-password', '/auth/change-password'], authMiddleware,
       throw Errors.validation('New passwords do not match.');
     }
 
-    const currentComputed = hashPassword(currentPassword, user.passwordSalt);
-    if (currentComputed !== user.passwordHash) {
+    const isCurrentValid = verifyPassword(currentPassword, user.passwordHash, user.passwordSalt);
+    if (!isCurrentValid) {
       throw Errors.validation('Current password is incorrect.');
     }
 
     const newSalt = generateSalt();
-    const newHash = hashPassword(newPassword, newSalt);
+    const newHash = hashPassword(newPassword);
 
     await updateProfile(user.id, {
       passwordHash: newHash,
@@ -384,7 +396,8 @@ app.post(['/api/auth/change-password', '/auth/change-password'], authMiddleware,
 
 // 2FA Secret Generation
 app.post(['/api/auth/2fa/generate', '/auth/2fa/generate'], authMiddleware, (req, res) => {
-  const { secret, otpAuthUrl } = generate2FASecret();
+  const user: User = (req as any).user;
+  const { secret, otpAuthUrl } = generate2FASecret(user?.email);
   res.json({ secret, otpAuthUrl });
 });
 
@@ -591,8 +604,8 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
       throw Errors.validation('Account password confirmation is required for withdrawal.');
     }
 
-    const passHash = hashPassword(password, user.passwordSalt);
-    if (passHash !== user.passwordHash) {
+    const isPassValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
+    if (!isPassValid) {
       throw Errors.invalidCredentials('Incorrect account password.');
     }
 
