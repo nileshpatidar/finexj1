@@ -9,14 +9,25 @@ import { config } from './config';
 
 const BCRYPT_SALT_ROUNDS = 10;
 
+// Ephemeral in-memory key for local development when SESSION_SECRET is unset
+const devEphemeralSecret = crypto.randomBytes(32).toString('hex');
+
 function getSessionSecret(): string {
   const sessionSecret =
     config.sessionSecret ||
     process.env.SESSION_SECRET ||
     config.supabaseServiceRoleKey ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    'finexj-production-hmac-session-signing-secret-key-32chars';
-  return sessionSecret.trim();
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (sessionSecret && sessionSecret.trim() !== '') {
+    return sessionSecret.trim();
+  }
+
+  if (config.isProduction) {
+    throw new Error('SESSION_SECRET or SUPABASE_SERVICE_ROLE_KEY environment variable is required for cryptographic session signing in production.');
+  }
+
+  return devEphemeralSecret;
 }
 
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days session validity

@@ -53,21 +53,42 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Hardened Production CORS Middleware (No wildcard * on authenticated APIs)
+// Hardened Production CORS & Security Headers Middleware (No wildcard * on authenticated APIs)
 app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
   if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id');
-    res.setHeader('Vary', 'Origin');
+    const host = req.headers.host || '';
+    const forwardedHost = (req.headers['x-forwarded-host'] as string) || '';
+    const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
+    const isVercelDomain = origin.endsWith('.vercel.app');
+    const isAppDomain = origin.endsWith('.run.app') || (host && origin.includes(host)) || (forwardedHost && origin.includes(forwardedHost));
+    const allowedEnvOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
+
+    const isAllowed =
+      !config.isProduction ||
+      isLocalhost ||
+      isVercelDomain ||
+      isAppDomain ||
+      allowedEnvOrigins.includes(origin);
+
+    if (isAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id');
+      res.setHeader('Vary', 'Origin');
+    }
   }
 
-  // Security Headers
+  // Production HTTP Security Headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (config.isProduction || req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
@@ -833,13 +854,23 @@ app.post(['/api/blockchain/verify-tx', '/blockchain/verify-tx'], authMiddleware,
 });
 
 // Automated Test Suite Runner (Point #1-#5 Financial & System Integrity Verification)
-app.post(['/api/tests/run', '/tests/run'], async (req, res, next) => {
-  try {
-    const results = await runAutomatedTestSuite();
-    res.json(results);
-  } catch (err) {
-    next(err);
+app.post(['/api/tests/run', '/tests/run'], (req, res, next) => {
+  if (config.isProduction) {
+    return authMiddleware(req, res, () => {
+      adminMiddleware(['super_admin'])(req, res, async () => {
+        try {
+          const results = await runAutomatedTestSuite();
+          res.json(results);
+        } catch (err) {
+          next(err);
+        }
+      });
+    });
   }
+
+  runAutomatedTestSuite()
+    .then(results => res.json(results))
+    .catch(err => next(err));
 });
 
 // User Earnings list

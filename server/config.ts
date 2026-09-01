@@ -31,8 +31,7 @@ export const config = {
   supabaseServiceRoleKey:
     getEnv('SUPABASE_SERVICE_ROLE_KEY') ||
     getEnv('SUPABASE_SERVICE_KEY') ||
-    getEnv('SUPABASE_KEY') ||
-    getEnv('VITE_SUPABASE_SERVICE_ROLE_KEY'),
+    getEnv('SUPABASE_KEY'),
 
   // Authentication & Security
   sessionSecret: getEnv('SESSION_SECRET'),
