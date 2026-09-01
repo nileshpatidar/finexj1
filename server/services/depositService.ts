@@ -51,13 +51,43 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     };
   }
 
-  // 1. Anti-Replay & Uniqueness Protection
+  // 1. Cross-Table Anti-Replay & Uniqueness Protection
   const existing = await getDepositByTxHash(rawTxHash);
   if (existing) {
-    return {
-      success: false,
-      error: 'This blockchain transaction hash has already been submitted or processed in FINEXJ.',
-    };
+    if (String(existing.userId) === String(user.id)) {
+      // Idempotent safe return: do NOT credit balance again
+      return {
+        success: true,
+        deposit: existing,
+        isPendingConfirmations: existing.status !== 'confirmed',
+        message: existing.status === 'confirmed'
+          ? 'This deposit has already been confirmed and credited to your balance.'
+          : `Deposit is currently pending confirmations (${existing.confirmations || 0}/${existing.requiredConfirmations || 12}).`,
+      };
+    } else {
+      // Cross-account conflict: strictly reject
+      return {
+        success: false,
+        error: 'This blockchain transaction hash has already been claimed by another account and cannot be reused.',
+      };
+    }
+  }
+
+  // Cross-check withdrawals table: ensure payout hash is not reused as deposit hash
+  try {
+    const { getAllWithdrawals } = await import('../repositories/withdrawals');
+    const { withdrawals: allWds } = await getAllWithdrawals({ limit: 1000 });
+    const collidingWithdrawal = allWds.find(
+      w => w.txHash?.toLowerCase() === rawTxHash || (w as any).payoutTxHash?.toLowerCase() === rawTxHash
+    );
+    if (collidingWithdrawal) {
+      return {
+        success: false,
+        error: 'This transaction hash is associated with a withdrawal payout and cannot be used for a deposit.',
+      };
+    }
+  } catch (err) {
+    // proceed
   }
 
   const settings = await getSettings();

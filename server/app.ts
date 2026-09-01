@@ -508,7 +508,7 @@ app.get(['/api/auth/me', '/auth/me'], optionalAuthMiddleware, (req, res) => {
 app.post(['/api/auth/update-profile', '/auth/update-profile'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const { fullName, phone, country, profilePictureUrl, walletAddress } = req.body;
+    const { fullName, phone, country, profilePictureUrl, walletAddress, twoFactorCode } = req.body;
 
     const allowedUpdates: Partial<User> = {};
     if (typeof fullName === 'string' && fullName.trim()) {
@@ -523,13 +523,100 @@ app.post(['/api/auth/update-profile', '/auth/update-profile'], authMiddleware, a
     if (typeof profilePictureUrl === 'string') {
       allowedUpdates.profilePictureUrl = profilePictureUrl.trim();
     }
-    if (typeof walletAddress === 'string' && isValidBEP20Address(walletAddress.trim())) {
-      allowedUpdates.walletAddress = walletAddress.trim();
+    if (typeof walletAddress === 'string' && walletAddress.trim()) {
+      const cleanAddress = walletAddress.trim();
+      if (!isValidBEP20Address(cleanAddress)) {
+        throw Errors.validation('Invalid BEP-20 wallet address. Must be a valid 0x-prefixed 40-hex character BNB Smart Chain address.');
+      }
+
+      // Point #23: Require 2FA verification if 2FA is enabled on user's account
+      if (user.twoFactorEnabled) {
+        if (!twoFactorCode || typeof twoFactorCode !== 'string') {
+          throw Errors.validation('2FA verification code is required to update your withdrawal wallet address.');
+        }
+        const is2FAValid = verify2FACode(user.twoFactorSecret || '', twoFactorCode.trim());
+        if (!is2FAValid) {
+          throw Errors.validation('Invalid 2FA verification code. Please try again.');
+        }
+      }
+
+      allowedUpdates.walletAddress = cleanAddress.toLowerCase();
+
+      // Point #23: Log audit trail for wallet address changes
+      await createAuditLog({
+        action: 'WALLET_ADDRESS_UPDATED',
+        actorId: user.id,
+        actorEmail: user.email,
+        actorRole: user.role,
+        targetUserId: user.id,
+        beforeValue: { walletAddress: user.walletAddress || null },
+        afterValue: { walletAddress: cleanAddress.toLowerCase() },
+        reason: 'User updated registered BEP-20 withdrawal wallet address.',
+      });
     }
 
     const updated = await updateProfile(user.id, allowedUpdates);
 
     res.json({ success: true, user: sanitizeUser(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Dedicated Update Wallet Address endpoint (Point #23)
+app.post(['/api/user/wallet', '/user/wallet'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { walletAddress, twoFactorCode, password } = req.body;
+
+    if (!walletAddress || typeof walletAddress !== 'string') {
+      throw Errors.validation('BEP-20 wallet address is required.');
+    }
+
+    const cleanAddress = walletAddress.trim();
+    if (!isValidBEP20Address(cleanAddress)) {
+      throw Errors.validation('Invalid BEP-20 wallet address format. Must be a 0x-prefixed 40-hex character BNB Smart Chain address.');
+    }
+
+    // Password verification if provided
+    if (password) {
+      const isPassValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
+      if (!isPassValid) {
+        throw Errors.invalidCredentials('Incorrect password.');
+      }
+    }
+
+    // 2FA verification if enabled
+    if (user.twoFactorEnabled) {
+      if (!twoFactorCode || typeof twoFactorCode !== 'string') {
+        throw Errors.validation('2FA verification code is required to update your withdrawal wallet address.');
+      }
+      const is2FAValid = verify2FACode(user.twoFactorSecret || '', twoFactorCode.trim());
+      if (!is2FAValid) {
+        throw Errors.validation('Invalid 2FA verification code. Please try again.');
+      }
+    }
+
+    const normalizedAddress = cleanAddress.toLowerCase();
+    const updated = await updateProfile(user.id, { walletAddress: normalizedAddress });
+
+    await createAuditLog({
+      action: 'WALLET_ADDRESS_UPDATED',
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: user.id,
+      beforeValue: { walletAddress: user.walletAddress || null },
+      afterValue: { walletAddress: normalizedAddress },
+      reason: 'User updated registered BEP-20 withdrawal wallet address.',
+    });
+
+    res.json({
+      success: true,
+      walletAddress: normalizedAddress,
+      message: 'Withdrawal wallet address successfully updated. Existing pending withdrawals remain securely addressed to their original destination.',
+      user: sanitizeUser(updated),
+    });
   } catch (err) {
     next(err);
   }
