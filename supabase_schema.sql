@@ -992,4 +992,91 @@ BEGIN
 END;
 $$;
 
+-- Atomic Admin Balance Adjustment (Hardened Double-Entry Ledger & Concurrency Lock)
+CREATE OR REPLACE FUNCTION adjust_user_balance_atomic(
+  p_admin_id TEXT,
+  p_admin_email TEXT,
+  p_admin_role TEXT,
+  p_target_user_id INTEGER,
+  p_amount NUMERIC,
+  p_reason TEXT,
+  p_adjustment_type TEXT DEFAULT 'credit',
+  p_reference_id TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_user users%ROWTYPE;
+  v_now TIMESTAMPTZ := NOW();
+  v_ref_id TEXT;
+  v_total_deposited NUMERIC := 0;
+  v_total_earnings NUMERIC := 0;
+  v_total_withdrawn NUMERIC := 0;
+  v_total_pending_withdrawn NUMERIC := 0;
+  v_available_balance NUMERIC := 0;
+  v_balance_after NUMERIC := 0;
+  v_new_ledger ledger%ROWTYPE;
+  v_new_audit audit_logs%ROWTYPE;
+BEGIN
+  IF p_target_user_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Target user ID is required.');
+  END IF;
+
+  IF p_amount IS NULL OR p_amount = 0 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Adjustment amount must be a non-zero number.');
+  END IF;
+
+  IF p_reason IS NULL OR LENGTH(TRIM(p_reason)) < 3 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'A specific reason is mandatory for administrative balance adjustments.');
+  END IF;
+
+  -- Lock target user row for update
+  SELECT * INTO v_user FROM users WHERE id = p_target_user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', format('Target user #%s not found in database.', p_target_user_id));
+  END IF;
+
+  -- Calculate current balance from ledger sources
+  SELECT COALESCE(SUM(amount), 0) INTO v_total_deposited FROM deposits WHERE user_id = p_target_user_id AND status = 'confirmed';
+  SELECT COALESCE(SUM(COALESCE(earnings_amount, payout_amount, 0)), 0) INTO v_total_earnings FROM earnings WHERE user_id = p_target_user_id AND status = 'credited';
+  SELECT COALESCE(SUM(COALESCE(requested_amount, amount, 0)), 0) INTO v_total_withdrawn FROM withdrawals WHERE user_id = p_target_user_id AND status IN ('paid', 'completed');
+  SELECT COALESCE(SUM(COALESCE(requested_amount, amount, 0)), 0) INTO v_total_pending_withdrawn FROM withdrawals WHERE user_id = p_target_user_id AND status IN ('pending', 'approved', 'processing', 'under_review');
+  v_available_balance := v_total_deposited + v_total_earnings - v_total_withdrawn - v_total_pending_withdrawn;
+  v_balance_after := v_available_balance + p_amount;
+
+  v_ref_id := COALESCE(p_reference_id, 'ADJ-' || EXTRACT(EPOCH FROM v_now)::BIGINT || '-' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT) FROM 1 FOR 6)));
+
+  -- Insert immutable double-entry ledger entry
+  INSERT INTO ledger (
+    user_id, type, amount, balance_after, reference_id, description, performed_by, created_at
+  ) VALUES (
+    p_target_user_id, 'admin_adjustment', p_amount, v_balance_after, v_ref_id,
+    format('Admin balance adjustment (%s): %s', UPPER(p_adjustment_type), TRIM(p_reason)),
+    p_admin_id, v_now
+  ) RETURNING * INTO v_new_ledger;
+
+  -- Insert audit log record
+  INSERT INTO audit_logs (
+    action, actor_id, actor_email, actor_role, target_user_id, reason, before_value, after_value, reference_id, created_at
+  ) VALUES (
+    'ADMIN_BALANCE_ADJUSTMENT', p_admin_id, COALESCE(p_admin_email, 'admin'), COALESCE(p_admin_role, 'super_admin'),
+    p_target_user_id::TEXT, TRIM(p_reason),
+    jsonb_build_object('availableBalance', v_available_balance),
+    jsonb_build_object('availableBalance', v_balance_after, 'amount', p_amount, 'referenceId', v_ref_id, 'type', p_adjustment_type),
+    v_ref_id, v_now
+  ) RETURNING * INTO v_new_audit;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'referenceId', v_ref_id,
+    'amount', p_amount,
+    'previousBalance', v_available_balance,
+    'newBalance', v_balance_after,
+    'ledgerId', v_new_ledger.id,
+    'auditLogId', v_new_audit.id
+  );
+END;
+$$;
+
 

@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { UserProfile } from '../types';
-import { api, setAuthToken } from '../services/api';
+import { api } from '../services/api';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -18,7 +18,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
 
@@ -35,52 +34,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const refreshUser = async () => {
-    const savedToken = localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token');
-    if (!savedToken) {
-      setUser(null);
-      setIsLoading(false);
-      return;
-    }
-
+  const refreshUser = useCallback(async () => {
     try {
       const res = await api.getMe();
       setUser(res.user);
     } catch (err) {
-      console.warn('Could not refresh session:', err);
-      // If unauthorized, clear token
-      if (!isOffline && (err as Error).message?.includes('expired')) {
-        setAuthToken(null);
-        setToken(null);
-        setUser(null);
-      }
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    const initializeAuth = async () => {
-      const savedToken = localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token');
-      if (savedToken) {
-        await refreshUser();
-      } else {
-        setUser(null);
-        setIsLoading(false);
-      }
-    };
-
-    initializeAuth();
-  }, []);
+    refreshUser();
+  }, [refreshUser]);
 
   const login = async (email: string, pass: string, code?: string) => {
     const res = await api.login({ email, password: pass, twoFactorCode: code });
     if (res.require2FA) {
       return res;
     }
-    if (res.token && res.user) {
-      setAuthToken(res.token);
-      setToken(res.token);
+    if (res.user) {
       setUser(res.user);
     }
     return res;
@@ -88,9 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (data: any) => {
     const res = await api.register(data);
-    if (res.token && res.user) {
-      setAuthToken(res.token);
-      setToken(res.token);
+    if (res.user) {
       setUser(res.user);
     }
   };
@@ -101,8 +73,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Ignore
     }
-    setAuthToken(null);
-    setToken(null);
     setUser(null);
   };
 
@@ -112,8 +82,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Ignore
     }
-    setAuthToken(null);
-    setToken(null);
     setUser(null);
   };
 
@@ -121,7 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         user,
-        token,
+        token: user ? 'cookie_session' : null,
         isLoading,
         isOffline,
         login,
@@ -143,3 +111,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

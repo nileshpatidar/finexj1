@@ -43,15 +43,6 @@ export const config = {
   enableLogging: getEnv('ENABLE_LOGGING') === 'true' || getEnv('ENABLE_DB_LOGGING') === 'true',
   enableDebugLogs: getEnv('ENABLE_DEBUG_LOGS') === 'true',
 
-  // Direct PostgreSQL Configuration (Optional direct pooling)
-  databaseUrl: getEnv('DATABASE_URL') || getEnv('SUPABASE_DB_URL'),
-  sqlHost: getEnv('SQL_HOST'),
-  sqlPort: parseInt(getEnv('SQL_PORT', '5432'), 10),
-  sqlUser: getEnv('SQL_USER') || getEnv('SQL_ADMIN_USER'),
-  sqlPassword: getEnv('SQL_PASSWORD') || getEnv('SQL_ADMIN_PASSWORD'),
-  sqlDbName: getEnv('SQL_DB_NAME', 'postgres'),
-  sqlSsl: getEnv('SQL_SSL') === 'true',
-
   // Methods to enforce required configuration with clear errors
   getRequiredSupabaseUrl(): string {
     return requireEnv('SUPABASE_URL');

@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
+import cookieParser from 'cookie-parser';
 import {
   hashPassword,
   generateSalt,
@@ -23,7 +24,7 @@ import { getSettings, updateSettings } from './repositories/settings';
 import { getAuditLogs, createAuditLog } from './repositories/auditLogs';
 import { getSystemLogs } from './repositories/systemLogs';
 import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
-import { calculateUserBalanceAsync } from './services/balanceService';
+import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync } from './services/balanceService';
 import { processDepositAsync, updateDepositStatusAsync, verifyDepositOnChainAsync } from './services/depositService';
 import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync } from './services/withdrawalService';
 import { applyDailyPerformanceAsync } from './services/performanceService';
@@ -41,6 +42,7 @@ import { config } from './config';
 export const app = express();
 
 app.use(express.json({ limit: '15mb' }));
+app.use(cookieParser());
 
 // Global Request ID & Correlation Tracking Middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -55,15 +57,102 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 const authRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30, keyPrefix: 'auth' });
 const financialRateLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 40, keyPrefix: 'fin' });
 
-// Helper: Extract Bearer token and authenticate user from Supabase
+const SESSION_COOKIE_NAME = 'finexj_session';
+const isProduction = process.env.NODE_ENV === 'production';
+
+export function setSessionCookie(res: Response, token: string) {
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+  });
+}
+
+export function clearSessionCookie(res: Response) {
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+  });
+}
+
+// Helper: Optional authentication middleware (populates req.user if session token is valid, otherwise leaves req.user null)
+export async function optionalAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+  try {
+    let token: string | undefined = undefined;
+
+    // 1. Primary: HttpOnly Session Cookie
+    if (req.cookies && req.cookies[SESSION_COOKIE_NAME]) {
+      token = req.cookies[SESSION_COOKIE_NAME];
+    } else if (req.headers.cookie) {
+      const match = req.headers.cookie.match(new RegExp(`(?:^|; )${SESSION_COOKIE_NAME}=([^;]*)`));
+      if (match) {
+        token = decodeURIComponent(match[1]);
+      }
+    }
+
+    // 2. Secondary: Authorization Header
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+      }
+    }
+
+    if (!token) {
+      (req as any).user = null;
+      (req as any).token = null;
+      return next();
+    }
+
+    const session = await verifySessionTokenAsync(token);
+    if (!session) {
+      (req as any).user = null;
+      (req as any).token = null;
+      return next();
+    }
+
+    const user = await getProfileById(session.userId);
+    (req as any).user = user || null;
+    (req as any).token = user ? token : null;
+    next();
+  } catch (err) {
+    (req as any).user = null;
+    (req as any).token = null;
+    next();
+  }
+}
+
+// Helper: Extract HttpOnly Cookie or Bearer token and authenticate user from Supabase
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    let token: string | undefined = undefined;
+
+    // 1. Primary: HttpOnly Session Cookie
+    if (req.cookies && req.cookies[SESSION_COOKIE_NAME]) {
+      token = req.cookies[SESSION_COOKIE_NAME];
+    } else if (req.headers.cookie) {
+      const match = req.headers.cookie.match(new RegExp(`(?:^|; )${SESSION_COOKIE_NAME}=([^;]*)`));
+      if (match) {
+        token = decodeURIComponent(match[1]);
+      }
+    }
+
+    // 2. Secondary: Authorization Header (Bearer token for API scripts, cURL, automated tests)
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+      }
+    }
+
+    if (!token) {
       return next(Errors.unauthorized('Authentication required. Please login.'));
     }
 
-    const token = authHeader.split(' ')[1];
     const session = await verifySessionTokenAsync(token);
     if (!session) {
       return next(Errors.unauthorized('Session expired or invalidated. Please login again.'));
@@ -205,6 +294,8 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
     });
 
     const token = createSessionToken(newUser, settings.sessionVersion || 1);
+    setSessionCookie(res, token);
+
     res.json({
       success: true,
       token,
@@ -325,6 +416,8 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
     await updateProfile(user.id, { loginAttempts: 0, lockUntil: null as any, lastLoginAt: new Date().toISOString() });
 
     const token = createSessionToken(user, settings.sessionVersion || 1);
+    setSessionCookie(res, token);
+
     res.json({
       success: true,
       token,
@@ -349,18 +442,30 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
 // Logout
 app.post(['/api/auth/logout', '/auth/logout'], authMiddleware, (req, res) => {
   const token = (req as any).token;
-  revokeSessionToken(token);
+  if (token) {
+    revokeSessionToken(token);
+  }
+  clearSessionCookie(res);
   res.json({ success: true, message: 'Logged out successfully.' });
 });
 
 // Logout all devices
 app.post(['/api/auth/logout-all', '/auth/logout-all'], authMiddleware, (req, res) => {
+  const token = (req as any).token;
+  if (token) {
+    revokeSessionToken(token);
+  }
+  clearSessionCookie(res);
   res.json({ success: true, message: 'Logged out from all active sessions.' });
 });
 
-// Get current profile
-app.get(['/api/auth/me', '/auth/me'], authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
+// Get current profile (safe for session probing)
+app.get(['/api/auth/me', '/auth/me'], optionalAuthMiddleware, (req, res) => {
+  const user: User | null = (req as any).user;
+  if (!user) {
+    return res.json({ user: null });
+  }
+
   res.json({
     user: {
       id: user.id,
@@ -1218,48 +1323,42 @@ app.get(['/api/admin/logs', '/admin/logs'], authMiddleware, adminMiddleware(), a
   }
 });
 
-// Admin Balance Adjustment
+// Admin Balance Adjustment (Hardened Atomic Ledger & Double-Entry Verification)
 app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
   try {
     const admin: User = (req as any).user;
-    const { targetUserId, amount, reason } = req.body;
+    const { targetUserId, amount, reason, adjustmentType } = req.body;
 
-    if (!targetUserId || !amount || !reason) {
+    if (!targetUserId || amount === undefined || amount === null || !reason) {
       throw Errors.validation('targetUserId, amount, and reason are required.');
     }
 
-    const targetUser = await getProfileById(targetUserId);
-    if (!targetUser) {
-      throw Errors.notFound('USER_NOT_FOUND', 'Target user not found.');
+    const adjustAmount = Number(amount);
+    if (isNaN(adjustAmount) || adjustAmount === 0) {
+      throw Errors.validation('Adjustment amount must be a non-zero number.');
     }
 
-    const currentBalance = await calculateUserBalanceAsync(targetUserId);
-    const adjustAmount = Number(amount);
-    const balanceAfter = Number((currentBalance.availableBalance + adjustAmount).toFixed(4));
+    if (typeof reason !== 'string' || reason.trim().length < 3) {
+      throw Errors.validation('A specific reason (minimum 3 characters) is mandatory for balance adjustments.');
+    }
 
-    await createLedgerEntry({
-      userId: targetUserId,
-      type: 'admin_adjustment',
+    const result = await adjustUserBalanceAtomicAsync({
+      adminId: admin.id,
+      adminEmail: admin.email,
+      adminRole: admin.role,
+      targetUserId: String(targetUserId),
       amount: adjustAmount,
-      balanceAfter,
-      referenceId: `ADJ-${Date.now()}`,
-      description: `Admin balance adjustment: ${reason}`,
-      createdAt: new Date().toISOString(),
-      performedBy: admin.id,
+      reason: reason.trim(),
+      adjustmentType: adjustmentType || (adjustAmount >= 0 ? 'credit' : 'debit'),
     });
 
-    await createAuditLog({
-      action: 'ADMIN_BALANCE_ADJUSTMENT',
-      actorId: admin.id,
-      actorEmail: admin.email,
-      actorRole: admin.role,
-      targetUserId,
-      reason,
-      afterValue: { adjustAmount, balanceAfter },
+    const updatedBalance = await calculateUserBalanceAsync(String(targetUserId));
+    res.json({
+      success: true,
+      balance: updatedBalance,
+      adjustment: result,
+      message: `Balance successfully adjusted by ${adjustAmount} USDT with immutable ledger and audit trace.`,
     });
-
-    const updatedBalance = await calculateUserBalanceAsync(targetUserId);
-    res.json({ success: true, balance: updatedBalance });
   } catch (err) {
     next(err);
   }

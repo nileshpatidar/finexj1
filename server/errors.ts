@@ -142,19 +142,33 @@ export function centralErrorHandler(
   }
 
   // Structured Log with Request ID
-  logger.error('API_REQUEST_ERROR', err instanceof Error ? err.message : String(err), {
-    errorCode,
-    requestId,
-    userId,
-    adminId,
-    route: req.originalUrl,
-    method: req.method,
-    metadata: {
-      statusCode,
-      stack: process.env.NODE_ENV !== 'production' ? err?.stack : undefined,
-      rawError: err instanceof Error ? err.message : err,
-    },
-  });
+  if (statusCode >= 500) {
+    logger.error('API_SERVER_ERROR', err instanceof Error ? err.message : String(err), {
+      errorCode,
+      requestId,
+      userId,
+      adminId,
+      route: req.originalUrl,
+      method: req.method,
+      metadata: {
+        statusCode,
+        stack: process.env.NODE_ENV !== 'production' ? err?.stack : undefined,
+        rawError: err instanceof Error ? err.message : err,
+      },
+    });
+  } else {
+    logger.warn('API_CLIENT_WARNING', err instanceof Error ? err.message : String(err), {
+      errorCode,
+      requestId,
+      userId,
+      adminId,
+      route: req.originalUrl,
+      method: req.method,
+      metadata: {
+        statusCode,
+      },
+    });
+  }
 
   // Standard API Error JSON Response
   res.status(statusCode).json({

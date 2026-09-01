@@ -14,34 +14,16 @@ import {
 
 const API_BASE = '';
 
-function getAuthToken(): string | null {
-  return localStorage.getItem('finexj_auth_token') || localStorage.getItem('usdt_auth_token');
-}
-
-export function setAuthToken(token: string | null) {
-  if (token) {
-    localStorage.setItem('finexj_auth_token', token);
-    localStorage.setItem('usdt_auth_token', token);
-  } else {
-    localStorage.removeItem('finexj_auth_token');
-    localStorage.removeItem('usdt_auth_token');
-  }
-}
-
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = getAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
+      credentials: 'same-origin', // Transmits secure HttpOnly session cookies automatically
       headers,
     });
 
@@ -72,14 +54,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
-  // Auth
-  register: (payload: any) => request<{ success: boolean; token: string; user: UserProfile }>('/api/auth/register', {
+  // Auth (Session tokens managed securely via HttpOnly cookies)
+  register: (payload: any) => request<{ success: boolean; user: UserProfile }>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
 
   login: (payload: { email: string; password: string; twoFactorCode?: string }) =>
-    request<{ success?: boolean; require2FA?: boolean; token?: string; user?: UserProfile; message?: string }>('/api/auth/login', {
+    request<{ success?: boolean; require2FA?: boolean; user?: UserProfile; message?: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

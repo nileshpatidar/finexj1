@@ -3,7 +3,6 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { app } from './server/app';
 import { cleanupManager } from './server/cleanup';
-import { seedCloudSqlDatabase } from './server/cloudsql-seed';
 
 const PORT = 3000;
 
@@ -13,17 +12,8 @@ const PORT = 3000;
 // ==========================================
 
 async function startServer() {
-  // Start periodic log retention & storage cleanup
+  // Start periodic log retention & storage cleanup (Supabase source of truth)
   cleanupManager.startPeriodicCleanup();
-
-  // Seed Cloud SQL if configured
-  if (process.env.SQL_HOST && process.env.SQL_USER) {
-    try {
-      await seedCloudSqlDatabase();
-    } catch (e) {
-      console.warn('Cloud SQL lazy seed note:', e);
-    }
-  }
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
