@@ -22,6 +22,47 @@ export interface AdminDailyPerformanceInput {
   overwriteExisting?: boolean;
 }
 
+/**
+ * Pure authoritative daily earning calculation.
+ * Formula: earningsAmount = Number((baseEligibleAmount * applicableRate).toFixed(4))
+ * e.g., 1000 USDT * 0.0050 = 5.0000 USDT
+ */
+export function calculateUserDailyEarning(
+  userPrincipal: number,
+  applicableRate: number
+): {
+  baseEligibleAmount: number;
+  applicableRate: number;
+  earningsAmount: number;
+  marketCondition: 'profit' | 'loss' | 'neutral';
+} {
+  const principal = typeof userPrincipal === 'string' ? parseFloat(userPrincipal) : Number(userPrincipal);
+  const rate = typeof applicableRate === 'string' ? parseFloat(applicableRate) : Number(applicableRate);
+
+  if (isNaN(principal) || !isFinite(principal) || principal <= 0) {
+    return {
+      baseEligibleAmount: 0,
+      applicableRate: isNaN(rate) || !isFinite(rate) ? 0 : rate,
+      earningsAmount: 0,
+      marketCondition: 'neutral',
+    };
+  }
+
+  if (isNaN(rate) || !isFinite(rate)) {
+    throw new Error(`Invalid applicableRate '${applicableRate}'. Must be a finite number.`);
+  }
+
+  const earningsAmount = Number((principal * rate).toFixed(4));
+  const marketCondition = earningsAmount > 0 ? 'profit' : earningsAmount < 0 ? 'loss' : 'neutral';
+
+  return {
+    baseEligibleAmount: Number(principal.toFixed(4)),
+    applicableRate: rate,
+    earningsAmount,
+    marketCondition,
+  };
+}
+
 export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInput): Promise<{
   success: boolean;
   performance?: DailyPerformance;
@@ -134,19 +175,29 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
 
       if (userEligiblePrincipal > 0) {
         totalEligiblePrincipal += userEligiblePrincipal;
-        const yieldPayout = Number((userEligiblePrincipal * input.applicableRate).toFixed(4));
+        const calculated = calculateUserDailyEarning(userEligiblePrincipal, input.applicableRate);
+        const yieldPayout = calculated.earningsAmount;
 
-        await createEarning({
-          userId: user.id,
-          calculationId: performanceRecord.id,
-          baseEligibleAmount: userEligiblePrincipal,
-          applicableRate: input.applicableRate,
-          earningsAmount: yieldPayout,
-          performanceDate: input.date,
-          createdAt: now,
-          status: 'credited',
-          note: input.notes || `Daily performance yield distribution (${(input.applicableRate * 100).toFixed(2)}%)`,
-        });
+        try {
+          await createEarning({
+            userId: user.id,
+            calculationId: performanceRecord.id,
+            baseEligibleAmount: userEligiblePrincipal,
+            applicableRate: input.applicableRate,
+            earningsAmount: yieldPayout,
+            performanceDate: input.date,
+            createdAt: now,
+            status: 'credited',
+            marketCondition: calculated.marketCondition,
+            note: input.notes || `Daily performance yield distribution (${(input.applicableRate * 100).toFixed(2)}%)`,
+          });
+        } catch (earningErr: any) {
+          if (earningErr.message && earningErr.message.includes('already been credited')) {
+            // Safe idempotency: user already received earning for this date/performance
+          } else {
+            throw earningErr;
+          }
+        }
 
         const updatedBalance = await calculateUserBalanceAsync(user.id);
         await createLedgerEntry({

@@ -41,12 +41,13 @@ export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<Le
   const refId = entry.referenceId || `TX-${Date.now()}`;
   const entryType = (entry.type || 'deposit') as LedgerType;
 
-  // Safe deduplication: check if ledger entry already exists for this reference and type
+  // Safe deduplication: check if ledger entry already exists for this reference, user, and type
   if (entry.referenceId) {
     try {
       const { data: existing } = await supabase
         .from('ledger')
         .select('*')
+        .eq('user_id', resolvedUserId)
         .eq('reference_id', String(entry.referenceId))
         .eq('type', entryType)
         .maybeSingle();

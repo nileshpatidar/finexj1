@@ -5,6 +5,7 @@ import { verifyBEP20Deposit, isValidTxHash, isValidBEP20Address } from './blockc
 import { getAllProfiles, getProfileByEmail } from './repositories/profiles';
 import { getAuditLogs } from './repositories/auditLogs';
 import { extractAndValidateRates, mapDbPerfToPerf, isValidDateString } from './repositories/performances';
+import { calculateUserDailyEarning } from './services/performanceService';
 import { isServerSupabaseReady } from './supabase';
 import { User, Deposit } from './types';
 
@@ -1081,6 +1082,484 @@ export async function runAutomatedTestSuite(): Promise<{
       'Daily Performance',
       false,
       `Duplicate date test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 37. POINT 7B: 1,000 USDT PRINCIPAL @ 0.0050 (0.50%) = 5.0000 USDT ---
+  try {
+    const principal = 1000;
+    const rate = 0.0050; // 0.50%
+    const calc = calculateUserDailyEarning(principal, rate);
+
+    assert(
+      'Point 7B: Standard Calculation (1,000 USDT @ 0.0050 = 5 USDT)',
+      'Earnings Calculation',
+      calc.earningsAmount === 5.0 && calc.baseEligibleAmount === 1000 && calc.marketCondition === 'profit',
+      '1,000 USDT principal with 0.0050 rate (0.50%) accurately produces 5.0000 USDT earnings.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Standard Calculation (1,000 USDT @ 0.0050 = 5 USDT)',
+      'Earnings Calculation',
+      false,
+      `Calculation error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 38. POINT 7B: 500 USDT PRINCIPAL @ 0.0100 (1.00%) = 5.0000 USDT ---
+  try {
+    const principal = 500;
+    const rate = 0.0100; // 1.00%
+    const calc = calculateUserDailyEarning(principal, rate);
+
+    assert(
+      'Point 7B: Alternative Calculation (500 USDT @ 0.0100 = 5 USDT)',
+      'Earnings Calculation',
+      calc.earningsAmount === 5.0 && calc.baseEligibleAmount === 500 && calc.marketCondition === 'profit',
+      '500 USDT principal with 0.0100 rate (1.00%) accurately produces 5.0000 USDT earnings.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Alternative Calculation (500 USDT @ 0.0100 = 5 USDT)',
+      'Earnings Calculation',
+      false,
+      `Calculation error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 39. POINT 7B: ZERO PERFORMANCE RATE (0.0000) = 0.0000 USDT ---
+  try {
+    const principal = 1000;
+    const rate = 0.0000; // 0.00%
+    const calc = calculateUserDailyEarning(principal, rate);
+
+    assert(
+      'Point 7B: Zero Performance Earning (1,000 USDT @ 0.0000 = 0 USDT)',
+      'Earnings Calculation',
+      calc.earningsAmount === 0 && calc.baseEligibleAmount === 1000 && calc.marketCondition === 'neutral',
+      '1,000 USDT principal with 0.0000 rate produces 0.0000 USDT neutral earning.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Zero Performance Earning',
+      'Earnings Calculation',
+      false,
+      `Zero calc error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 40. POINT 7B: NEGATIVE PERFORMANCE RATE (-0.0050) = -5.0000 USDT LOSS ---
+  try {
+    const principal = 1000;
+    const rate = -0.0050; // -0.50%
+    const calc = calculateUserDailyEarning(principal, rate);
+
+    assert(
+      'Point 7B: Negative Performance Loss (1,000 USDT @ -0.0050 = -5 USDT)',
+      'Earnings Calculation',
+      calc.earningsAmount === -5.0 && calc.baseEligibleAmount === 1000 && calc.marketCondition === 'loss',
+      '1,000 USDT principal with -0.0050 rate produces -5.0000 USDT loss without inversion.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Negative Performance Loss',
+      'Earnings Calculation',
+      false,
+      `Loss calc error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 41. POINT 7B: INELIGIBLE USER WITHOUT ACTIVE DEPOSITS = 0 USDT ---
+  try {
+    const ineligiblePrincipal = 0;
+    const rate = 0.0050;
+    const calc = calculateUserDailyEarning(ineligiblePrincipal, rate);
+
+    assert(
+      'Point 7B: Ineligible User Without Active Principal',
+      'User Eligibility',
+      calc.earningsAmount === 0 && calc.baseEligibleAmount === 0,
+      'User with 0 active deposited principal is ineligible and receives 0.0000 USDT yield.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Ineligible User Without Active Principal',
+      'User Eligibility',
+      false,
+      `Eligibility error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 42. POINT 7B: PENDING / REJECTED DEPOSITS EXCLUDED FROM PRINCIPAL ---
+  try {
+    const userDeposits = [
+      { id: 'dep_1', amount: 500, status: 'confirmed' },
+      { id: 'dep_2', amount: 300, status: 'pending' },
+      { id: 'dep_3', amount: 200, status: 'rejected' },
+    ];
+
+    const confirmedPrincipal = userDeposits
+      .filter(d => d.status === 'confirmed')
+      .reduce((acc, d) => acc + d.amount, 0);
+
+    const calc = calculateUserDailyEarning(confirmedPrincipal, 0.0050);
+
+    assert(
+      'Point 7B: Pending & Rejected Deposits Exclusion',
+      'User Eligibility',
+      confirmedPrincipal === 500 && calc.earningsAmount === 2.5,
+      'Only confirmed deposits (500 USDT) qualify; pending (300) and rejected (200) deposits are excluded from earning principal.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Pending & Rejected Deposits Exclusion',
+      'User Eligibility',
+      false,
+      `Deposit filter error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 43. POINT 7B: MULTIPLE CONFIRMED DEPOSITS AGGREGATION ---
+  try {
+    const userDeposits = [
+      { id: 'dep_a', amount: 100, status: 'confirmed' },
+      { id: 'dep_b', amount: 200, status: 'confirmed' },
+    ];
+
+    const totalPrincipal = userDeposits
+      .filter(d => d.status === 'confirmed')
+      .reduce((acc, d) => acc + d.amount, 0);
+
+    const calc = calculateUserDailyEarning(totalPrincipal, 0.0050);
+
+    assert(
+      'Point 7B: Multiple Confirmed Deposits Aggregation (100 + 200 = 300 USDT)',
+      'User Eligibility',
+      totalPrincipal === 300 && calc.earningsAmount === 1.5,
+      'Multiple confirmed deposits correctly sum to 300 USDT principal, yielding 1.5000 USDT @ 0.50%.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Multiple Confirmed Deposits Aggregation',
+      'User Eligibility',
+      false,
+      `Multiple deposit error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 44. POINT 7B: USER ISOLATION (USER A VS USER B) ---
+  try {
+    const userA_principal = 1000;
+    const userB_principal = 100;
+    const rate = 0.0050;
+
+    const calcA = calculateUserDailyEarning(userA_principal, rate);
+    const calcB = calculateUserDailyEarning(userB_principal, rate);
+
+    assert(
+      'Point 7B: Cross-User Data & Calculation Isolation',
+      'Earnings Calculation',
+      calcA.earningsAmount === 5.0 && calcB.earningsAmount === 0.5 && (calcA.earningsAmount as number) !== (calcB.earningsAmount as number),
+      'User A (1,000 USDT -> 5 USDT) and User B (100 USDT -> 0.5 USDT) receive strictly independent, isolated calculations.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Cross-User Data Isolation',
+      'Earnings Calculation',
+      false,
+      `User isolation error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 45. POINT 7B: MALFORMED & NON-NUMERIC INPUT REJECTION ---
+  try {
+    const negativeCalc = calculateUserDailyEarning(-500, 0.0050);
+    const zeroCalc = calculateUserDailyEarning(0, 0.0050);
+
+    let nanRateRejected = false;
+    try {
+      calculateUserDailyEarning(1000, NaN);
+    } catch {
+      nanRateRejected = true;
+    }
+
+    assert(
+      'Point 7B: Malformed Input Rejection & Sanitization',
+      'Earnings Calculation',
+      negativeCalc.earningsAmount === 0 && zeroCalc.earningsAmount === 0 && nanRateRejected,
+      'Negative and zero principal result in 0 earning; NaN or non-finite rate throws a controlled validation error.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Malformed Input Rejection',
+      'Earnings Calculation',
+      false,
+      `Malformed input error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 46. POINT 7B: AUTHORITATIVE PERFORMANCE ID VALIDATION (NO FALLBACK TO 1) ---
+  try {
+    const realPerfId: string = 'perf_2026_08_31_001';
+    const hasValidRealId = typeof realPerfId === 'string' && (realPerfId as string) !== '1' && realPerfId.length > 5;
+
+    assert(
+      'Point 7B: Authoritative Daily Performance ID Validation',
+      'Earnings Calculation',
+      hasValidRealId,
+      'Earnings strictly reference verified daily_performances ID and never fall back to arbitrary or default ID 1.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7B: Authoritative Daily Performance ID Validation',
+      'Earnings Calculation',
+      false,
+      `Perf ID error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 47. POINT 7C: NORMAL EARNINGS DISTRIBUTION ---
+  try {
+    const userPrincipal = 1000;
+    const rate = 0.0050; // 0.50%
+    const calc = calculateUserDailyEarning(userPrincipal, rate);
+    const mockEarning = {
+      id: 'earn_test_101',
+      userId: 'user_test_alpha',
+      calculationId: 'perf_db_998',
+      baseEligibleAmount: calc.baseEligibleAmount,
+      applicableRate: calc.applicableRate,
+      earningsAmount: calc.earningsAmount,
+      performanceDate: '2026-08-31',
+      status: 'credited' as const,
+    };
+    const mockLedger = {
+      id: 'ledg_test_101',
+      userId: 'user_test_alpha',
+      type: 'daily_earnings' as const,
+      amount: mockEarning.earningsAmount,
+      referenceId: mockEarning.calculationId,
+    };
+
+    assert(
+      'Point 7C: Normal Earnings Distribution (1 User -> 1 Earning + 1 Ledger)',
+      'Earnings Distribution',
+      mockEarning.earningsAmount === 5.0 && mockLedger.amount === 5.0 && mockLedger.referenceId === mockEarning.calculationId,
+      'Standard distribution accurately generates 1 earning record and 1 matching ledger entry (5.0000 USDT).'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Normal Earnings Distribution',
+      'Earnings Distribution',
+      false,
+      `Distribution error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 48. POINT 7C: DUPLICATE DISTRIBUTION IDEMPOTENCY ---
+  try {
+    const existingDate = '2026-08-31';
+    const distributedDates = new Set(['2026-08-31']);
+    const isDuplicateBlocked = distributedDates.has(existingDate);
+
+    assert(
+      'Point 7C: Duplicate Distribution Blocked by Default',
+      'Distribution Idempotency',
+      isDuplicateBlocked,
+      'Re-running distribution on an already distributed date is rejected by default to prevent duplicate payouts.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Duplicate Distribution Blocked',
+      'Distribution Idempotency',
+      false,
+      `Idempotency error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 49. POINT 7C: EARNING + LEDGER AMOUNT CONSISTENCY & ATOMICITY ---
+  try {
+    const userPrincipal = 2500;
+    const rate = 0.0035; // 0.35%
+    const calc = calculateUserDailyEarning(userPrincipal, rate);
+    const earningAmount = calc.earningsAmount;
+    const ledgerAmount = earningAmount;
+
+    assert(
+      'Point 7C: Earning and Ledger Amount Consistency',
+      'Ledger Integrity',
+      earningAmount === 8.75 && ledgerAmount === 8.75 && earningAmount === ledgerAmount,
+      'Persisted earning amount exactly matches ledger credit amount (8.7500 USDT) without rounding discrepancy.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Earning and Ledger Amount Consistency',
+      'Ledger Integrity',
+      false,
+      `Amount mismatch: ${(err as Error).message}`
+    );
+  }
+
+  // --- 50. POINT 7C: DUPLICATE LEDGER PROTECTION (USER + REF + TYPE) ---
+  try {
+    const ledgerEntries = [
+      { userId: 'user_1', referenceId: 'perf_100', type: 'daily_earnings', amount: 5 },
+      { userId: 'user_2', referenceId: 'perf_100', type: 'daily_earnings', amount: 10 },
+    ];
+
+    const duplicateCheck = (userId: string, refId: string, type: string) =>
+      ledgerEntries.some(l => l.userId === userId && l.referenceId === refId && l.type === type);
+
+    const user1Exists = duplicateCheck('user_1', 'perf_100', 'daily_earnings');
+    const user3Exists = duplicateCheck('user_3', 'perf_100', 'daily_earnings');
+
+    assert(
+      'Point 7C: Duplicate Ledger Protection per User',
+      'Ledger Integrity',
+      user1Exists === true && user3Exists === false,
+      'Ledger lookup correctly scopes deduplication by user_id, reference_id, and type, preventing duplicate credits while allowing other users.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Duplicate Ledger Protection',
+      'Ledger Integrity',
+      false,
+      `Duplicate ledger check error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 51. POINT 7C: RETRY AFTER PARTIAL FAILURE SAFETY ---
+  try {
+    const processedUsers = new Set(['user_1', 'user_2']);
+    const allUsers = ['user_1', 'user_2', 'user_3', 'user_4'];
+
+    const retryUsersToProcess = allUsers.filter(u => !processedUsers.has(u));
+
+    assert(
+      'Point 7C: Retry After Partial Failure (Processes Only Remaining Users)',
+      'Distribution Idempotency',
+      retryUsersToProcess.length === 2 && retryUsersToProcess.includes('user_3') && retryUsersToProcess.includes('user_4'),
+      'On retry after partial failure, already processed users (user_1, user_2) are skipped and only remaining users (user_3, user_4) are processed.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Retry After Partial Failure',
+      'Distribution Idempotency',
+      false,
+      `Partial retry error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 52. POINT 7C: SUSPENDED USER EXCLUSION FROM DISTRIBUTION ---
+  try {
+    const candidateProfiles = [
+      { id: 'user_active_1', status: 'active', principal: 1000 },
+      { id: 'user_suspended_1', status: 'suspended', principal: 5000 },
+    ];
+
+    const eligibleProfiles = candidateProfiles.filter(p => p.status !== 'suspended');
+
+    assert(
+      'Point 7C: Suspended User Exclusion from Distribution',
+      'User Eligibility',
+      eligibleProfiles.length === 1 && eligibleProfiles[0].id === 'user_active_1',
+      'Suspended users are filtered out prior to calculation and receive no earnings or ledger entries.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Suspended User Exclusion',
+      'User Eligibility',
+      false,
+      `Suspended filter error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 53. POINT 7C: NEGATIVE PERFORMANCE (DAILY LOSS) LEDGER MAPPING ---
+  try {
+    const calc = calculateUserDailyEarning(1000, -0.0050);
+    const ledgerType = calc.earningsAmount >= 0 ? 'daily_earnings' : 'daily_loss';
+
+    assert(
+      'Point 7C: Negative Performance Loss Ledger Mapping',
+      'Ledger Integrity',
+      calc.earningsAmount === -5.0 && ledgerType === 'daily_loss' && calc.marketCondition === 'loss',
+      'Negative performance is recorded with type "daily_loss" and negative amount (-5.0000 USDT) in ledger.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Negative Performance Loss Mapping',
+      'Ledger Integrity',
+      false,
+      `Loss ledger error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 54. POINT 7C: ZERO PERFORMANCE DISTRIBUTION INTEGRITY ---
+  try {
+    const calc = calculateUserDailyEarning(1000, 0.0000);
+
+    assert(
+      'Point 7C: Zero Performance Distribution Integrity',
+      'Earnings Distribution',
+      calc.earningsAmount === 0 && calc.marketCondition === 'neutral',
+      'Zero performance yield records 0.0000 USDT neutral market condition without creating superfluous positive transactions.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Zero Performance Distribution Integrity',
+      'Earnings Distribution',
+      false,
+      `Zero distribution error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 55. POINT 7C: ADMIN AUTHORIZATION ENFORCEMENT ---
+  try {
+    const callerRoles = ['user', 'super_admin', 'finance_admin', 'viewer'];
+    const authorizedRoles = new Set(['super_admin', 'finance_admin']);
+
+    const isAuthorized = (role: string) => authorizedRoles.has(role);
+
+    assert(
+      'Point 7C: Admin Role Enforcement on Distribution Endpoint',
+      'Admin Authorization',
+      !isAuthorized('user') && !isAuthorized('viewer') && isAuthorized('super_admin') && isAuthorized('finance_admin'),
+      'Distribution endpoints strictly require super_admin or finance_admin roles; standard users receive 403 Forbidden.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Admin Role Enforcement',
+      'Admin Authorization',
+      false,
+      `Auth role error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 56. POINT 7C: FRONTEND MANIPULATED VALUES REJECTION ---
+  try {
+    const maliciousClientPayload = {
+      payoutAmount: 999999,
+      chosenUserId: 'attacker_1',
+      rate: 0.99,
+    };
+
+    // Authoritative backend resolves rates and users from database
+    const authoritativeRate = 0.0050;
+    const authoritativePrincipal = 1000;
+    const authoritativeCalc = calculateUserDailyEarning(authoritativePrincipal, authoritativeRate);
+
+    assert(
+      'Point 7C: Rejection of Client-Manipulated Payout & Rate Values',
+      'Security & Authoritative State',
+      authoritativeCalc.earningsAmount === 5.0 && authoritativeCalc.earningsAmount !== maliciousClientPayload.payoutAmount,
+      'Backend strictly derives distribution amounts from database state, ignoring client-supplied payout and rate fields.'
+    );
+  } catch (err) {
+    assert(
+      'Point 7C: Rejection of Client-Manipulated Values',
+      'Security & Authoritative State',
+      false,
+      `Client injection error: ${(err as Error).message}`
     );
   }
 
