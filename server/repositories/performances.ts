@@ -8,6 +8,22 @@ import { DailyPerformance } from '../types';
  * - Relationship: `rate_percentage = applicable_rate * 100` and `applicable_rate = rate_percentage / 100`.
  */
 
+export function isValidDateString(dateStr: string): boolean {
+  if (typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return false;
+  }
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) {
+    return false;
+  }
+  const dateObj = new Date(Date.UTC(y, m - 1, d));
+  return (
+    dateObj.getUTCFullYear() === y &&
+    dateObj.getUTCMonth() + 1 === m &&
+    dateObj.getUTCDate() === d
+  );
+}
+
 export function extractAndValidateRates(perf: Partial<DailyPerformance>): {
   ratePercentage: number;
   applicableRate: number;
@@ -147,8 +163,12 @@ export async function getDailyPerformanceByDate(date: string): Promise<DailyPerf
 }
 
 export async function createDailyPerformance(perf: Partial<DailyPerformance>): Promise<DailyPerformance> {
-  const { ratePercentage, applicableRate } = extractAndValidateRates(perf);
   const targetDate = perf.date || new Date().toISOString().split('T')[0];
+  if (!isValidDateString(targetDate)) {
+    throw new Error(`Invalid performance date '${targetDate}'. Expected format YYYY-MM-DD (e.g. 2026-08-31).`);
+  }
+
+  const { ratePercentage, applicableRate } = extractAndValidateRates(perf);
 
   // Prevent duplicate performance record on the same date
   const existing = await getDailyPerformanceByDate(targetDate);
@@ -199,6 +219,10 @@ export async function createDailyPerformance(perf: Partial<DailyPerformance>): P
 }
 
 export async function updateDailyPerformance(date: string, perf: Partial<DailyPerformance>): Promise<DailyPerformance> {
+  if (!isValidDateString(date)) {
+    throw new Error(`Invalid performance date '${date}'. Expected format YYYY-MM-DD (e.g. 2026-08-31).`);
+  }
+
   const supabase = getServerSupabase();
   const now = new Date().toISOString();
 

@@ -4,6 +4,7 @@ import {
   createDailyPerformance,
   getDailyPerformanceByDate,
   updateDailyPerformance,
+  isValidDateString,
 } from '../repositories/performances';
 import { createEarning, deleteEarningsByDate } from '../repositories/earnings';
 import { createLedgerEntry, deleteLedgerByReferenceAndTypes } from '../repositories/ledger';
@@ -30,8 +31,8 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
 }> {
   try {
     // 1. Strict Validation of Inputs
-    if (!input.date) {
-      return { success: false, error: 'Performance date is required (YYYY-MM-DD).' };
+    if (!input.date || !isValidDateString(input.date)) {
+      return { success: false, error: 'Valid performance date is required in YYYY-MM-DD format (e.g. 2026-08-31).' };
     }
 
     if (input.applicableRate === undefined || input.applicableRate === null) {

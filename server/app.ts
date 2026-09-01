@@ -15,7 +15,7 @@ import { getProfileById, getProfileByEmail, createProfile, updateProfile, getAll
 import { getDepositsByUserId, getAllDeposits, getDepositById } from './repositories/deposits';
 import { getWithdrawalsByUserId, getAllWithdrawals, getWithdrawalById } from './repositories/withdrawals';
 import { getEarningsByUserId, getAllEarnings } from './repositories/earnings';
-import { getDailyPerformances } from './repositories/performances';
+import { getDailyPerformances, isValidDateString } from './repositories/performances';
 import { getLedgerByUserId, getAllLedger, createLedgerEntry } from './repositories/ledger';
 import { getSettings, updateSettings } from './repositories/settings';
 import { getAuditLogs, createAuditLog } from './repositories/auditLogs';
@@ -959,8 +959,8 @@ app.post(['/api/admin/performance', '/admin/performance'], authMiddleware, admin
     const admin: User = (req as any).user;
     const { date, overallFundAmount, actualFundPerformance, applicableRate, notes, overwriteExisting, allowUpdate } = req.body;
 
-    if (!date) {
-      throw Errors.validation('Date is required (YYYY-MM-DD).');
+    if (!date || !isValidDateString(date)) {
+      throw Errors.validation('Valid date in YYYY-MM-DD format is required (e.g. 2026-08-31).');
     }
 
     if (applicableRate === undefined || applicableRate === null) {
