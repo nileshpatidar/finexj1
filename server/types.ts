@@ -22,6 +22,8 @@ export interface User {
   fundLockUntil?: string; // ISO string for active 30-day fund lock
   fundLockReason?: string;
   lastWithdrawalAt?: string;
+  walletAddress?: string;
+  isLocked?: boolean;
 }
 
 export type DepositStatus = 'pending' | 'confirming' | 'confirmed' | 'rejected';

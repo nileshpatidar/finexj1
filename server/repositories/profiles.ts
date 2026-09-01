@@ -147,6 +147,8 @@ export async function createProfile(user: Partial<User>): Promise<User> {
     two_factor_enabled: Boolean(user.twoFactorEnabled),
     two_factor_secret: user.twoFactorSecret || null,
     profile_picture_url: user.profilePictureUrl || null,
+    login_attempts: user.loginAttempts || 0,
+    lock_until: user.lockUntil || null,
     is_locked: user.status === 'suspended',
     created_at: user.createdAt || new Date().toISOString(),
   };
@@ -162,7 +164,7 @@ export async function createProfile(user: Partial<User>): Promise<User> {
     .single();
 
   if (error && error.message.includes('column')) {
-    // If optional columns (profile_picture_url, phone, country) are not yet migrated in DB, gracefully retry without them
+    // If optional columns (profile_picture_url, phone, country, lock_until) are not yet migrated in DB, gracefully retry without them
     const fallbackPayload: any = {
       full_name: user.fullName || 'User',
       email: normEmail,
@@ -207,12 +209,20 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
   if (updates.role !== undefined) payload.role = updates.role;
   if (updates.status !== undefined) {
     payload.is_locked = updates.status === 'suspended';
+    payload.status = updates.status;
   }
+  if (updates.isLocked !== undefined) payload.is_locked = updates.isLocked;
   if (updates.twoFactorEnabled !== undefined) payload.two_factor_enabled = updates.twoFactorEnabled;
   if (updates.twoFactorSecret !== undefined) payload.two_factor_secret = updates.twoFactorSecret;
   if (updates.profilePictureUrl !== undefined) payload.profile_picture_url = updates.profilePictureUrl;
+  if (updates.walletAddress !== undefined) payload.wallet_address = updates.walletAddress;
+  if (updates.loginAttempts !== undefined) payload.login_attempts = updates.loginAttempts;
+  if (updates.lockUntil !== undefined) payload.lock_until = updates.lockUntil;
+  if (updates.fundLockUntil !== undefined) payload.fund_lock_until = updates.fundLockUntil;
+  if (updates.fundLockReason !== undefined) payload.fund_lock_reason = updates.fundLockReason;
+  if (updates.lastLoginAt !== undefined) payload.last_login_at = updates.lastLoginAt;
 
-  // If payload is empty (e.g. loginAttempts/lastLoginAt updates), safely return existing profile
+  // If payload is completely empty, safely return existing profile
   if (Object.keys(payload).length === 0) {
     const current = await getProfileById(id);
     if (!current) throw new Error('User not found');
@@ -230,6 +240,8 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
     delete payload.phone;
     delete payload.country;
     delete payload.profile_picture_url;
+    delete payload.wallet_address;
+    delete payload.fund_lock_reason;
 
     if (Object.keys(payload).length === 0) {
       const current = await getProfileById(id);

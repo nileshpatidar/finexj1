@@ -250,10 +250,53 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
       throw new AppError('ACCOUNT_SUSPENDED', 'Account has been suspended. Please contact support.', 403);
     }
 
+    // Server-side temporary login lockout enforcement
+    if (user.lockUntil) {
+      const lockTime = new Date(user.lockUntil).getTime();
+      const nowTime = Date.now();
+      if (lockTime > nowTime) {
+        const remainingMinutes = Math.max(1, Math.ceil((lockTime - nowTime) / (60 * 1000)));
+        throw new AppError(
+          'ACCOUNT_LOCKED',
+          `Account is temporarily locked due to multiple failed login attempts. Please try again in ${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''}.`,
+          423
+        );
+      }
+    }
+
+    const MAX_LOGIN_ATTEMPTS = 5;
+    const LOCKOUT_DURATION_MINUTES = 15;
+
     const isPasswordValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
     if (!isPasswordValid) {
-      await updateProfile(user.id, { loginAttempts: (user.loginAttempts || 0) + 1 });
-      throw Errors.invalidCredentials('Invalid email or password.');
+      const newAttempts = (user.loginAttempts || 0) + 1;
+
+      if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+        const lockUntilIso = new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000).toISOString();
+        await updateProfile(user.id, {
+          loginAttempts: newAttempts,
+          lockUntil: lockUntilIso,
+        });
+
+        await createAuditLog({
+          action: 'USER_ACCOUNT_LOCKED',
+          actorId: user.id,
+          actorEmail: user.email,
+          actorRole: user.role,
+          targetUserId: user.id,
+          reason: `Account temporarily locked for ${LOCKOUT_DURATION_MINUTES} minutes after ${newAttempts} consecutive failed login attempts.`,
+          timestamp: new Date().toISOString(),
+        });
+
+        throw new AppError(
+          'ACCOUNT_LOCKED',
+          `Account is temporarily locked due to ${newAttempts} failed login attempts. Please try again in ${LOCKOUT_DURATION_MINUTES} minutes.`,
+          423
+        );
+      } else {
+        await updateProfile(user.id, { loginAttempts: newAttempts });
+        throw Errors.invalidCredentials('Invalid email or password.');
+      }
     }
 
     // 2FA verification if enabled
@@ -278,7 +321,8 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
       }
     }
 
-    await updateProfile(user.id, { loginAttempts: 0, lastLoginAt: new Date().toISOString() });
+    // Reset login attempts and clear temporary lock on successful authentication
+    await updateProfile(user.id, { loginAttempts: 0, lockUntil: null as any, lastLoginAt: new Date().toISOString() });
 
     const token = createSessionToken(user, settings.sessionVersion || 1);
     res.json({
@@ -333,18 +377,30 @@ app.get(['/api/auth/me', '/auth/me'], authMiddleware, (req, res) => {
   });
 });
 
-// Update Profile
+// Update Profile (Strict field allowlist - prohibits role elevation, lock modification, or balance tampering)
 app.post(['/api/auth/update-profile', '/auth/update-profile'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const { fullName, phone, country, profilePictureUrl } = req.body;
+    const { fullName, phone, country, profilePictureUrl, walletAddress } = req.body;
 
-    const updated = await updateProfile(user.id, {
-      ...(fullName ? { fullName: fullName.trim() } : {}),
-      ...(phone ? { phone: phone.trim() } : {}),
-      ...(country ? { country: country.trim() } : {}),
-      ...(profilePictureUrl ? { profilePictureUrl } : {}),
-    });
+    const allowedUpdates: Partial<User> = {};
+    if (typeof fullName === 'string' && fullName.trim()) {
+      allowedUpdates.fullName = fullName.trim();
+    }
+    if (typeof phone === 'string') {
+      allowedUpdates.phone = phone.trim();
+    }
+    if (typeof country === 'string' && country.trim()) {
+      allowedUpdates.country = country.trim();
+    }
+    if (typeof profilePictureUrl === 'string') {
+      allowedUpdates.profilePictureUrl = profilePictureUrl.trim();
+    }
+    if (typeof walletAddress === 'string' && isValidBEP20Address(walletAddress.trim())) {
+      allowedUpdates.walletAddress = walletAddress.trim();
+    }
+
+    const updated = await updateProfile(user.id, allowedUpdates);
 
     res.json({ success: true, user: sanitizeUser(updated) });
   } catch (err) {
@@ -537,8 +593,8 @@ app.post(['/api/user/deposits/:id/verify', '/user/deposits/:id/verify'], authMid
   }
 });
 
-// Public / Authenticated Blockchain Tx Verification Inspector
-app.post(['/api/blockchain/verify-tx', '/blockchain/verify-tx'], async (req, res, next) => {
+// Authenticated Blockchain Tx Verification Inspector
+app.post(['/api/blockchain/verify-tx', '/blockchain/verify-tx'], authMiddleware, async (req, res, next) => {
   try {
     const { txHash, claimedAmount } = req.body;
     if (!txHash || typeof txHash !== 'string' || !txHash.trim()) {
