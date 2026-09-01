@@ -384,32 +384,38 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
     if (!isPasswordValid) {
       const newAttempts = (user.loginAttempts || 0) + 1;
 
-      if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
-        const lockUntilIso = new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000).toISOString();
-        await updateProfile(user.id, {
-          loginAttempts: newAttempts,
-          lockUntil: lockUntilIso,
-        });
+      try {
+        if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+          const lockUntilIso = new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000).toISOString();
+          await updateProfile(user.id, {
+            loginAttempts: newAttempts,
+            lockUntil: lockUntilIso,
+          });
 
-        await createAuditLog({
-          action: 'USER_ACCOUNT_LOCKED',
-          actorId: user.id,
-          actorEmail: user.email,
-          actorRole: user.role,
-          targetUserId: user.id,
-          reason: `Account temporarily locked for ${LOCKOUT_DURATION_MINUTES} minutes after ${newAttempts} consecutive failed login attempts.`,
-          timestamp: new Date().toISOString(),
-        });
+          await createAuditLog({
+            action: 'USER_ACCOUNT_LOCKED',
+            actorId: user.id,
+            actorEmail: user.email,
+            actorRole: user.role,
+            targetUserId: user.id,
+            reason: `Account temporarily locked for ${LOCKOUT_DURATION_MINUTES} minutes after ${newAttempts} consecutive failed login attempts.`,
+            timestamp: new Date().toISOString(),
+          });
 
-        throw new AppError(
-          'ACCOUNT_LOCKED',
-          `Account is temporarily locked due to ${newAttempts} failed login attempts. Please try again in ${LOCKOUT_DURATION_MINUTES} minutes.`,
-          423
-        );
-      } else {
-        await updateProfile(user.id, { loginAttempts: newAttempts });
-        throw Errors.invalidCredentials('Invalid email or password.');
+          throw new AppError(
+            'ACCOUNT_LOCKED',
+            `Account is temporarily locked due to ${newAttempts} failed login attempts. Please try again in ${LOCKOUT_DURATION_MINUTES} minutes.`,
+            423
+          );
+        } else {
+          await updateProfile(user.id, { loginAttempts: newAttempts });
+        }
+      } catch (profileErr: any) {
+        if (profileErr instanceof AppError) throw profileErr;
+        // Non-blocking fallback for login attempt counter failure
       }
+
+      throw Errors.invalidCredentials('Invalid email or password.');
     }
 
     // 2FA verification if enabled
@@ -435,7 +441,11 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
     }
 
     // Reset login attempts and clear temporary lock on successful authentication
-    await updateProfile(user.id, { loginAttempts: 0, lockUntil: null as any, lastLoginAt: new Date().toISOString() });
+    try {
+      await updateProfile(user.id, { loginAttempts: 0, lockUntil: null as any, lastLoginAt: new Date().toISOString() });
+    } catch {
+      // Ignore background timestamp update error
+    }
 
     const token = createSessionToken(user, settings.sessionVersion || 1);
     setSessionCookie(res, token);

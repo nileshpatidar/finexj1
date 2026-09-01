@@ -229,34 +229,40 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
     return current;
   }
 
+  const queryId = !isNaN(Number(id)) ? Number(id) : id;
   let { data, error } = await supabase
     .from('users')
     .update(payload)
-    .eq('id', id)
+    .eq('id', queryId)
     .select()
     .maybeSingle();
 
-  if (error && error.message.includes('column')) {
+  if (error && error.message && error.message.includes('column')) {
+    // Progressively strip non-essential columns if schema migrations haven't run on the connected Supabase instance
     delete payload.phone;
     delete payload.country;
     delete payload.profile_picture_url;
     delete payload.wallet_address;
     delete payload.fund_lock_reason;
+    delete payload.fund_lock_until;
+    delete payload.login_attempts;
+    delete payload.lock_until;
+    delete payload.last_login_at;
+    delete payload.two_factor_secret;
+    delete payload.two_factor_enabled;
 
-    if (Object.keys(payload).length === 0) {
-      const current = await getProfileById(id);
-      if (!current) throw new Error('User not found');
-      return current;
+    if (Object.keys(payload).length > 0) {
+      const retry = await supabase
+        .from('users')
+        .update(payload)
+        .eq('id', queryId)
+        .select()
+        .maybeSingle();
+      data = retry.data;
+      error = retry.error;
+    } else {
+      error = null;
     }
-
-    const retry = await supabase
-      .from('users')
-      .update(payload)
-      .eq('id', id)
-      .select()
-      .maybeSingle();
-    data = retry.data;
-    error = retry.error;
   }
 
   if (error || !data) {
