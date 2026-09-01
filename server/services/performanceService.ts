@@ -6,7 +6,7 @@ import {
   updateDailyPerformance,
 } from '../repositories/performances';
 import { createEarning, deleteEarningsByDate } from '../repositories/earnings';
-import { createLedgerEntry } from '../repositories/ledger';
+import { createLedgerEntry, deleteLedgerByReferenceAndTypes } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { calculateUserBalanceAsync } from './balanceService';
 import { DailyPerformance } from '../types';
@@ -67,8 +67,9 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
     let performanceRecord: DailyPerformance;
 
     if (existing && input.overwriteExisting) {
-      // Clear previous earnings for this date to prevent duplicate distribution
+      // Clear previous earnings and ledger entries for this calculation to prevent duplicate distribution
       await deleteEarningsByDate(input.date);
+      await deleteLedgerByReferenceAndTypes(existing.id, ['daily_earnings', 'daily_loss']);
 
       performanceRecord = await updateDailyPerformance(input.date, {
         overallFundAmount: initialFundAmount,

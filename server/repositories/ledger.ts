@@ -38,12 +38,33 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
 export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<LedgerEntry> {
   const supabase = getServerSupabase();
   const resolvedUserId = await resolveUserIdForDb(entry.userId);
+  const refId = entry.referenceId || `TX-${Date.now()}`;
+  const entryType = (entry.type || 'deposit') as LedgerType;
+
+  // Safe deduplication: check if ledger entry already exists for this reference and type
+  if (entry.referenceId) {
+    try {
+      const { data: existing } = await supabase
+        .from('ledger')
+        .select('*')
+        .eq('reference_id', String(entry.referenceId))
+        .eq('type', entryType)
+        .maybeSingle();
+
+      if (existing) {
+        return mapDbLedgerToLedger(existing);
+      }
+    } catch {
+      // Proceed if query fails
+    }
+  }
+
   const payload: any = {
     user_id: resolvedUserId,
-    type: entry.type || 'deposit',
+    type: entryType,
     amount: entry.amount || 0,
     balance_after: entry.balanceAfter || 0,
-    reference_id: entry.referenceId || `TX-${Date.now()}`,
+    reference_id: refId,
     description: entry.description || 'Ledger transaction',
     created_at: entry.createdAt || new Date().toISOString(),
   };
@@ -64,6 +85,19 @@ export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<Le
   }
 
   return mapDbLedgerToLedger(data);
+}
+
+export async function deleteLedgerByReferenceAndTypes(referenceId: string, types: string[]): Promise<void> {
+  try {
+    const supabase = getServerSupabase();
+    await supabase
+      .from('ledger')
+      .delete()
+      .eq('reference_id', referenceId)
+      .in('type', types);
+  } catch (err: any) {
+    console.warn('[Ledger Delete Notice]:', err?.message);
+  }
 }
 
 export async function getAllLedger(): Promise<LedgerEntry[]> {
