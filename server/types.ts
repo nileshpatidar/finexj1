@@ -29,6 +29,7 @@ export interface User {
   isFlaggedForReview?: boolean;
   riskScore?: number;
   fraudFlags?: string[];
+  isTestUser?: boolean;
 }
 
 export type DepositStatus = 'pending' | 'confirming' | 'confirmed' | 'rejected';

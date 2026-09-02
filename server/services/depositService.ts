@@ -10,7 +10,7 @@ import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getSettings } from '../repositories/settings';
 import { uploadDepositProof } from '../storage';
-import { verifyBEP20Deposit, isValidTxHash } from '../blockchain';
+import { verifyBEP20Deposit, isValidTxHash, VerificationResult } from '../blockchain';
 import { calculateUserBalanceAsync } from './balanceService';
 import { checkWalletDuplication } from './fraudService';
 import { processReferralRewardForDepositAsync } from './referralService';
@@ -95,22 +95,41 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
   const settings = await getSettings();
   const minDeposit = Number(settings.minimumDepositAmount || 300);
   const claimedAmount = input.amount && !isNaN(Number(input.amount)) ? Number(input.amount) : undefined;
+  const isTestUser = user.isTestUser === true;
 
-  // 2. Authoritative Blockchain Verification against Real BSC RPC
-  const verification = await verifyBEP20Deposit(rawTxHash, claimedAmount);
+  let verification: VerificationResult;
 
-  // If the transaction is definitively invalid on-chain (wrong token, wrong recipient, reverted)
-  if (verification.status === 'failed') {
-    return {
-      success: false,
-      error: verification.errorMessage || 'Transaction execution failed (reverted on BNB Smart Chain).',
-    };
-  }
+  if (!isTestUser) {
+    // 2. Authoritative Blockchain Verification against Real BSC RPC
+    verification = await verifyBEP20Deposit(rawTxHash, claimedAmount);
 
-  if (verification.status === 'invalid') {
-    return {
-      success: false,
-      error: verification.errorMessage || 'Transaction does not meet BEP-20 USDT deposit rules.',
+    // If the transaction is definitively invalid on-chain (wrong token, wrong recipient, reverted)
+    if (verification.status === 'failed') {
+      return {
+        success: false,
+        error: verification.errorMessage || 'Transaction execution failed (reverted on BNB Smart Chain).',
+      };
+    }
+
+    if (verification.status === 'invalid') {
+      return {
+        success: false,
+        error: verification.errorMessage || 'Transaction does not meet BEP-20 USDT deposit rules.',
+      };
+    }
+  } else {
+    // Test User Bypass: Skip BSC verification checks and treat as confirmed with standard parameters
+    const reqConf = settings.requiredConfirmations || 12;
+    verification = {
+      isValid: true,
+      amount: claimedAmount || minDeposit,
+      txHash: rawTxHash,
+      toAddress: settings.bep20DepositAddress,
+      tokenContract: settings.usdtContractAddress,
+      confirmations: reqConf,
+      requiredConfirmations: reqConf,
+      isPendingConfirmations: false,
+      status: 'confirmed',
     };
   }
 
@@ -166,7 +185,7 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     requiredConfirmations: verification.requiredConfirmations || settings.requiredConfirmations || 12,
     createdAt: now.toISOString(),
     confirmedAt: isConfirmed ? now.toISOString() : undefined,
-    verifiedAt: verification.blockNumber ? now.toISOString() : undefined,
+    verifiedAt: verification.blockNumber || isTestUser ? now.toISOString() : undefined,
     eligibilityDate: tomorrow.toISOString(),
     depositLockEndDate: lockEndDate,
     proofPhotoUrl: storagePath,
@@ -263,16 +282,37 @@ export async function verifyDepositOnChainAsync(
     };
   }
 
-  const verification = await verifyBEP20Deposit(deposit.txHash, deposit.amount);
+  const depositUser = await getProfileById(deposit.userId);
+  const isTestUser = depositUser?.isTestUser === true;
 
-  if (verification.status === 'failed' || verification.status === 'invalid') {
-    await updateDeposit(deposit.id, {
-      status: 'rejected',
-      adminNotes: verification.errorMessage,
-    });
-    return {
-      success: false,
-      error: verification.errorMessage || 'Transaction verification failed on BNB Smart Chain.',
+  let verification: VerificationResult;
+
+  if (!isTestUser) {
+    verification = await verifyBEP20Deposit(deposit.txHash, deposit.amount);
+
+    if (verification.status === 'failed' || verification.status === 'invalid') {
+      await updateDeposit(deposit.id, {
+        status: 'rejected',
+        adminNotes: verification.errorMessage,
+      });
+      return {
+        success: false,
+        error: verification.errorMessage || 'Transaction verification failed on BNB Smart Chain.',
+      };
+    }
+  } else {
+    const settings = await getSettings();
+    const reqConf = deposit.requiredConfirmations || settings.requiredConfirmations || 12;
+    verification = {
+      isValid: true,
+      amount: deposit.amount,
+      txHash: deposit.txHash,
+      toAddress: deposit.toAddress || settings.bep20DepositAddress,
+      tokenContract: deposit.tokenContract || settings.usdtContractAddress,
+      confirmations: reqConf,
+      requiredConfirmations: reqConf,
+      isPendingConfirmations: false,
+      status: 'confirmed',
     };
   }
 

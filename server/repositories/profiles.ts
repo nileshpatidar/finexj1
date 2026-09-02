@@ -81,6 +81,7 @@ export function mapDbUserToUser(u: any): User {
     isFlaggedForReview: Boolean(u.is_flagged_for_review || u.isFlaggedForReview),
     riskScore: Number(u.risk_score || u.riskScore || 0),
     fraudFlags: Array.isArray(u.fraud_flags) ? u.fraud_flags : (Array.isArray(u.fraudFlags) ? u.fraudFlags : []),
+    isTestUser: Boolean(u.is_test_user || u.isTestUser),
   };
 }
 
