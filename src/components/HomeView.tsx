@@ -216,8 +216,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* 4 Financial Key Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {/* 5 Financial Key Metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* Total Deposit */}
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
@@ -228,6 +228,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
             ${(balance?.totalDeposited || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">Confirmed Principal</p>
+        </div>
+
+        {/* Total Withdrawn */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold">Total Withdrawn</span>
+            <ArrowUpFromLine className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          </div>
+          <p className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+            ${(balance?.totalWithdrawn || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            {balance?.totalWithdrawn ? 'Paid BEP-20 Payouts' : 'No Withdrawals Yet'}
+          </p>
         </div>
 
         {/* Today's Earnings */}
@@ -255,7 +269,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
 
         {/* Available for Withdrawal */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
+        <div className="col-span-2 lg:col-span-1 p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span className="text-xs font-semibold">Available Withdrawal</span>
             <Wallet className="w-4 h-4 text-amber-500" />
@@ -326,7 +340,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
               const isEarning = item.type === 'daily_earnings';
               const isLoss = item.type === 'daily_loss';
               const isDeposit = item.type === 'deposit';
+              const isPaidWithdrawal = item.type === 'withdrawal_paid';
               const isWithdrawal = item.type === 'withdrawal_request' || item.type === 'withdrawal_paid' || item.type === 'withdrawal_fee';
+
+              let displayAmount = Math.abs(Number(item.amount || 0));
+              if (isPaidWithdrawal && displayAmount === 0) {
+                const match = item.description.match(/Net Paid:\s*([\d.]+)/i);
+                if (match && match[1]) {
+                  displayAmount = parseFloat(match[1]);
+                }
+              }
 
               return (
                 <div
@@ -342,6 +365,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                           ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           : isLoss
                           ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                          : isPaidWithdrawal
+                          ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           : isWithdrawal
                           ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                           : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
@@ -368,14 +393,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       className={`font-bold text-sm ${
                         isEarning || isDeposit
                           ? 'text-blue-600 dark:text-blue-400'
-                          : isLoss
+                          : isPaidWithdrawal
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : isLoss || item.type === 'withdrawal_request'
                           ? 'text-rose-600 dark:text-rose-400'
                           : 'text-slate-900 dark:text-white'
                       }`}
                     >
-                      {isEarning || isDeposit ? '+' : isLoss ? '-' : ''}${Math.abs(Number(item.amount || 0)).toFixed(2)}
+                      {isEarning || isDeposit ? '+' : isLoss || isWithdrawal ? '-' : ''}${displayAmount.toFixed(2)}
                     </span>
-                    <p className="text-[10px] text-slate-400">USDT</p>
+                    <p className="text-[10px] text-slate-400">
+                      {isPaidWithdrawal ? 'PAID (USDT)' : 'USDT'}
+                    </p>
                   </div>
                 </div>
               );

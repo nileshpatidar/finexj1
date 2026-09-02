@@ -106,7 +106,16 @@ export const TransactionsView: React.FC = () => {
             const isEarning = item.type === 'daily_earnings';
             const isLoss = item.type === 'daily_loss';
             const isDeposit = item.type === 'deposit';
+            const isPaidWithdrawal = item.type === 'withdrawal_paid';
             const isWithdrawal = item.type.startsWith('withdrawal');
+
+            let displayAmount = Math.abs(Number(item.amount || 0));
+            if (isPaidWithdrawal && displayAmount === 0) {
+              const match = item.description.match(/Net Paid:\s*([\d.]+)/i);
+              if (match && match[1]) {
+                displayAmount = parseFloat(match[1]);
+              }
+            }
 
             return (
               <div
@@ -122,6 +131,8 @@ export const TransactionsView: React.FC = () => {
                         ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                         : isLoss
                         ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                        : isPaidWithdrawal
+                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                         : isWithdrawal
                         ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                         : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
@@ -155,14 +166,18 @@ export const TransactionsView: React.FC = () => {
                     className={`font-extrabold text-sm sm:text-base ${
                       isEarning || isDeposit
                         ? 'text-blue-600 dark:text-blue-400'
-                        : isLoss
+                        : isPaidWithdrawal
+                        ? 'text-blue-600 dark:text-blue-400'
+                        : isLoss || item.type === 'withdrawal_request'
                         ? 'text-rose-600 dark:text-rose-400'
                         : 'text-slate-900 dark:text-white'
                     }`}
                   >
-                    {isEarning || isDeposit ? '+' : isLoss ? '-' : ''}${Math.abs(Number(item.amount || 0)).toFixed(2)}
+                    {isEarning || isDeposit ? '+' : isLoss || isWithdrawal ? '-' : ''}${displayAmount.toFixed(2)}
                   </span>
-                  <p className="text-[10px] text-slate-400">USDT</p>
+                  <p className="text-[10px] text-slate-400">
+                    {isPaidWithdrawal ? 'PAID (USDT)' : 'USDT'}
+                  </p>
                 </div>
               </div>
             );

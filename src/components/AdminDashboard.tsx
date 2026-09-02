@@ -618,7 +618,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             {/* Live Overall Fund & Distribution Banner */}
             {(() => {
               const liveConfirmedDeposits = deposits.filter(d => d.status === 'confirmed');
-              const liveFundPrincipal = liveConfirmedDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
+              const totalConfirmedDeposits = liveConfirmedDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
+              const paidWithdrawals = withdrawals.filter(w => w.status === 'paid');
+              const totalPaidWithdrawals = paidWithdrawals.reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
+              const liveFundPrincipal = Math.max(0, totalConfirmedDeposits - totalPaidWithdrawals);
               const currentPercentNum = parseFloat(perfPercent || '0') || 0;
               const multiplier = perfMode === 'safe' ? 0 : perfMode === 'loss' ? -currentPercentNum / 100 : currentPercentNum / 100;
               const estDistribution = liveFundPrincipal * multiplier;

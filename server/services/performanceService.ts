@@ -1,5 +1,6 @@
 import { getAllProfiles } from '../repositories/profiles';
 import { getDepositsByUserId, getAllDeposits } from '../repositories/deposits';
+import { getAllWithdrawals } from '../repositories/withdrawals';
 import {
   createDailyPerformance,
   getDailyPerformanceByDate,
@@ -143,10 +144,16 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       };
     }
 
-    // 4. Fetch all confirmed deposits across platform to establish authoritative pool
-    const { deposits: allDeposits } = await getAllDeposits({ limit: 5000 });
+    // 4. Fetch all confirmed deposits and paid withdrawals across platform to establish authoritative pool
+    const [{ deposits: allDeposits }, { withdrawals: allWithdrawals }] = await Promise.all([
+      getAllDeposits({ limit: 5000 }),
+      getAllWithdrawals({ limit: 5000 }),
+    ]);
     const confirmedDepositsList = (allDeposits || []).filter(d => d.status === 'confirmed');
-    const liveTotalConfirmedPrincipal = confirmedDepositsList.reduce((acc, d) => acc + (d.amount || 0), 0);
+    const paidWithdrawalsList = (allWithdrawals || []).filter(w => w.status === 'paid');
+    const totalDepositedSum = confirmedDepositsList.reduce((acc, d) => acc + (d.amount || 0), 0);
+    const totalWithdrawnSum = paidWithdrawalsList.reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
+    const liveTotalConfirmedPrincipal = Math.max(0, totalDepositedSum - totalWithdrawnSum);
 
     let appliedCount = 0;
     let totalDistributed = 0;
@@ -154,9 +161,12 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
     const now = new Date().toISOString();
 
     for (const user of activeUsers) {
-      // Match deposits for this user (support string and number user IDs)
+      // Match deposits and paid withdrawals for this user (support string and number user IDs)
       const userConfirmedDeposits = confirmedDepositsList.filter(
         d => String(d.userId) === String(user.id) || (Number(d.userId) === Number(user.id) && !isNaN(Number(user.id)))
+      );
+      const userPaidWithdrawals = paidWithdrawalsList.filter(
+        w => String(w.userId) === String(user.id) || (Number(w.userId) === Number(user.id) && !isNaN(Number(user.id)))
       );
 
       if (userConfirmedDeposits.length === 0) continue;
@@ -171,7 +181,9 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
 
       // If no deposits matched strict date filter, but user has confirmed deposits on platform, include them
       const effectiveDeposits = eligibleDeposits.length > 0 ? eligibleDeposits : userConfirmedDeposits;
-      const userEligiblePrincipal = effectiveDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
+      const userGrossPrincipal = effectiveDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
+      const userTotalWithdrawn = userPaidWithdrawals.reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
+      const userEligiblePrincipal = Math.max(0, Number((userGrossPrincipal - userTotalWithdrawn).toFixed(4)));
 
       if (userEligiblePrincipal > 0) {
         totalEligiblePrincipal += userEligiblePrincipal;
