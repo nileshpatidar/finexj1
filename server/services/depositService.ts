@@ -336,29 +336,31 @@ export async function verifyDepositOnChainAsync(
       return { success: false, error: confirmResult.error || 'Failed to confirm deposit atomically.' };
     }
 
-    const balance = await calculateUserBalanceAsync(deposit.userId);
-    await createLedgerEntry({
-      userId: deposit.userId,
-      type: 'deposit',
-      amount: verifiedAmount,
-      balanceAfter: balance.availableBalance,
-      referenceId: deposit.id,
-      description: `Confirmed BEP-20 USDT deposit of ${verifiedAmount} USDT (Tx: ${deposit.txHash})`,
-      createdAt: new Date().toISOString(),
-      performedBy: actorId,
-    });
+    if (!confirmResult.ledgerCreatedInDb) {
+      const balance = await calculateUserBalanceAsync(deposit.userId);
+      await createLedgerEntry({
+        userId: deposit.userId,
+        type: 'deposit',
+        amount: verifiedAmount,
+        balanceAfter: balance.availableBalance,
+        referenceId: deposit.id,
+        description: `Confirmed BEP-20 USDT deposit of ${verifiedAmount} USDT (Tx: ${deposit.txHash})`,
+        createdAt: new Date().toISOString(),
+        performedBy: actorId,
+      });
 
-    await createAuditLog({
-      action: 'DEPOSIT_CONFIRMED',
-      actorId,
-      actorRole: 'system',
-      targetUserId: deposit.userId,
-      reason: `Re-verification confirmed ${verifiedAmount} USDT on BSC with ${verification.confirmations} confirmations.`,
-      timestamp: new Date().toISOString(),
-    });
+      await createAuditLog({
+        action: 'DEPOSIT_CONFIRMED',
+        actorId,
+        actorRole: 'system',
+        targetUserId: deposit.userId,
+        reason: `Re-verification confirmed ${verifiedAmount} USDT on BSC with ${verification.confirmations} confirmations.`,
+        timestamp: new Date().toISOString(),
+      });
 
-    // Idempotently trigger referral commission if user has an active referrer
-    processReferralRewardForDepositAsync(deposit.id, verifiedAmount, deposit.userId).catch(() => {});
+      // Idempotently trigger referral commission if user has an active referrer
+      processReferralRewardForDepositAsync(deposit.id, verifiedAmount, deposit.userId).catch(() => {});
+    }
 
     return {
       success: true,
@@ -417,26 +419,30 @@ export async function updateDepositStatusAsync(
       return { success: false, error: confirmResult.error || 'Failed to confirm deposit.' };
     }
 
-    const balance = await calculateUserBalanceAsync(deposit.userId);
-    await createLedgerEntry({
-      userId: deposit.userId,
-      type: 'deposit',
-      amount: deposit.amount,
-      balanceAfter: balance.availableBalance,
-      referenceId: deposit.id,
-      description: `Admin approved deposit of ${deposit.amount} USDT`,
-      createdAt: new Date().toISOString(),
-      performedBy: adminId,
-    });
+    if (!confirmResult.ledgerCreatedInDb) {
+      const balance = await calculateUserBalanceAsync(deposit.userId);
+      await createLedgerEntry({
+        userId: deposit.userId,
+        type: 'deposit',
+        amount: deposit.amount,
+        balanceAfter: balance.availableBalance,
+        referenceId: deposit.id,
+        description: `Admin approved deposit of ${deposit.amount} USDT`,
+        createdAt: new Date().toISOString(),
+        performedBy: adminId,
+      });
 
-    await createAuditLog({
-      action: 'DEPOSIT_APPROVED',
-      actorId: adminId,
-      actorRole: 'admin',
-      targetUserId: deposit.userId,
-      reason: adminNotes || `Admin approved deposit #${deposit.id} for ${deposit.amount} USDT`,
-      timestamp: new Date().toISOString(),
-    });
+      await createAuditLog({
+        action: 'DEPOSIT_APPROVED',
+        actorId: adminId,
+        actorRole: 'admin',
+        targetUserId: deposit.userId,
+        reason: adminNotes || `Admin approved deposit #${deposit.id} for ${deposit.amount} USDT`,
+        timestamp: new Date().toISOString(),
+      });
+
+      processReferralRewardForDepositAsync(deposit.id, deposit.amount, deposit.userId).catch(() => {});
+    }
 
     return { success: true, deposit: confirmResult.deposit };
   }

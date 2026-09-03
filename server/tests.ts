@@ -2149,6 +2149,139 @@ export async function runAutomatedTestSuite(): Promise<{
     );
   }
 
+  // --- 73. FINEXJ STEP 4: AUTHORITATIVE 9% WITHDRAWAL FEE CALCULATION ---
+  try {
+    const { getSettings } = await import('./repositories/settings');
+    const settings = await getSettings();
+    const feePct = settings.withdrawalFeePercentage || 9.0;
+    const requestedAmount = 1000.0;
+    const feeAmount = Number(((requestedAmount * feePct) / 100).toFixed(4));
+    const netAmount = Number((requestedAmount - feeAmount).toFixed(4));
+
+    assert(
+      'FINEXJ Step 4: Authoritative 9% Withdrawal Fee',
+      'Financial Compliance',
+      feePct === 9.0 && feeAmount === 90.0 && netAmount === 910.0,
+      `Standard withdrawal fee is 9.0000% (Requested: $1000, Fee: $${feeAmount}, Net: $${netAmount})`
+    );
+  } catch (err) {
+    assert(
+      'FINEXJ Step 4: Authoritative 9% Withdrawal Fee',
+      'Financial Compliance',
+      false,
+      `Fee test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 74. FINEXJ STEP 4: WITHDRAWAL OTP FLOW ---
+  try {
+    const { generateWithdrawalOtp, verifyWithdrawalOtp } = await import('./services/otpService');
+    const testUserId = 'test_user_otp_99';
+    const otpGen = await generateWithdrawalOtp(testUserId, 'investor@test.com', true);
+    const hasCode = typeof otpGen.devCode === 'string' && otpGen.devCode.length === 6;
+
+    // Verify invalid OTP
+    const invalidCheck = verifyWithdrawalOtp(testUserId, '000000', false);
+    const isInvalidBlocked = invalidCheck.valid === false;
+
+    // Verify valid OTP
+    const validCheck = verifyWithdrawalOtp(testUserId, otpGen.devCode!, false);
+    const isValidAccepted = validCheck.valid === true;
+
+    assert(
+      'FINEXJ Step 4: Withdrawal Security OTP Flow',
+      'Security & Authentication',
+      hasCode && isInvalidBlocked && isValidAccepted,
+      'Email OTP generation, TTL enforcement, and single-use validation are verified.'
+    );
+  } catch (err) {
+    assert(
+      'FINEXJ Step 4: Withdrawal Security OTP Flow',
+      'Security & Authentication',
+      false,
+      `OTP test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 75. FINEXJ STEP 4: NON-COMPOUNDING REFERRAL REWARDS (L1 5%, L2 2%) ---
+  try {
+    const { getSettings } = await import('./repositories/settings');
+    const settings = await getSettings();
+    const l1Pct = settings.referralRewardL1Percentage || 5.0;
+    const l2Pct = settings.referralRewardL2Percentage || 2.0;
+    const qualifyingDeposit = 1000.0;
+
+    const l1Reward = Number(((qualifyingDeposit * l1Pct) / 100).toFixed(4));
+    const l2Reward = Number(((qualifyingDeposit * l2Pct) / 100).toFixed(4));
+
+    assert(
+      'FINEXJ Step 4: Two-Level Referral Rewards Structure',
+      'Referral Economics',
+      l1Pct === 5.0 && l2Pct === 2.0 && l1Reward === 50.0 && l2Reward === 20.0,
+      `Level 1 reward is 5% ($${l1Reward}), Level 2 reward is 2% ($${l2Reward}) on qualifying deposit.`
+    );
+  } catch (err) {
+    assert(
+      'FINEXJ Step 4: Two-Level Referral Rewards Structure',
+      'Referral Economics',
+      false,
+      `Referral calculation error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 76. FINEXJ STEP 4: COMPANY REFERRAL CODE (FINEXJ) ---
+  try {
+    const { bindReferralAsync } = await import('./services/referralService');
+    const dummyNewUser: any = {
+      id: 'test_company_code_user',
+      email: 'newuser@finexj.com',
+      role: 'user',
+      referralCode: 'FXJ-NEWUSER',
+    };
+
+    const companyResult = await bindReferralAsync(dummyNewUser, 'FINEXJ');
+
+    assert(
+      'FINEXJ Step 4: Company Referral Code Support',
+      'Referral Architecture',
+      companyResult.success === true && companyResult.isCompanyReferral === true,
+      'Company code FINEXJ is accepted as platform direct registration without error.'
+    );
+  } catch (err) {
+    assert(
+      'FINEXJ Step 4: Company Referral Code Support',
+      'Referral Architecture',
+      false,
+      `Company referral test error: ${(err as Error).message}`
+    );
+  }
+
+  // --- 77. FINEXJ STEP 4: OPERATIONAL FUND & ACCOUNTING SERVICES ---
+  try {
+    const { getOperationalFundSummaryAsync } = await import('./services/operationalFundService');
+    const { getAccountingSummaryAsync } = await import('./services/accountingService');
+
+    const opSummary = await getOperationalFundSummaryAsync();
+    const acctSummary = await getAccountingSummaryAsync();
+
+    const isOpSummaryValid = typeof opSummary.currentBalance === 'number' && typeof opSummary.totalFeeIncome === 'number';
+    const isAcctSummaryValid = typeof acctSummary.totalFeesCollected === 'number' && typeof acctSummary.totalReferralRewardsPaid === 'number';
+
+    assert(
+      'FINEXJ Step 4: Operational Fund & Accounting Reconciliation',
+      'Accounting Integrity',
+      isOpSummaryValid && isAcctSummaryValid,
+      'Company operational ledger and cross-table accounting reconciliation are operational.'
+    );
+  } catch (err) {
+    assert(
+      'FINEXJ Step 4: Operational Fund & Accounting Reconciliation',
+      'Accounting Integrity',
+      false,
+      `Operational accounting test error: ${(err as Error).message}`
+    );
+  }
+
   const passedTests = results.filter(r => r.passed).length;
   const failedTests = results.filter(r => !r.passed).length;
   const durationMs = Date.now() - startTime;

@@ -118,6 +118,8 @@ export type LedgerType =
   | 'deposit' 
   | 'daily_earnings' 
   | 'daily_loss'
+  | 'referral_reward_l1'
+  | 'referral_reward_l2'
   | 'withdrawal_request' 
   | 'withdrawal_fee' 
   | 'withdrawal_paid' 
@@ -141,6 +143,9 @@ export interface UserBalanceSummary {
   userId: string;
   totalDeposited: number;
   totalEarnings: number;
+  referralEarnings: number;
+  activeCompoundingPrincipal: number;
+  depositLockedPrincipal: number;
   totalWithdrawn: number;
   totalFeesPaid: number;
   totalPendingWithdrawals: number;
@@ -179,7 +184,10 @@ export interface AppSettings {
   usdtContractAddress: string;
   requiredConfirmations: number;
   minimumDepositAmount: number; // 300 USDT
-  withdrawalFeePercentage: number; // Configurable / Default 6%
+  withdrawalFeePercentage: number; // Configurable / Default 9%
+  companyReferralCode: string; // Default 'FINEXJ'
+  referralRewardL1Percentage: number; // Default 5%
+  referralRewardL2Percentage: number; // Default 2%
   accountAgeRequirementDays: number; // 30
   depositLockPeriodDays: number; // 30
   telegramSupportUrl: string;
@@ -220,8 +228,43 @@ export interface ReferralReward {
   percentage: number;
   reference: string;
   status: 'credited' | 'pending_review' | 'flagged' | 'reversed';
+  rewardLevel?: number; // 1 (Direct) or 2 (Indirect)
+  eventType?: string; // 'qualifying_deposit'
   notes?: string;
   createdAt: string;
+}
+
+export interface FinexjOperationalEntry {
+  id: number | string;
+  amount: number;
+  direction: 'inflow' | 'outflow';
+  reason: string;
+  adminId: string;
+  reference?: string;
+  beforeBalance: number;
+  afterBalance: number;
+  createdAt: string;
+}
+
+export interface FinexjOperationalSummary {
+  currentBalance: number;
+  totalInflow: number;
+  totalOutflow: number;
+  totalFeeIncome: number;
+  recentEntries: FinexjOperationalEntry[];
+}
+
+export interface AdminAccountingSummary {
+  totalDeposited: number;
+  totalWithdrawn: number;
+  totalFeesCollected: number;
+  totalReferralRewardsPaid: number;
+  totalReferralRewardsL1: number;
+  totalReferralRewardsL2: number;
+  totalDailyEarningsDistributed: number;
+  operationalFundBalance: number;
+  totalUserAvailableBalances: number;
+  activeCompoundingPrincipal: number;
 }
 
 export interface FraudSignal {

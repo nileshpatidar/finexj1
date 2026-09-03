@@ -233,6 +233,9 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
   success: boolean;
   deposit?: Deposit;
   isDuplicate?: boolean;
+  ledgerCreatedInDb?: boolean;
+  rewardsCreated?: any[];
+  isQualifying?: boolean;
   error?: string;
 }> {
   const numericDepId = Number(input.depositId);
@@ -261,6 +264,9 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
         return {
           success: true,
           deposit: mapDbDepositToDeposit(rpcData.deposit),
+          ledgerCreatedInDb: true,
+          rewardsCreated: rpcData.rewards_created,
+          isQualifying: rpcData.is_qualifying,
         };
       }
       if (rpcData.is_duplicate) {
@@ -309,6 +315,7 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
   return {
     success: true,
     deposit: confirmedDeposit,
+    ledgerCreatedInDb: false,
   };
 }
 

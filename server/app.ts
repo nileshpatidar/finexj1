@@ -24,12 +24,15 @@ import { getSettings, updateSettings } from './repositories/settings';
 import { getAuditLogs, createAuditLog } from './repositories/auditLogs';
 import { getSystemLogs } from './repositories/systemLogs';
 import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
-import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync } from './services/balanceService';
+import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync, checkWithdrawalImpactAsync } from './services/balanceService';
 import { processDepositAsync, updateDepositStatusAsync, verifyDepositOnChainAsync } from './services/depositService';
 import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync } from './services/withdrawalService';
-import { bindReferralAsync } from './services/referralService';
+import { bindReferralAsync, getReferralSummaryAsync } from './services/referralService';
 import { getFraudSignals, resolveFraudSignal } from './services/fraudService';
 import { getReferralsByReferrerId } from './repositories/referrals';
+import { generateWithdrawalOtp } from './services/otpService';
+import { getOperationalFundSummaryAsync, adjustOperationalFundAsync } from './services/operationalFundService';
+import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync } from './services/accountingService';
 import { applyDailyPerformanceAsync } from './services/performanceService';
 import { getSignedDepositProofUrl } from './storage';
 import { verifyBEP20Deposit, isValidBEP20Address, isValidTxHash } from './blockchain';
@@ -907,11 +910,60 @@ app.get(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, async (r
   }
 });
 
+// Preview Withdrawal Impact (Calculates authoritative 9% fee, lock warnings, minimum principal checks)
+app.post(['/api/user/withdrawals/preview', '/user/withdrawals/preview'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { requestedAmount } = req.body;
+    const amount = Number(requestedAmount);
+
+    if (isNaN(amount) || amount <= 0) {
+      throw Errors.validation('Please enter a valid withdrawal amount greater than 0 USDT.');
+    }
+
+    const impact = await checkWithdrawalImpactAsync(user.id, amount);
+    res.json({
+      success: true,
+      impact,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Request Withdrawal Security OTP (Sends 6-digit code to registered email)
+app.post(['/api/user/withdrawals/request-otp', '/user/withdrawals/request-otp'], authMiddleware, financialRateLimiter, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const otpResult = await generateWithdrawalOtp(user.id, user.email, user.isTestUser === true);
+
+    res.json({
+      success: true,
+      message: 'A 6-digit verification code has been dispatched to your registered email address.',
+      expiresInSeconds: otpResult.expiresInSeconds,
+      ...(user.isTestUser && otpResult.devCode ? { testOtpCode: otpResult.devCode } : {}),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Submit Withdrawal Request
 app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financialRateLimiter, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const { requestedAmount, destinationAddress, network, password, twoFactorCode, idempotencyKey, userNotes } = req.body;
+    const {
+      requestedAmount,
+      destinationAddress,
+      network,
+      password,
+      twoFactorCode,
+      otpCode,
+      confirmLockBreak,
+      confirmMinimumBreak,
+      idempotencyKey,
+      userNotes,
+    } = req.body;
 
     if (user.status !== 'active') {
       throw Errors.forbidden(`Your account is currently ${user.status}. Withdrawals are disabled.`);
@@ -948,12 +1000,32 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
       userId: user.id, // Strictly derived from session, never from req.body
       requestedAmount: Number(requestedAmount),
       destinationAddress,
+      otpCode: otpCode ? String(otpCode).trim() : undefined,
+      confirmLockBreak: Boolean(confirmLockBreak),
+      confirmMinimumBreak: Boolean(confirmMinimumBreak),
       idempotencyKey: idempotencyKey ? idempotencyKey.trim() : undefined,
       userNotes,
       actorEmail: user.email,
     });
 
     if (!result.success) {
+      if (result.requiresOtp) {
+        return res.status(400).json({
+          success: false,
+          requiresOtp: true,
+          error: result.error || 'Email verification code is required.',
+        });
+      }
+
+      if (result.requiresConfirmation) {
+        return res.status(400).json({
+          success: false,
+          requiresConfirmation: true,
+          warningType: result.warningType,
+          error: result.error,
+        });
+      }
+
       throw Errors.validation(result.error || 'Failed to request withdrawal.');
     }
 
@@ -1528,14 +1600,90 @@ app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware,
 app.get(['/api/referrals/my-network', '/referrals/my-network'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const directReferrals = await getReferralsByReferrerId(user.id);
+    const summary = await getReferralSummaryAsync(user.id);
     
     res.json({
       success: true,
-      referralCode: user.referralCode || `FXJ-${user.id.padStart(4, '0')}`,
+      referralCode: summary.referralCode || user.referralCode || `FXJ-${user.id.padStart(4, '0')}`,
       referrerId: user.referrerId,
-      totalReferred: directReferrals.length,
-      referrals: directReferrals,
+      totalReferred: summary.totalReferredCount,
+      level1Count: summary.level1Count,
+      level2Count: summary.level2Count,
+      totalRewardsEarned: summary.totalRewardsEarned,
+      level1RewardsEarned: summary.level1RewardsEarned,
+      level2RewardsEarned: summary.level2RewardsEarned,
+      referrals: summary.referrals,
+      recentRewards: summary.recentRewards,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Operational Fund Summary (Tracks 9% fee retained & company capital)
+app.get(['/api/admin/operational-fund', '/admin/operational-fund'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const summary = await getOperationalFundSummaryAsync();
+    res.json({
+      success: true,
+      operationalFund: summary,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Operational Fund Adjustment (Capital injections or operational disbursements)
+app.post(['/api/admin/operational-fund/adjust', '/admin/operational-fund/adjust'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { amount, direction, reason, reference } = req.body;
+
+    const result = await adjustOperationalFundAsync({
+      adminId: admin.id,
+      adminEmail: admin.email,
+      amount: Number(amount),
+      direction,
+      reason,
+      reference,
+    });
+
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to adjust operational fund.');
+    }
+
+    const updatedSummary = await getOperationalFundSummaryAsync();
+    res.json({
+      success: true,
+      entry: result.entry,
+      operationalFund: updatedSummary,
+      message: `Operational fund successfully adjusted (${direction}: ${amount} USDT).`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Overall Financial Accounting & Reconciliation Summary
+app.get(['/api/admin/accounting/summary', '/admin/accounting/summary'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const summary = await getAccountingSummaryAsync();
+    res.json({
+      success: true,
+      accounting: summary,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Referral Program Accounting Breakdown
+app.get(['/api/admin/accounting/referrals', '/admin/accounting/referrals'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const summary = await getReferralAccountingSummaryAsync();
+    res.json({
+      success: true,
+      referralAccounting: summary,
     });
   } catch (err) {
     next(err);
