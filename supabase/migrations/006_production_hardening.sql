@@ -47,7 +47,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_withdrawals_payout_tx_hash_lower_uniq ON w
 CREATE UNIQUE INDEX IF NOT EXISTS idx_withdrawals_idempotency_key_uniq ON withdrawals (TRIM(idempotency_key)) WHERE idempotency_key IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_earnings_user_daily_perf_uniq ON earnings (user_id, daily_performance_id) WHERE daily_performance_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_earnings_user_date_uniq ON earnings (user_id, date);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_user_ref_type_uniq ON ledger (user_id, reference_id, type) WHERE reference_id IS NOT NULL;
+-- Ledger is an append-only financial journal that may legitimately contain adjustments or multiple events for a reference
+DROP INDEX IF EXISTS idx_ledger_user_ref_type_uniq;
+CREATE INDEX IF NOT EXISTS idx_ledger_user_ref_type ON ledger (user_id, reference_id, type) WHERE reference_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_system_settings_key_uniq ON system_settings(key);
 
 -- 3. Query Performance & Concurrency Indexes
