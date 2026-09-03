@@ -20,8 +20,15 @@ BEGIN
     WHERE table_name = 'referral_rewards' AND column_name = 'reward_level'
   ) THEN
     ALTER TABLE referral_rewards 
-      ADD COLUMN reward_level INTEGER NOT NULL DEFAULT 1 
-      CONSTRAINT chk_referral_reward_level CHECK (reward_level IN (1, 2));
+      ADD COLUMN reward_level INTEGER NOT NULL DEFAULT 1;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'chk_referral_reward_level'
+  ) THEN
+    ALTER TABLE referral_rewards 
+      ADD CONSTRAINT chk_referral_reward_level CHECK (reward_level IN (1, 2));
   END IF;
 
   -- Add event_type column to explicitly mark qualifying deposit trigger vs adjustments
@@ -30,8 +37,15 @@ BEGIN
     WHERE table_name = 'referral_rewards' AND column_name = 'event_type'
   ) THEN
     ALTER TABLE referral_rewards 
-      ADD COLUMN event_type TEXT NOT NULL DEFAULT 'qualifying_deposit'
-      CONSTRAINT chk_referral_reward_event_type CHECK (event_type IN ('qualifying_deposit', 'manual_adjustment', 'reversal'));
+      ADD COLUMN event_type TEXT NOT NULL DEFAULT 'qualifying_deposit';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'chk_referral_reward_event_type'
+  ) THEN
+    ALTER TABLE referral_rewards 
+      ADD CONSTRAINT chk_referral_reward_event_type CHECK (event_type IN ('qualifying_deposit', 'manual_adjustment', 'reversal'));
   END IF;
 END $$;
 
@@ -104,7 +118,7 @@ END $$;
 -- 4. Withdrawal Table Default Alignment
 -- ==============================================================================
 -- Update withdrawal fee percentage default to 9.0000%
-ALTER TABLE withdrawals ALTER COLUMN fee_percentage SET DEFAULT 9.0000;
+ALTER TABLE IF EXISTS withdrawals ALTER COLUMN fee_percentage SET DEFAULT 9.0000;
 
 -- ==============================================================================
 -- 5. Configurable System Settings Defaults

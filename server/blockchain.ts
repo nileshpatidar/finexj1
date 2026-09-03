@@ -90,7 +90,7 @@ export function normalizeAddress(address?: string | null): string {
  */
 export function isValidBEP20Address(address: string): boolean {
   if (!address || typeof address !== 'string') return false;
-  return /^0x[a-fA-F0-9]{40}$/.test(address.trim());
+  return /^0x[a-fA-F0-9]{40}$/i.test(address.trim());
 }
 
 /**

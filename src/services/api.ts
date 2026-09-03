@@ -17,6 +17,8 @@ import {
   UserReferralSummary,
   PaginatedLevel1ReferralsResponse,
   PaginatedLevel2ReferralsResponse,
+  WithdrawalImpactResult,
+  UserBalanceSummary,
 } from '../types';
 
 const API_BASE = '';
@@ -111,17 +113,40 @@ export const api = {
 
   getEarnings: () => request<{ earnings: EarningItem[]; totalEarnings: number }>('/api/user/earnings'),
 
-  getWithdrawals: () => request<{ withdrawals: WithdrawalItem[]; balance: any }>('/api/user/withdrawals'),
+  getWithdrawals: () => request<{ withdrawals: WithdrawalItem[]; balance: UserBalanceSummary }>('/api/user/withdrawals'),
+
+  previewWithdrawal: (requestedAmount: number) =>
+    request<{ success: boolean; impact: WithdrawalImpactResult }>('/api/user/withdrawals/preview', {
+      method: 'POST',
+      body: JSON.stringify({ requestedAmount }),
+    }),
+
+  requestWithdrawalOtp: () =>
+    request<{ success: boolean; message: string; expiresInSeconds?: number; testOtpCode?: string }>('/api/user/withdrawals/request-otp', {
+      method: 'POST',
+    }),
 
   submitWithdrawal: (payload: {
     requestedAmount: number;
     destinationAddress: string;
+    network?: string;
     password: string;
     twoFactorCode?: string;
+    otpCode?: string;
+    confirmLockBreak?: boolean;
+    confirmMinimumBreak?: boolean;
     idempotencyKey?: string;
     userNotes?: string;
   }) =>
-    request<{ success: boolean; withdrawal: WithdrawalItem; balance: any }>('/api/user/withdrawals', {
+    request<{
+      success: boolean;
+      withdrawal?: WithdrawalItem;
+      balance?: UserBalanceSummary;
+      requiresOtp?: boolean;
+      requiresConfirmation?: boolean;
+      warningType?: 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
+      error?: string;
+    }>('/api/user/withdrawals', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

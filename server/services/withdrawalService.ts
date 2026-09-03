@@ -138,8 +138,8 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
   const netAmount = impact.netAmount;
   const reference = 'WD-' + Date.now().toString(36).toUpperCase();
 
-  const settings = await getSettings();
-  const lockDays = Number(settings.depositLockPeriodDays) || 30;
+  // Requirement 7: Do NOT automatically create a new 30-day lock merely because a withdrawal is made.
+  const lockDays = 0;
 
   // 3. Attempt Atomic PostgreSQL RPC Execution (Gold Standard for Atomicity & Financial Consistency)
   try {

@@ -178,6 +178,7 @@ export interface WithdrawalImpactResult {
   requiresMinimumBreakConfirmation: boolean;
   minimumBreakWarning?: string;
   projectedRemainingPrincipal: number;
+  minimumDepositAmount?: number;
 }
 
 /**
@@ -261,13 +262,13 @@ export async function checkWithdrawalImpactAsync(
     const isLockedPeriod = balance.depositLockedPrincipal > 0 || !balance.is30DaysOld || balance.isFundLocked;
     if (isLockedPeriod) {
       requiresLockBreakConfirmation = true;
-      lockBreakWarning = 'Your principal and earnings are currently locked for the 30-day period. Continuing this withdrawal will break your current compounding/earning cycle.';
+      lockBreakWarning = 'Your principal and earnings are currently locked for the 30-day period. If you continue with this withdrawal, your current compounding/earning cycle will be broken and daily earnings will stop according to the withdrawal rules.';
     }
 
-    // Check if remaining principal falls below the $300 minimum required for compounding/earnings
+    // Check if remaining principal falls below the configured minimum required for compounding/earnings
     if (projectedRemainingPrincipal < minDeposit && balance.activeCompoundingPrincipal >= minDeposit) {
       requiresMinimumBreakConfirmation = true;
-      minimumBreakWarning = 'Your withdrawal will reduce your eligible fund below the minimum required amount ($300). If you continue, daily earnings/compounding will stop.';
+      minimumBreakWarning = 'Your withdrawal will reduce your eligible fund below the minimum required amount. If you continue, daily earnings/compounding will stop.';
     }
   }
 
@@ -290,6 +291,7 @@ export async function checkWithdrawalImpactAsync(
     requiresMinimumBreakConfirmation,
     minimumBreakWarning,
     projectedRemainingPrincipal,
+    minimumDepositAmount: minDeposit,
   };
 }
 

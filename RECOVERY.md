@@ -13,6 +13,7 @@
 ### A. Point-in-Time Recovery (PITR)
 - **Engine**: Continuous Write-Ahead Logging (WAL) streaming and incremental snapshots provided natively by Supabase infrastructure.
 - **Granularity**: Second-level recovery capability (up to 7 or 30 days retention).
+- **Service Objectives**: Recovery Point Objective (RPO) <= 5m, Recovery Time Objective (RTO) <= 60m.
 - **Use Case**: Accidental data corruption, catastrophic administrator error, or faulty deployment.
 
 ### B. Automated Daily Physical Backups
@@ -60,7 +61,7 @@
 Before reopening user traffic, verify financial and relational integrity:
 
 1. **Reconcile User Balances vs Ledger Journal**:
-   - Run the automated test suite (`POST /api/tests/run` or via internal CLI) to verify that:
+   - Execute the database audit verification routine `SELECT verify_data_integrity();` or run the automated test suite (`POST /api/tests/run` or via internal CLI) to verify that:
      $$\text{Available Balance} = \sum(\text{Confirmed Deposits}) + \sum(\text{Credited Earnings}) - \sum(\text{Paid/Held Withdrawals}) + \sum(\text{Admin Adjustments})$$
 2. **Blockchain Transaction Hash Uniqueness**:
    - Confirm zero duplicate transaction hashes across `deposits` and `withdrawals`.

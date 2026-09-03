@@ -16,7 +16,8 @@ BEGIN
   ALTER TABLE IF EXISTS ledger ALTER COLUMN balance_after TYPE NUMERIC(18, 4);
   ALTER TABLE IF EXISTS earnings ALTER COLUMN earnings_amount TYPE NUMERIC(18, 4);
   ALTER TABLE IF EXISTS earnings ALTER COLUMN payout_amount TYPE NUMERIC(18, 4);
-  ALTER TABLE IF EXISTS earnings ALTER COLUMN principal_amount TYPE NUMERIC(18, 4);
+  ALTER TABLE IF EXISTS earnings ALTER COLUMN active_principal TYPE NUMERIC(18, 4);
+  ALTER TABLE IF EXISTS earnings ALTER COLUMN base_eligible_amount TYPE NUMERIC(18, 4);
   ALTER TABLE IF EXISTS earnings ALTER COLUMN rate_percentage TYPE NUMERIC(12, 6);
   ALTER TABLE IF EXISTS daily_performances ALTER COLUMN rate_percentage TYPE NUMERIC(12, 6);
   ALTER TABLE IF EXISTS daily_performances ALTER COLUMN applicable_rate TYPE NUMERIC(12, 6);

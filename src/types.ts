@@ -17,6 +17,8 @@ export interface UserProfile {
   lastWithdrawalAt?: string;
   referralCode?: string;
   referrerId?: string;
+  walletAddress?: string;
+  isTestUser?: boolean;
 }
 
 export interface UserBalanceSummary {
@@ -39,6 +41,33 @@ export interface UserBalanceSummary {
   fundLockRemainingDays: number;
   fundLockRemainingHours: number;
   fundLockReason?: string;
+  referralEarnings?: number;
+  activeCompoundingPrincipal?: number;
+  depositLockedPrincipal?: number;
+  withdrawalFeePercentage?: number;
+}
+
+export interface WithdrawalImpactResult {
+  canWithdraw: boolean;
+  error?: string;
+  availableBalance: number;
+  referralEarnings: number;
+  activeCompoundingPrincipal: number;
+  depositLockedPrincipal: number;
+  isFundLocked: boolean;
+  is30DaysOld: boolean;
+  requestedAmount: number;
+  feePercentage: number;
+  feeAmount: number;
+  netAmount: number;
+  isReferralOnly: boolean;
+  touchesProtectedFund: boolean;
+  requiresLockBreakConfirmation: boolean;
+  lockBreakWarning?: string;
+  requiresMinimumBreakConfirmation: boolean;
+  minimumBreakWarning?: string;
+  projectedRemainingPrincipal: number;
+  minimumDepositAmount?: number;
 }
 
 export interface DepositItem {
