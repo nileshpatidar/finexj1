@@ -24,6 +24,7 @@ export function mapDbReferralReward(rw: any): ReferralReward {
     percentage: Number(rw.percentage) || 0,
     reference: rw.reference,
     status: rw.status || 'credited',
+    rewardLevel: rw.reward_level || (rw.reference?.includes('L2') ? 2 : 1),
     notes: rw.notes || undefined,
     createdAt: rw.created_at || new Date().toISOString(),
   };
@@ -64,6 +65,73 @@ export async function getReferralsByReferrerId(referrerId: string): Promise<Refe
   } catch (err: any) {
     console.warn(`[Supabase Exception] getReferralsByReferrerId(${referrerId}):`, err?.message);
     return [];
+  }
+}
+
+export async function getReferralsByReferrerIdPaginated(
+  referrerId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<{ referrals: Referral[]; total: number }> {
+  try {
+    const supabase = getServerSupabase();
+    const dbReferrerId = await resolveUserIdForDb(referrerId);
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.max(1, Math.min(limit, 100));
+    const offset = (safePage - 1) * safeLimit;
+
+    const { data, count, error } = await supabase
+      .from('referrals')
+      .select('*', { count: 'exact' })
+      .eq('referrer_id', dbReferrerId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + safeLimit - 1);
+
+    if (error || !data) return { referrals: [], total: 0 };
+    return {
+      referrals: data.map(mapDbReferral),
+      total: count !== null && count !== undefined ? count : data.length,
+    };
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getReferralsByReferrerIdPaginated(${referrerId}):`, err?.message);
+    return { referrals: [], total: 0 };
+  }
+}
+
+export async function getReferralsCountByReferrerId(referrerId: string): Promise<number> {
+  try {
+    const supabase = getServerSupabase();
+    const dbReferrerId = await resolveUserIdForDb(referrerId);
+
+    const { count, error } = await supabase
+      .from('referrals')
+      .select('*', { count: 'exact', head: true })
+      .eq('referrer_id', dbReferrerId);
+
+    if (error) return 0;
+    return count || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function getRewardsSumForReferredUser(referrerId: string, referredId: string): Promise<number> {
+  try {
+    const supabase = getServerSupabase();
+    const dbReferrerId = await resolveUserIdForDb(referrerId);
+    const dbReferredId = await resolveUserIdForDb(referredId);
+
+    const { data, error } = await supabase
+      .from('referral_rewards')
+      .select('amount')
+      .eq('referrer_id', dbReferrerId)
+      .eq('referred_id', dbReferredId)
+      .eq('status', 'credited');
+
+    if (error || !data) return 0;
+    return Number(data.reduce((acc: number, item: any) => acc + (Number(item.amount) || 0), 0).toFixed(4));
+  } catch {
+    return 0;
   }
 }
 

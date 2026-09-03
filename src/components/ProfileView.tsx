@@ -11,10 +11,17 @@ import {
   Loader2,
   Check,
   Copy,
+  Users,
+  ChevronRight,
 } from 'lucide-react';
 
-export const ProfileView: React.FC = () => {
+interface ProfileViewProps {
+  onNavigate?: (view: string) => void;
+}
+
+export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
   const { user, logout, logoutAll, refreshUser } = useAuth();
+  const [copiedProfileRef, setCopiedProfileRef] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
@@ -163,6 +170,59 @@ export const ProfileView: React.FC = () => {
             <p className={`font-bold text-sm mt-0.5 ${accountAgeDays >= 30 ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}>
               {accountAgeDays >= 30 ? 'Eligible for Payout' : 'Maturity Pending'}
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Referral Credentials & Network Shortcut */}
+      <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+              Investor Referral Program
+            </h2>
+          </div>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+            2-TIER REWARDS
+          </span>
+        </div>
+
+        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
+          Receive 5% Level 1 direct rewards and 2% Level 2 indirect rewards when your referred investors make qualifying deposits (≥ 300 USDT). Referral rewards are non-compounding cash.
+        </p>
+
+        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <span className="text-[11px] font-semibold text-slate-500 uppercase">My Referral Code</span>
+            <p className="text-base font-mono font-black text-slate-900 dark:text-white tracking-wider mt-0.5">
+              {user?.referralCode || `FXJ-${user?.id?.padStart(4, '0') || '0000'}`}
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                const code = user?.referralCode || `FXJ-${user?.id?.padStart(4, '0') || '0000'}`;
+                navigator.clipboard.writeText(code);
+                setCopiedProfileRef(true);
+                setTimeout(() => setCopiedProfileRef(false), 2000);
+              }}
+              className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition cursor-pointer"
+            >
+              {copiedProfileRef ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedProfileRef ? 'Copied' : 'Copy Code'}</span>
+            </button>
+
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('referrals')}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
+              >
+                <span>Referral Dashboard</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>

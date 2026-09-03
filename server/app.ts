@@ -27,7 +27,14 @@ import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './
 import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync, checkWithdrawalImpactAsync } from './services/balanceService';
 import { processDepositAsync, updateDepositStatusAsync, verifyDepositOnChainAsync } from './services/depositService';
 import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync } from './services/withdrawalService';
-import { bindReferralAsync, getReferralSummaryAsync } from './services/referralService';
+import {
+  bindReferralAsync,
+  getReferralSummaryAsync,
+  getUserReferralSummaryAsync,
+  getUserLevel1ReferralsPaginatedAsync,
+  getUserLevel2ReferralsPaginatedAsync,
+  validateReferralCodeAsync,
+} from './services/referralService';
 import { getFraudSignals, resolveFraudSignal } from './services/fraudService';
 import { getReferralsByReferrerId } from './repositories/referrals';
 import { generateWithdrawalOtp } from './services/otpService';
@@ -1601,19 +1608,86 @@ app.get(['/api/referrals/my-network', '/referrals/my-network'], authMiddleware, 
   try {
     const user: User = (req as any).user;
     const summary = await getReferralSummaryAsync(user.id);
+    const userSummary = await getUserReferralSummaryAsync(user.id);
     
     res.json({
       success: true,
-      referralCode: summary.referralCode || user.referralCode || `FXJ-${user.id.padStart(4, '0')}`,
+      referralCode: userSummary.referralCode,
+      referralLink: userSummary.referralLink,
       referrerId: user.referrerId,
-      totalReferred: summary.totalReferredCount,
-      level1Count: summary.level1Count,
-      level2Count: summary.level2Count,
-      totalRewardsEarned: summary.totalRewardsEarned,
-      level1RewardsEarned: summary.level1RewardsEarned,
-      level2RewardsEarned: summary.level2RewardsEarned,
+      totalReferred: userSummary.totalReferrals,
+      level1Count: userSummary.level1Referrals,
+      level2Count: userSummary.level2Referrals,
+      totalRewardsEarned: userSummary.totalReferralIncome,
+      level1RewardsEarned: userSummary.level1Income,
+      level2RewardsEarned: userSummary.level2Income,
+      eligibleDepositPrincipal: userSummary.eligibleDepositPrincipal,
+      summary: userSummary,
       referrals: summary.referrals,
       recentRewards: summary.recentRewards,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Authoritative User Referral Summary
+app.get(['/api/referrals/summary', '/referrals/summary'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const summary = await getUserReferralSummaryAsync(user.id);
+    res.json({
+      success: true,
+      summary,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Paginated Level 1 Referrals
+app.get(['/api/referrals/level1', '/referrals/level1'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 10;
+    
+    const result = await getUserLevel1ReferralsPaginatedAsync(user.id, page, limit);
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Paginated Level 2 Referrals (grouped or specific to Level 1 user)
+app.get(['/api/referrals/level2', '/referrals/level2'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const level1UserId = req.query.level1UserId ? String(req.query.level1UserId) : undefined;
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 10;
+    
+    const result = await getUserLevel2ReferralsPaginatedAsync(user.id, level1UserId, page, limit);
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Public Referral Code Validation (for signup flow)
+app.get(['/api/referrals/validate/:code', '/referrals/validate/:code'], async (req, res, next) => {
+  try {
+    const code = req.params.code;
+    const result = await validateReferralCodeAsync(code);
+    res.json({
+      success: true,
+      ...result,
     });
   } catch (err) {
     next(err);

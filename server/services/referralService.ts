@@ -1,5 +1,14 @@
 import { getServerSupabase } from '../supabase';
-import { User, Referral, ReferralReward } from '../types';
+import {
+  User,
+  Referral,
+  ReferralReward,
+  UserReferralSummary,
+  Level1ReferralItem,
+  Level2ReferralItem,
+  PaginatedLevel1ReferralsResponse,
+  PaginatedLevel2ReferralsResponse,
+} from '../types';
 import { getProfileById, getProfileByReferralCode, updateProfile } from '../repositories/profiles';
 import {
   getReferralByReferredId,
@@ -7,6 +16,9 @@ import {
   getReferralRewardByDepositId,
   createReferralReward,
   getReferralsByReferrerId,
+  getReferralsByReferrerIdPaginated,
+  getReferralsCountByReferrerId,
+  getRewardsSumForReferredUser,
   getReferralRewardsByReferrerId,
 } from '../repositories/referrals';
 import { createLedgerEntry } from '../repositories/ledger';
@@ -409,4 +421,303 @@ function maskEmail(email: string): string {
   const [local, domain] = email.split('@');
   if (local.length <= 2) return `${local[0]}*@${domain}`;
   return `${local[0]}***${local[local.length - 1]}@${domain}`;
+}
+
+/**
+ * Authoritative user referral summary with separate referral income vs compounding principal.
+ * Backend-calculated exclusively.
+ */
+export async function getUserReferralSummaryAsync(userId: string): Promise<UserReferralSummary> {
+  const user = await getProfileById(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const referralCode = user.referralCode || `FXJ-${user.id.substring(0, 6).toUpperCase()}`;
+
+  // 1. Level 1 count
+  const l1Referrals = await getReferralsByReferrerId(userId);
+  const level1Referrals = l1Referrals.length;
+  const l1UserIds = l1Referrals.map(r => r.referredId);
+
+  // 2. Level 2 count (derived directly from database relationships)
+  let level2Referrals = 0;
+  for (const l1Id of l1UserIds) {
+    try {
+      const count = await getReferralsCountByReferrerId(l1Id);
+      level2Referrals += count;
+    } catch {
+      // Continue
+    }
+  }
+
+  // 3. User Referral Rewards earned
+  const rewards = await getReferralRewardsByReferrerId(userId);
+  let level1Income = 0;
+  let level2Income = 0;
+
+  for (const r of rewards) {
+    const isL2 = r.rewardLevel === 2 || r.reference?.includes('L2');
+    if (isL2) {
+      level2Income += Number(r.amount) || 0;
+    } else {
+      level1Income += Number(r.amount) || 0;
+    }
+  }
+
+  const totalReferralIncome = Number((level1Income + level2Income).toFixed(4));
+
+  // 4. Compounding principal strictly separate from referral income
+  const balance = await calculateUserBalanceAsync(userId);
+  const eligibleDepositPrincipal = balance.totalDeposited;
+
+  return {
+    referralCode,
+    referralLink: `/register?ref=${encodeURIComponent(referralCode)}`,
+    totalReferrals: level1Referrals + level2Referrals,
+    level1Referrals,
+    level2Referrals,
+    totalReferralIncome,
+    level1Income: Number(level1Income.toFixed(4)),
+    level2Income: Number(level2Income.toFixed(4)),
+    eligibleDepositPrincipal,
+  };
+}
+
+/**
+ * Paginated Level 1 referrals with strict privacy protection.
+ * Exposes ONLY: Surname, Name, Referral status, Qualifying status, Reward income earned for caller, Sub-referrals count, Joined date.
+ * NEVER exposes: email, phone, wallet, balance, deposit amount, or private transactions.
+ */
+export async function getUserLevel1ReferralsPaginatedAsync(
+  userId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<PaginatedLevel1ReferralsResponse> {
+  const safePage = Math.max(1, page);
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const { referrals, total } = await getReferralsByReferrerIdPaginated(userId, safePage, safeLimit);
+  const settings = await getSettings();
+  const minDeposit = Number(settings.minimumDepositAmount) || 300.0;
+
+  const items: Level1ReferralItem[] = [];
+
+  for (const ref of referrals) {
+    try {
+      const p = await getProfileById(ref.referredId);
+      if (!p) continue;
+
+      // Extract Name and Surname strictly without exposing email
+      const nameParts = (p.fullName || 'Investor Member').trim().split(/\s+/);
+      const name = nameParts[0] || 'Investor';
+      const surname = nameParts.slice(1).join(' ') || (nameParts.length > 1 ? nameParts[1] : '—');
+
+      // Check qualification: either reward credited or confirmed deposit >= minDeposit
+      const rewardEarned = await getRewardsSumForReferredUser(userId, p.id);
+      const pBalance = await calculateUserBalanceAsync(p.id);
+      const isQualified = rewardEarned > 0 || (pBalance.totalDeposited >= minDeposit);
+
+      // Sub-referrals count under this Level 1 member (Level 2 for the caller)
+      const level2Count = await getReferralsCountByReferrerId(p.id);
+
+      items.push({
+        id: p.id,
+        name,
+        surname,
+        status: p.status === 'active' ? 'Active' : 'Pending',
+        isQualified,
+        rewardEarned,
+        level2Count,
+        joinedAt: ref.createdAt,
+      });
+    } catch (err: any) {
+      logger.warn('LEVEL1_MAP_WARN', `Error mapping L1 ref ${ref.id}: ${err?.message}`);
+    }
+  }
+
+  return {
+    items,
+    page: safePage,
+    limit: safeLimit,
+    totalCount: total,
+    totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+}
+
+/**
+ * Paginated Level 2 referrals grouped under a Level 1 referrer (or across all Level 1 referrers).
+ * Security: Validates that level1UserId actually belongs to the authenticated caller's direct Level 1 referrals!
+ * Exposes ONLY: Surname, Name, Referral status, Qualifying status, Reward income earned for caller, Level 1 referrer info, Joined date.
+ * NEVER exposes: email, phone, wallet, balance, deposit amount, or private transactions.
+ */
+export async function getUserLevel2ReferralsPaginatedAsync(
+  userId: string,
+  level1UserId?: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<PaginatedLevel2ReferralsResponse> {
+  const settings = await getSettings();
+  const minDeposit = Number(settings.minimumDepositAmount) || 300.0;
+  const safePage = Math.max(1, page);
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+
+  let targetL1Referrers: { id: string; name: string; surname: string }[] = [];
+
+  if (level1UserId) {
+    // 1. Strict Security Validation: Ensure level1UserId is a direct referral of userId
+    const l1Referrals = await getReferralsByReferrerId(userId);
+    const isValidL1 = l1Referrals.some(r => String(r.referredId) === String(level1UserId));
+    if (!isValidL1) {
+      throw new Error('Access denied: Specified member is not in your direct Level 1 network.');
+    }
+
+    const l1Profile = await getProfileById(level1UserId);
+    const l1Parts = (l1Profile?.fullName || 'Investor Member').trim().split(/\s+/);
+    targetL1Referrers.push({
+      id: level1UserId,
+      name: l1Parts[0] || 'Investor',
+      surname: l1Parts.slice(1).join(' ') || '—',
+    });
+  } else {
+    // Fetch all L1 referrals for this user
+    const l1List = await getReferralsByReferrerId(userId);
+    for (const ref of l1List) {
+      const p = await getProfileById(ref.referredId);
+      if (p) {
+        const parts = (p.fullName || 'Investor Member').trim().split(/\s+/);
+        targetL1Referrers.push({
+          id: p.id,
+          name: parts[0] || 'Investor',
+          surname: parts.slice(1).join(' ') || '—',
+        });
+      }
+    }
+  }
+
+  if (targetL1Referrers.length === 0) {
+    return {
+      items: [],
+      page: safePage,
+      limit: safeLimit,
+      totalCount: 0,
+      totalPages: 1,
+      level1ReferrerId: level1UserId,
+    };
+  }
+
+  // If single level1UserId specified, paginate directly
+  if (level1UserId && targetL1Referrers.length === 1) {
+    const l1 = targetL1Referrers[0];
+    const { referrals, total } = await getReferralsByReferrerIdPaginated(level1UserId, safePage, safeLimit);
+    const items: Level2ReferralItem[] = [];
+
+    for (const ref of referrals) {
+      try {
+        const p = await getProfileById(ref.referredId);
+        if (!p) continue;
+
+        const nameParts = (p.fullName || 'Investor Member').trim().split(/\s+/);
+        const rewardEarned = await getRewardsSumForReferredUser(userId, p.id);
+        const pBalance = await calculateUserBalanceAsync(p.id);
+        const isQualified = rewardEarned > 0 || (pBalance.totalDeposited >= minDeposit);
+
+        items.push({
+          id: p.id,
+          name: nameParts[0] || 'Investor',
+          surname: nameParts.slice(1).join(' ') || (nameParts.length > 1 ? nameParts[1] : '—'),
+          status: p.status === 'active' ? 'Active' : 'Pending',
+          isQualified,
+          rewardEarned,
+          joinedAt: ref.createdAt,
+          level1ReferrerId: l1.id,
+          level1ReferrerName: `${l1.name} ${l1.surname}`.trim(),
+        });
+      } catch (err: any) {
+        logger.warn('LEVEL2_MAP_WARN', `Error mapping L2 ref ${ref.id}: ${err?.message}`);
+      }
+    }
+
+    return {
+      items,
+      page: safePage,
+      limit: safeLimit,
+      totalCount: total,
+      totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+      level1ReferrerId: l1.id,
+      level1ReferrerName: `${l1.name} ${l1.surname}`.trim(),
+    };
+  }
+
+  // Across all L1 referrers (overview)
+  const allL2Referrals: Array<{ ref: any; l1: { id: string; name: string; surname: string } }> = [];
+  for (const l1 of targetL1Referrers) {
+    const subList = await getReferralsByReferrerId(l1.id);
+    for (const sub of subList) {
+      allL2Referrals.push({ ref: sub, l1 });
+    }
+  }
+
+  const total = allL2Referrals.length;
+  const offset = (safePage - 1) * safeLimit;
+  const pageSlice = allL2Referrals.slice(offset, offset + safeLimit);
+
+  const items: Level2ReferralItem[] = [];
+  for (const entry of pageSlice) {
+    try {
+      const p = await getProfileById(entry.ref.referredId);
+      if (!p) continue;
+
+      const nameParts = (p.fullName || 'Investor Member').trim().split(/\s+/);
+      const rewardEarned = await getRewardsSumForReferredUser(userId, p.id);
+      const pBalance = await calculateUserBalanceAsync(p.id);
+      const isQualified = rewardEarned > 0 || (pBalance.totalDeposited >= minDeposit);
+
+      items.push({
+        id: p.id,
+        name: nameParts[0] || 'Investor',
+        surname: nameParts.slice(1).join(' ') || (nameParts.length > 1 ? nameParts[1] : '—'),
+        status: p.status === 'active' ? 'Active' : 'Pending',
+        isQualified,
+        rewardEarned,
+        joinedAt: entry.ref.createdAt,
+        level1ReferrerId: entry.l1.id,
+        level1ReferrerName: `${entry.l1.name} ${entry.l1.surname}`.trim(),
+      });
+    } catch (err: any) {
+      logger.warn('LEVEL2_MAP_WARN', `Error mapping L2 item: ${err?.message}`);
+    }
+  }
+
+  return {
+    items,
+    page: safePage,
+    limit: safeLimit,
+    totalCount: total,
+    totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+}
+
+/**
+ * Validates a referral code (for registration preview / check).
+ */
+export async function validateReferralCodeAsync(code: string): Promise<{ valid: boolean; referrerName?: string; error?: string }> {
+  if (!code || !code.trim()) {
+    return { valid: false, error: 'Referral code is required.' };
+  }
+  const cleanCode = code.trim().toUpperCase();
+  const settings = await getSettings();
+  const companyCode = (settings.companyReferralCode || 'FINEXJ').toUpperCase();
+
+  if (cleanCode === companyCode) {
+    return { valid: true, referrerName: 'FINEXJ Official' };
+  }
+
+  const referrer = await getProfileByReferralCode(cleanCode);
+  if (!referrer) {
+    return { valid: false, error: 'Referral code not found or invalid.' };
+  }
+
+  const parts = (referrer.fullName || 'Investor').trim().split(/\s+/);
+  const maskedName = `${parts[0]} ${parts.slice(1).map(s => s[0] + '.').join(' ') || ''}`.trim();
+  return { valid: true, referrerName: maskedName };
 }

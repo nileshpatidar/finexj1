@@ -14,6 +14,9 @@ import {
   FinexjOperationalSummary,
   ReferralAccountingSummary,
   AdminLedgerResponse,
+  UserReferralSummary,
+  PaginatedLevel1ReferralsResponse,
+  PaginatedLevel2ReferralsResponse,
 } from '../types';
 
 const API_BASE = '';
@@ -286,4 +289,28 @@ export const api = {
     if (params?.maxAmount !== undefined) query.set('maxAmount', String(params.maxAmount));
     return request<{ success: boolean } & AdminLedgerResponse>(`/api/admin/accounting/ledger?${query.toString()}`);
   },
+
+  // User Referral Dashboard APIs
+  getUserReferralSummary: () =>
+    request<{ success: boolean; summary: UserReferralSummary }>('/api/referrals/summary'),
+
+  getLevel1Referrals: (page: number = 1, limit: number = 10) =>
+    request<{ success: boolean; data: PaginatedLevel1ReferralsResponse }>(
+      `/api/referrals/level1?page=${page}&limit=${limit}`
+    ),
+
+  getLevel2Referrals: (params?: { level1UserId?: string; page?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.level1UserId) query.set('level1UserId', params.level1UserId);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    return request<{ success: boolean; data: PaginatedLevel2ReferralsResponse }>(
+      `/api/referrals/level2?${query.toString()}`
+    );
+  },
+
+  validateReferralCode: (code: string) =>
+    request<{ success: boolean; valid: boolean; referrerName?: string; error?: string }>(
+      `/api/referrals/validate/${encodeURIComponent(code)}`
+    ),
 };

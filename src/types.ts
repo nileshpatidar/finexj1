@@ -275,6 +275,59 @@ export interface FinexjOperationalSummary {
   recentEntries: FinexjOperationalEntry[];
 }
 
+export interface UserReferralSummary {
+  referralCode: string;
+  referralLink: string;
+  totalReferrals: number;
+  level1Referrals: number;
+  level2Referrals: number;
+  totalReferralIncome: number;
+  level1Income: number;
+  level2Income: number;
+  eligibleDepositPrincipal: number; // Strictly separated from referral income
+}
+
+export interface Level1ReferralItem {
+  id: string;
+  name: string;
+  surname: string;
+  status: string;
+  isQualified: boolean;
+  rewardEarned: number; // Income generated for the current user
+  level2Count: number; // Sub-referrals count under this L1 member
+  joinedAt: string;
+}
+
+export interface Level2ReferralItem {
+  id: string;
+  name: string;
+  surname: string;
+  status: string;
+  isQualified: boolean;
+  rewardEarned: number; // Income generated for the current user
+  joinedAt: string;
+  level1ReferrerId: string;
+  level1ReferrerName: string;
+}
+
+export interface PaginatedLevel1ReferralsResponse {
+  items: Level1ReferralItem[];
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+export interface PaginatedLevel2ReferralsResponse {
+  items: Level2ReferralItem[];
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+  level1ReferrerName?: string;
+  level1ReferrerId?: string;
+}
+
 export interface ReferralAccountingSummary {
   totalRewardsCount: number;
   totalRewardsAmount: number;

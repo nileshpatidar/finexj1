@@ -16,6 +16,7 @@ import {
   ChevronRight,
   HelpCircle,
   Zap,
+  Users,
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -314,6 +315,33 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* Managed Fund & Earning Plan Section */}
       <InvestmentPlanSection onOpenDetailedModal={() => setIsPlanModalOpen(true)} />
+
+      {/* Referral Program Banner */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+            <Users className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <span>Referral Network & Rewards</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                5% L1 / 2% L2
+              </span>
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Earn direct rewards upon qualifying confirmed deposits (≥ 300 USDT). Separate from compounding principal.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => onNavigate('referrals')}
+          className="inline-flex items-center justify-center space-x-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition cursor-pointer self-start sm:self-auto flex-shrink-0"
+        >
+          <span>My Referral Dashboard</span>
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
       {/* Recent Activity List */}
       <div className="space-y-3">

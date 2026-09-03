@@ -11,7 +11,10 @@ import {
   Loader2,
   Shield,
   XCircle,
+  Gift,
+  CheckCircle2,
 } from 'lucide-react';
+import { api } from '../services/api';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -27,10 +30,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [country, setCountry] = useState('United States');
+  const [referralCode, setReferralCode] = useState('');
+  const [referrerVerifiedName, setReferrerVerifiedName] = useState<string | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [require2FA, setRequire2FA] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Auto-detect referral code from URL query (?ref= or ?referral=)
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get('ref') || params.get('referral');
+      if (ref) {
+        setReferralCode(ref.toUpperCase());
+        setMode('register');
+        api.validateReferralCode(ref)
+          .then(res => {
+            if (res?.valid && res?.referrerName) {
+              setReferrerVerifiedName(res.referrerName);
+            }
+          })
+          .catch(() => {});
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
 
   if (!isOpen) return null;
 
@@ -60,6 +86,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
           country,
           password,
           confirmPassword,
+          referralCode: referralCode.trim() ? referralCode.trim().toUpperCase() : undefined,
         });
       }
     } catch (err) {
@@ -234,21 +261,63 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
           </div>
 
           {mode === 'register' && (
-            <div>
-              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Confirm Password</label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  required
-                  disabled={isCurrentModeDisabled}
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat password"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-xs font-medium focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition disabled:opacity-50"
-                />
+            <>
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Confirm Password</label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="password"
+                    required
+                    disabled={isCurrentModeDisabled}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Repeat password"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-xs font-medium focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition disabled:opacity-50"
+                  />
+                </div>
               </div>
-            </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold">
+                    Referral Code <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  {referrerVerifiedName && (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Referred by {referrerVerifiedName}
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <Gift className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    disabled={isCurrentModeDisabled}
+                    value={referralCode}
+                    onChange={e => {
+                      const code = e.target.value.toUpperCase();
+                      setReferralCode(code);
+                      if (code.trim().length >= 4) {
+                        api.validateReferralCode(code)
+                          .then(res => {
+                            if (res?.valid && res?.referrerName) {
+                              setReferrerVerifiedName(res.referrerName);
+                            } else {
+                              setReferrerVerifiedName(null);
+                            }
+                          })
+                          .catch(() => setReferrerVerifiedName(null));
+                      } else {
+                        setReferrerVerifiedName(null);
+                      }
+                    }}
+                    placeholder="e.g. FXJ12345 or FINEXJ"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-xs font-mono font-medium focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition disabled:opacity-50"
+                  />
+                </div>
+              </div>
+            </>
           )}
 
           {require2FA && (

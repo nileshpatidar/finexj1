@@ -12,6 +12,7 @@ import { EarningsView } from './components/EarningsView';
 import { WithdrawView } from './components/WithdrawView';
 import { ProfileView } from './components/ProfileView';
 import { TransactionsView } from './components/TransactionsView';
+import { ReferralView } from './components/ReferralView';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SupportModal } from './components/SupportModal';
 import { AuthModal } from './components/AuthModal';
@@ -135,7 +136,9 @@ const AppContent: React.FC = () => {
 
             {currentView === 'transactions' && <TransactionsView />}
 
-            {currentView === 'profile' && <ProfileView />}
+            {currentView === 'referrals' && <ReferralView />}
+
+            {currentView === 'profile' && <ProfileView onNavigate={setCurrentView} />}
           </>
         )}
       </main>
