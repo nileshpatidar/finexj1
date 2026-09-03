@@ -10,6 +10,10 @@ import {
   UserProfile,
   SystemHealthStats,
   SystemLogItem,
+  AdminAccountingSummary,
+  FinexjOperationalSummary,
+  ReferralAccountingSummary,
+  AdminLedgerResponse,
 } from '../types';
 
 const API_BASE = '';
@@ -237,4 +241,49 @@ export const api = {
     request<{ success: boolean; report: any }>('/api/admin/health/cleanup', {
       method: 'POST',
     }),
+
+  // FINEXJ Accounting & Operational Fund (Step 5)
+  getAccountingSummary: (params?: { period?: string; startDate?: string; endDate?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.period) query.set('period', params.period);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    return request<{ success: boolean; accounting: AdminAccountingSummary }>(`/api/admin/accounting/summary?${query.toString()}`);
+  },
+
+  getOperationalFundSummary: () =>
+    request<{ success: boolean; summary: FinexjOperationalSummary }>('/api/admin/operational-fund'),
+
+  adjustOperationalFund: (payload: { amount: number; direction: 'inflow' | 'outflow'; reason: string; reference?: string }) =>
+    request<{ success: boolean; entry: any; message: string }>('/api/admin/operational-fund/adjust', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getReferralAccounting: () =>
+    request<{ success: boolean; referralAccounting: ReferralAccountingSummary }>('/api/admin/accounting/referrals'),
+
+  getAdminLedger: (params?: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    userId?: string;
+    reference?: string;
+    startDate?: string;
+    endDate?: string;
+    minAmount?: number;
+    maxAmount?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.type) query.set('type', params.type);
+    if (params?.userId) query.set('userId', params.userId);
+    if (params?.reference) query.set('reference', params.reference);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    if (params?.minAmount !== undefined) query.set('minAmount', String(params.minAmount));
+    if (params?.maxAmount !== undefined) query.set('maxAmount', String(params.maxAmount));
+    return request<{ success: boolean } & AdminLedgerResponse>(`/api/admin/accounting/ledger?${query.toString()}`);
+  },
 };

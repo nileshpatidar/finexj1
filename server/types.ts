@@ -254,17 +254,90 @@ export interface FinexjOperationalSummary {
   recentEntries: FinexjOperationalEntry[];
 }
 
+export interface ReferralAccountingSummary {
+  totalRewardsCount: number;
+  totalRewardsAmount: number;
+  level1RewardsAmount: number;
+  level2RewardsAmount: number;
+  uniqueReferrersCount: number;
+  totalReferralsCount: number;
+  qualifyingReferralsCount: number;
+  todayRewardsAmount: number;
+  recentRewards: {
+    id: string;
+    referrerId: string;
+    referrerEmail?: string;
+    referredId: string;
+    referredEmail?: string;
+    rewardLevel: number;
+    qualifyingDepositAmount: number;
+    depositId?: string;
+    rewardPercentage: number;
+    amount: number;
+    status: string;
+    createdAt: string;
+  }[];
+}
+
+export interface AccountingTodayBreakdown {
+  deposits: number;
+  dailyEarnings: number;
+  referralRewardsL1: number;
+  referralRewardsL2: number;
+  totalReferralRewards: number;
+  withdrawals: number;
+  withdrawalFees: number;
+  finexjRetainedFees: number;
+  operationalAdjustments: number;
+}
+
 export interface AdminAccountingSummary {
-  totalDeposited: number;
-  totalWithdrawn: number;
-  totalFeesCollected: number;
-  totalReferralRewardsPaid: number;
+  // Top summary cards
+  totalDeposited: number; // A. TOTAL CONFIRMED DEPOSITS
+  activeCompoundingPrincipal: number; // B. TOTAL ELIGIBLE USER PRINCIPAL
+  totalDailyEarningsDistributed: number; // C. DAILY EARNINGS CREDITED
+  totalReferralRewardsPaid: number; // D. REFERRAL REWARDS DISTRIBUTED
   totalReferralRewardsL1: number;
   totalReferralRewardsL2: number;
-  totalDailyEarningsDistributed: number;
-  operationalFundBalance: number;
+  qualifyingReferralsCount: number;
+  totalWithdrawn: number; // E. TOTAL USER WITHDRAWALS (gross requested)
+  totalNetPayout: number; // Net paid out
+  totalFeesCollected: number; // F. TOTAL WITHDRAWAL FEES
+  finexjRetainedFees: number; // G. FINEXJ RETAINED FEE INCOME
+  withdrawalFeePercentage: number; // Configured fee % (e.g. 9.0)
+  operationalFundBalance: number; // H. FINEXJ OPERATIONAL FUND
+  operationalFundInflow: number;
+  operationalFundOutflow: number;
   totalUserAvailableBalances: number;
-  activeCompoundingPrincipal: number;
+  expectedAccountingPosition: number;
+  reconciliationDifference: number; // I. RECONCILIATION DIFFERENCE
+  reconciliationStatus: 'BALANCED' | 'REQUIRES_REVIEW';
+  todayBreakdown: AccountingTodayBreakdown;
+  period: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface AdminLedgerItem {
+  id: string;
+  timestamp: string;
+  category: 'DEPOSIT' | 'DAILY_EARNING' | 'REFERRAL_REWARD_L1' | 'REFERRAL_REWARD_L2' | 'WITHDRAWAL' | 'WITHDRAWAL_FEE' | 'FINEXJ_OPERATIONAL_ADJUSTMENT';
+  type: string;
+  amount: number;
+  userId?: string;
+  userEmail?: string;
+  reference?: string;
+  balanceAfter?: number;
+  description: string;
+  metadata?: Record<string, any>;
+}
+
+export interface AdminLedgerResponse {
+  entries: AdminLedgerItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export interface FraudSignal {

@@ -30,7 +30,9 @@ import {
   Activity,
   Lock,
   ChevronDown,
+  Landmark,
 } from 'lucide-react';
+import { AdminAccountingView } from './AdminAccountingView';
 
 interface AdminDashboardProps {
   onBackToUser?: () => void;
@@ -38,7 +40,7 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'accounting' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'settings'>('overview');
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [deposits, setDeposits] = useState<any[]>([]);
@@ -326,6 +328,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
       <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
         {[
           { id: 'overview', label: 'Overview', icon: TrendingUp },
+          ...(user?.role === 'super_admin' ? [{ id: 'accounting', label: 'FINEXJ Accounting', icon: Landmark }] : []),
           { id: 'deposits', label: 'Deposits', icon: ArrowDownToLine },
           { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpFromLine },
           { id: 'users', label: 'Users', icon: Users },
@@ -923,6 +926,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
           </div>
         </div>
       )}
+
+      {/* TAB: FINEXJ ACCOUNTING */}
+      {activeTab === 'accounting' && <AdminAccountingView />}
 
       {/* TAB: DEPOSITS */}
       {activeTab === 'deposits' && (

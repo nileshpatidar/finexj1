@@ -32,7 +32,7 @@ import { getFraudSignals, resolveFraudSignal } from './services/fraudService';
 import { getReferralsByReferrerId } from './repositories/referrals';
 import { generateWithdrawalOtp } from './services/otpService';
 import { getOperationalFundSummaryAsync, adjustOperationalFundAsync } from './services/operationalFundService';
-import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync } from './services/accountingService';
+import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync, getAdminLedgerAsync } from './services/accountingService';
 import { applyDailyPerformanceAsync } from './services/performanceService';
 import { getSignedDepositProofUrl } from './storage';
 import { verifyBEP20Deposit, isValidBEP20Address, isValidTxHash } from './blockchain';
@@ -1621,7 +1621,7 @@ app.get(['/api/referrals/my-network', '/referrals/my-network'], authMiddleware, 
 });
 
 // Admin Operational Fund Summary (Tracks 9% fee retained & company capital)
-app.get(['/api/admin/operational-fund', '/admin/operational-fund'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+app.get(['/api/admin/operational-fund', '/admin/operational-fund'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
   try {
     const summary = await getOperationalFundSummaryAsync();
     res.json({
@@ -1665,9 +1665,14 @@ app.post(['/api/admin/operational-fund/adjust', '/admin/operational-fund/adjust'
 });
 
 // Admin Overall Financial Accounting & Reconciliation Summary
-app.get(['/api/admin/accounting/summary', '/admin/accounting/summary'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+app.get(['/api/admin/accounting/summary', '/admin/accounting/summary'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
   try {
-    const summary = await getAccountingSummaryAsync();
+    const { period, startDate, endDate } = req.query;
+    const summary = await getAccountingSummaryAsync({
+      period: period as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+    });
     res.json({
       success: true,
       accounting: summary,
@@ -1678,12 +1683,36 @@ app.get(['/api/admin/accounting/summary', '/admin/accounting/summary'], authMidd
 });
 
 // Admin Referral Program Accounting Breakdown
-app.get(['/api/admin/accounting/referrals', '/admin/accounting/referrals'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+app.get(['/api/admin/accounting/referrals', '/admin/accounting/referrals'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
   try {
     const summary = await getReferralAccountingSummaryAsync();
     res.json({
       success: true,
       referralAccounting: summary,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin General Ledger Stream (Filtered & Paginated)
+app.get(['/api/admin/accounting/ledger', '/admin/accounting/ledger'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+  try {
+    const { page, limit, type, userId, reference, startDate, endDate, minAmount, maxAmount } = req.query;
+    const ledgerData = await getAdminLedgerAsync({
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 25,
+      type: type as string,
+      userId: userId as string,
+      reference: reference as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+      minAmount: minAmount ? parseFloat(minAmount as string) : undefined,
+      maxAmount: maxAmount ? parseFloat(maxAmount as string) : undefined,
+    });
+    res.json({
+      success: true,
+      ...ledgerData,
     });
   } catch (err) {
     next(err);
