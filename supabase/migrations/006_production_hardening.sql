@@ -3,6 +3,9 @@
 -- Withdrawal State Machine, Database Integrity Constraints & Concurrency Protection
 -- ==============================================================================
 
+-- Safely drop compatibility view before altering daily_performances column types
+DROP VIEW IF EXISTS daily_performance;
+
 DO $$
 BEGIN
   -- 1. Ensure all financial columns use PostgreSQL NUMERIC(18, 4) precision
@@ -24,6 +27,16 @@ BEGIN
   ALTER TABLE IF EXISTS daily_performances ALTER COLUMN actual_fund_performance TYPE NUMERIC(12, 6);
   ALTER TABLE IF EXISTS daily_performances ALTER COLUMN overall_fund_amount TYPE NUMERIC(18, 4);
 END $$;
+
+-- Recreate compatibility view with updated daily_performances column definitions
+CREATE OR REPLACE VIEW daily_performance AS 
+SELECT 
+  id, date, rate_percentage, applicable_rate, trading_profit_percentage,
+  gold_reserves_percentage, total_yield_percentage, is_yield_day,
+  overall_fund_amount, total_fund_principal, actual_fund_performance,
+  total_yield_distributed, applied_count, notes, distributed_by,
+  created_by, distributed_at, created_at, updated_at
+FROM daily_performances;
 
 -- 2. Unique Constraints & Anti-Replay Indexes (Case-Insensitive for hashes and emails)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_uniq ON users (LOWER(TRIM(email)));
