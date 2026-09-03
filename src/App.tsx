@@ -69,6 +69,13 @@ const AppContent: React.FC = () => {
     }
   }, [token, user, fetchDashboard]);
 
+  // Revalidate fresh dashboard balances whenever navigating back to home
+  useEffect(() => {
+    if (currentView === 'home' && token && user && user.role === 'user') {
+      fetchDashboard();
+    }
+  }, [currentView, token, user, fetchDashboard]);
+
   // Handle URL hash / back navigation
   useEffect(() => {
     const handleHashChange = () => {
@@ -121,6 +128,7 @@ const AppContent: React.FC = () => {
                 onNavigate={setCurrentView}
                 onOpenSupport={() => setIsSupportOpen(true)}
                 isLoading={isLoadingDashboard}
+                onRefresh={fetchDashboard}
               />
             )}
 

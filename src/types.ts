@@ -225,6 +225,9 @@ export interface DashboardResponse {
   todayEarnings: number;
   recentActivity: LedgerItem[];
   marketPrices: MarketPrice;
+  settings?: AppSettings;
+  referralSummary?: UserReferralSummary;
+  activePendingWithdrawal?: WithdrawalItem | null;
   serverTime: string;
 }
 

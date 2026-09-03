@@ -755,17 +755,37 @@ app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (re
 app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const [balanceSummary, ledger, earnings, marketPrices, settings] = await Promise.all([
+    const [balanceSummary, ledger, earnings, marketPrices, settings, referralSummary, withdrawals] = await Promise.all([
       calculateUserBalanceAsync(user.id),
       getLedgerByUserId(user.id),
       getEarningsByUserId(user.id),
       getMarketPrices(),
       getSettings(),
+      getUserReferralSummaryAsync(user.id),
+      getWithdrawalsByUserId(user.id),
     ]);
 
     const todayStr = new Date().toISOString().split('T')[0];
     const todayEarning = earnings.find(e => e.performanceDate === todayStr);
     const todayEarningsAmount = todayEarning ? todayEarning.earningsAmount : 0;
+
+    const pendingWithdrawal = withdrawals.find(w =>
+      ['pending', 'under_review', 'approved', 'processing'].includes(w.status)
+    ) || null;
+
+    const sanitizedPendingWithdrawal = pendingWithdrawal ? {
+      id: pendingWithdrawal.id,
+      reference: pendingWithdrawal.reference,
+      userId: user.id,
+      requestedAmount: pendingWithdrawal.requestedAmount,
+      feePercentage: pendingWithdrawal.feePercentage,
+      feeAmount: pendingWithdrawal.feeAmount,
+      netAmount: pendingWithdrawal.netAmount,
+      destinationAddress: pendingWithdrawal.destinationAddress,
+      network: pendingWithdrawal.network,
+      status: pendingWithdrawal.status,
+      createdAt: pendingWithdrawal.createdAt,
+    } : null;
 
     res.json({
       user: {
@@ -780,6 +800,8 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
       todayEarnings: todayEarningsAmount,
       recentActivity: ledger.slice(0, 5),
       marketPrices,
+      referralSummary,
+      activePendingWithdrawal: sanitizedPendingWithdrawal,
       settings: {
         bep20DepositAddress: settings.bep20DepositAddress,
         usdtContractAddress: settings.usdtContractAddress,
@@ -790,6 +812,7 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
         depositLockPeriodDays: settings.depositLockPeriodDays,
         telegramSupportUrl: settings.telegramSupportUrl,
         operationalWalletAddress: settings.operationalWalletAddress,
+        compoundingEnabled: settings.compoundingEnabled !== false,
       },
       serverTime: new Date().toISOString(),
     });
