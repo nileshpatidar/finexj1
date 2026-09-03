@@ -32,15 +32,6 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
   message?: string;
   error?: string;
 }> {
-  const user = await getProfileById(input.userId);
-  if (!user) {
-    return { success: false, error: 'User not found.' };
-  }
-
-  if (user.status !== 'active') {
-    return { success: false, error: 'Account is not active.' };
-  }
-
   const rawTxHash = input.txHash ? input.txHash.trim().toLowerCase() : '';
   if (!rawTxHash) {
     return { success: false, error: 'BNB Smart Chain Transaction Hash (TxID) is required.' };
@@ -51,6 +42,34 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
       success: false,
       error: 'Invalid transaction hash format. Must be a 66-character BEP-20 hex string starting with 0x.',
     };
+  }
+
+  const settings = await getSettings();
+  const minDeposit = Number(settings.minimumDepositAmount || 300);
+  const claimedAmount = input.amount !== undefined && !isNaN(Number(input.amount)) ? Number(input.amount) : undefined;
+
+  if (claimedAmount !== undefined) {
+    if (claimedAmount <= 0) {
+      return {
+        success: false,
+        error: 'Deposit amount must be greater than zero.',
+      };
+    }
+    if (claimedAmount < minDeposit) {
+      return {
+        success: false,
+        error: `Deposit amount ($${claimedAmount.toFixed(2)} USDT) is below the minimum deposit requirement of $${minDeposit.toFixed(2)} USDT.`,
+      };
+    }
+  }
+
+  const user = await getProfileById(input.userId);
+  if (!user) {
+    return { success: false, error: 'User not found.' };
+  }
+
+  if (user.status !== 'active') {
+    return { success: false, error: 'Account is not active.' };
   }
 
   // 1. Cross-Table Anti-Replay & Uniqueness Protection
@@ -92,9 +111,6 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     // proceed
   }
 
-  const settings = await getSettings();
-  const minDeposit = Number(settings.minimumDepositAmount || 300);
-  const claimedAmount = input.amount && !isNaN(Number(input.amount)) ? Number(input.amount) : undefined;
   const isTestUser = user.isTestUser === true;
 
   let verification: VerificationResult;

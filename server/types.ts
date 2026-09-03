@@ -32,7 +32,7 @@ export interface User {
   isTestUser?: boolean;
 }
 
-export type DepositStatus = 'pending' | 'confirming' | 'confirmed' | 'rejected';
+export type DepositStatus = 'pending' | 'confirming' | 'confirmed' | 'rejected' | 'failed';
 
 export interface Deposit {
   id: string;

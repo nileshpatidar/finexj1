@@ -40,6 +40,7 @@ import { getReferralsByReferrerId } from './repositories/referrals';
 import { generateWithdrawalOtp } from './services/otpService';
 import { getOperationalFundSummaryAsync, adjustOperationalFundAsync } from './services/operationalFundService';
 import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync, getAdminLedgerAsync } from './services/accountingService';
+import { getUserTransactionsAsync } from './services/transactionService';
 import { applyDailyPerformanceAsync } from './services/performanceService';
 import { getSignedDepositProofUrl } from './storage';
 import { verifyBEP20Deposit, isValidBEP20Address, isValidTxHash } from './blockchain';
@@ -821,12 +822,41 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
   }
 });
 
+// Helper to sanitize user deposit records (strips admin notes, internal fraud scores, etc.)
+function sanitizeUserDeposit(d: any) {
+  if (!d) return null;
+  return {
+    id: String(d.id),
+    userId: String(d.userId),
+    amount: Number(d.amount),
+    actualAmount: d.actualAmount !== undefined && d.actualAmount !== null ? Number(d.actualAmount) : Number(d.amount),
+    currency: d.currency || 'USDT',
+    network: d.network || 'BEP-20',
+    txHash: d.txHash,
+    fromAddress: d.fromAddress,
+    toAddress: d.toAddress,
+    tokenContract: d.tokenContract,
+    blockNumber: d.blockNumber,
+    status: d.status,
+    confirmations: d.confirmations,
+    requiredConfirmations: d.requiredConfirmations,
+    createdAt: d.createdAt,
+    confirmedAt: d.confirmedAt,
+    verifiedAt: d.verifiedAt,
+    eligibilityDate: d.eligibilityDate,
+    depositLockEndDate: d.depositLockEndDate,
+    proofPhotoUrl: d.proofPhotoUrl,
+    userNotes: d.userNotes,
+  };
+}
+
 // User Deposits list
 app.get(['/api/user/deposits', '/user/deposits'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
     const deposits = await getDepositsByUserId(user.id);
-    res.json({ deposits });
+    const sanitized = deposits.map(sanitizeUserDeposit);
+    res.json({ deposits: sanitized });
   } catch (err) {
     next(err);
   }
@@ -856,7 +886,7 @@ app.post(['/api/user/deposits', '/user/deposits'], authMiddleware, financialRate
     }
 
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ success: true, deposit: result.deposit, balance, message: result.message });
+    res.json({ success: true, deposit: sanitizeUserDeposit(result.deposit), balance, message: result.message });
   } catch (err) {
     next(err);
   }
@@ -875,7 +905,7 @@ app.post(['/api/user/deposits/:id/verify', '/user/deposits/:id/verify'], authMid
 
     const result = await verifyDepositOnChainAsync(id, user.id);
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ ...result, balance });
+    res.json({ ...result, deposit: sanitizeUserDeposit(result.deposit), balance });
   } catch (err) {
     next(err);
   }
@@ -1095,8 +1125,17 @@ app.post(['/api/user/lock-funds', '/user/lock-funds'], authMiddleware, async (re
 app.get(['/api/user/transactions', '/user/transactions'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const transactions = await getLedgerByUserId(user.id);
-    res.json({ transactions });
+    const { page, limit, type, status, search, startDate, endDate } = req.query;
+    const result = await getUserTransactionsAsync(user.id, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      type: type ? String(type) : undefined,
+      status: status ? String(status) : undefined,
+      search: search ? String(search) : undefined,
+      startDate: startDate ? String(startDate) : undefined,
+      endDate: endDate ? String(endDate) : undefined,
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }

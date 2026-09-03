@@ -82,7 +82,7 @@ export interface DepositItem {
   toAddress: string;
   tokenContract?: string;
   blockNumber?: number;
-  status: 'pending' | 'confirming' | 'confirmed' | 'rejected';
+  status: 'pending' | 'confirming' | 'confirmed' | 'rejected' | 'failed';
   confirmations: number;
   requiredConfirmations: number;
   createdAt: string;
@@ -145,12 +145,103 @@ export interface EarningItem {
   note?: string;
 }
 
-export interface LedgerItem {
+export type UserTransactionType =
+  | 'deposit'
+  | 'withdrawal'
+  | 'daily_earnings'
+  | 'daily_loss'
+  | 'referral_reward_l1'
+  | 'referral_reward_l2'
+  | 'admin_adjustment'
+  | 'reversal';
+
+export interface UserTransaction {
   id: string;
   userId: string;
-  type: 'deposit' | 'daily_earnings' | 'daily_loss' | 'withdrawal_request' | 'withdrawal_fee' | 'withdrawal_paid' | 'withdrawal_rejected' | 'admin_adjustment' | 'reversal';
+  type: UserTransactionType;
   amount: number;
-  balanceAfter: number;
+  grossAmount?: number;
+  feePercentage?: number;
+  feeAmount?: number;
+  netAmount?: number;
+  currency: 'USDT';
+  network?: 'BEP-20';
+  status:
+    | 'confirmed'
+    | 'pending'
+    | 'confirming'
+    | 'paid'
+    | 'under_review'
+    | 'approved'
+    | 'processing'
+    | 'rejected'
+    | 'cancelled'
+    | 'credited'
+    | 'completed';
+  createdAt: string;
+  confirmedAt?: string;
+  paidAt?: string;
+  referenceId?: string;
+  reference?: string;
+  description: string;
+  txHash?: string;
+  destinationAddress?: string;
+  fromAddress?: string;
+  toAddress?: string;
+  rewardLevel?: 1 | 2;
+  percentage?: number;
+  ratePercentage?: number;
+  baseEligibleAmount?: number;
+  performanceDate?: string;
+  eligibilityDate?: string;
+  depositLockEndDate?: string;
+  balanceAfter?: number;
+  confirmations?: number;
+  requiredConfirmations?: number;
+}
+
+export interface TransactionsPagination {
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
+export interface TransactionsSummary {
+  totalCount: number;
+  totalDeposited: number;
+  totalWithdrawn: number;
+  totalEarnings: number;
+  totalReferrals: number;
+  totalPendingWithdrawals: number;
+}
+
+export interface TransactionsResponse {
+  transactions: UserTransaction[];
+  pagination?: TransactionsPagination;
+  balance?: UserBalanceSummary;
+  summary?: TransactionsSummary;
+}
+
+export interface LedgerItem extends Omit<Partial<UserTransaction>, 'type'> {
+  id: string;
+  userId: string;
+  type:
+    | 'deposit'
+    | 'withdrawal'
+    | 'daily_earnings'
+    | 'daily_loss'
+    | 'referral_reward_l1'
+    | 'referral_reward_l2'
+    | 'withdrawal_request'
+    | 'withdrawal_fee'
+    | 'withdrawal_paid'
+    | 'withdrawal_rejected'
+    | 'admin_adjustment'
+    | 'reversal';
+  amount: number;
+  balanceAfter?: number;
   referenceId?: string;
   description: string;
   createdAt: string;

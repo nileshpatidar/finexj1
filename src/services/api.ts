@@ -19,6 +19,7 @@ import {
   PaginatedLevel2ReferralsResponse,
   WithdrawalImpactResult,
   UserBalanceSummary,
+  TransactionsResponse,
 } from '../types';
 
 const API_BASE = '';
@@ -157,7 +158,26 @@ export const api = {
       body: JSON.stringify({ days, reason }),
     }),
 
-  getTransactions: () => request<{ transactions: LedgerItem[] }>('/api/user/transactions'),
+  getTransactions: (params?: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    status?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.type && params.type !== 'all') query.set('type', params.type);
+    if (params?.status && params.status !== 'all') query.set('status', params.status);
+    if (params?.search) query.set('search', params.search);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    const qs = query.toString();
+    return request<TransactionsResponse>(`/api/user/transactions${qs ? `?${qs}` : ''}`);
+  },
 
   getSettings: () => request<AppSettings>('/api/settings'),
 
