@@ -7,13 +7,13 @@ export async function getOperationalFundSummaryAsync(): Promise<FinexjOperationa
   const supabase = getServerSupabase();
 
   try {
-    const { data, error } = await supabase
+    // 1. Fetch complete operational ledger rows for complete accounting aggregation
+    const { data: allRows, error } = await supabase
       .from('finexj_operational_ledger')
       .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
+      .order('created_at', { ascending: false });
 
-    if (error || !data) {
+    if (error || !allRows) {
       return {
         currentBalance: 0,
         totalInflow: 0,
@@ -23,7 +23,7 @@ export async function getOperationalFundSummaryAsync(): Promise<FinexjOperationa
       };
     }
 
-    const recentEntries: FinexjOperationalEntry[] = data.map((row: any) => ({
+    const allEntries: FinexjOperationalEntry[] = allRows.map((row: any) => ({
       id: row.id,
       amount: Number(row.amount),
       direction: row.direction,
@@ -36,14 +36,14 @@ export async function getOperationalFundSummaryAsync(): Promise<FinexjOperationa
     }));
 
     // Current balance is latest row after_balance
-    const latest = recentEntries[0];
+    const latest = allEntries[0];
     const currentBalance = latest ? latest.afterBalance : 0;
 
     let totalInflow = 0;
     let totalOutflow = 0;
     let totalFeeIncome = 0;
 
-    for (const entry of recentEntries) {
+    for (const entry of allEntries) {
       if (entry.direction === 'inflow') {
         totalInflow += entry.amount;
         if (entry.reason.toLowerCase().includes('fee') || (entry.reference && entry.reference.startsWith('FEE-'))) {
@@ -59,7 +59,7 @@ export async function getOperationalFundSummaryAsync(): Promise<FinexjOperationa
       totalInflow: Number(totalInflow.toFixed(4)),
       totalOutflow: Number(totalOutflow.toFixed(4)),
       totalFeeIncome: Number(totalFeeIncome.toFixed(4)),
-      recentEntries,
+      recentEntries: allEntries.slice(0, 100),
     };
   } catch (err: any) {
     logger.warn('OPERATIONAL_FUND_FETCH_ERROR', `Failed fetching operational fund summary: ${err?.message}`);

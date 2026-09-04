@@ -14,7 +14,10 @@ import {
   getReferralByReferredId,
   createReferralRelationship,
   getReferralRewardByDepositId,
+  getReferralRewardByDepositAndLevel,
   createReferralReward,
+  deleteReferralReward,
+  DuplicateReferralRewardError,
   getReferralsByReferrerId,
   getReferralsByReferrerIdPaginated,
   getReferralsCountByReferrerId,
@@ -152,11 +155,38 @@ export async function processReferralRewardForDepositAsync(
 ): Promise<{ rewarded: boolean; rewards?: ReferralReward[]; reason?: string }> {
   try {
     const settings = await getSettings();
-    const minDeposit = Number(settings.minimumDepositAmount) || 300.0;
-    const l1Percentage = Number(settings.referralRewardL1Percentage) || 5.0;
-    const l2Percentage = Number(settings.referralRewardL2Percentage) || 2.0;
 
-    // 1. Check qualification: Deposit must be >= minimumDepositAmount
+    // 1. Strict Configuration Safety: FAIL SAFELY if financial configuration is missing or invalid
+    const minDeposit = Number(settings.minimumDepositAmount);
+    if (isNaN(minDeposit) || minDeposit <= 0) {
+      logger.error('CONFIG_ERROR_MIN_DEPOSIT', 'Missing or invalid minimumDepositAmount in system settings. Refusing to credit rewards.', {
+        metadata: { depositId, minimumDepositAmount: settings.minimumDepositAmount },
+      });
+      return {
+        rewarded: false,
+        reason: 'Financial configuration error: minimumDepositAmount is invalid or missing.',
+      };
+    }
+
+    const l1Percentage = Number(settings.referralRewardL1Percentage);
+    if (isNaN(l1Percentage) || l1Percentage <= 0) {
+      logger.error('CONFIG_ERROR_L1_PERCENTAGE', 'Missing or invalid referralRewardL1Percentage in system settings. Refusing to credit rewards.', {
+        metadata: { depositId, referralRewardL1Percentage: settings.referralRewardL1Percentage },
+      });
+      return {
+        rewarded: false,
+        reason: 'Financial configuration error: referralRewardL1Percentage is invalid or missing.',
+      };
+    }
+
+    const l2Percentage = Number(settings.referralRewardL2Percentage);
+    if (isNaN(l2Percentage) || l2Percentage <= 0) {
+      logger.error('CONFIG_ERROR_L2_PERCENTAGE', 'Missing or invalid referralRewardL2Percentage in system settings. Refusing to credit Level 2 rewards.', {
+        metadata: { depositId, referralRewardL2Percentage: settings.referralRewardL2Percentage },
+      });
+    }
+
+    // 2. Check qualification: Deposit must be >= minimumDepositAmount
     if (depositAmount < minDeposit) {
       return {
         rewarded: false,
@@ -164,7 +194,7 @@ export async function processReferralRewardForDepositAsync(
       };
     }
 
-    // 2. Fetch referred user and resolve Level 1 referrer
+    // 3. Fetch referred user and resolve Level 1 referrer
     const user = await getProfileById(referredUserId);
     if (!user || !user.referrerId) {
       return { rewarded: false, reason: 'User has no registered referrer.' };
@@ -177,7 +207,7 @@ export async function processReferralRewardForDepositAsync(
     const rewardsCreated: ReferralReward[] = [];
 
     // =========================================================================
-    // LEVEL 1: Direct Referrer (5%)
+    // LEVEL 1: Direct Referrer (e.g. 5%)
     // =========================================================================
     const l1Referrer = await getProfileById(user.referrerId);
     if (l1Referrer && l1Referrer.status === 'active' && String(l1Referrer.id) !== String(user.id)) {
@@ -185,95 +215,146 @@ export async function processReferralRewardForDepositAsync(
 
       if (l1RewardAmount > 0) {
         // Idempotency check: Ensure L1 reward not already generated for this deposit
-        const existingL1 = await getReferralRewardByDepositId(depositId);
-        if (!existingL1 || (existingL1 as any).rewardLevel !== 1) {
+        const existingL1 = await getReferralRewardByDepositAndLevel(depositId, 1);
+        if (!existingL1) {
           const l1Reference = `REF-L1-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
 
-          const l1Reward = await createReferralReward({
-            referrerId: l1Referrer.id,
-            referredId: user.id,
-            depositId: String(depositId),
-            amount: l1RewardAmount,
-            percentage: l1Percentage,
-            reference: l1Reference,
-            status: 'credited',
-            notes: `Level 1 (${l1Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
-          });
+          let l1Reward: ReferralReward | null = null;
+          try {
+            l1Reward = await createReferralReward({
+              referrerId: l1Referrer.id,
+              referredId: user.id,
+              depositId: String(depositId),
+              amount: l1RewardAmount,
+              percentage: l1Percentage,
+              reference: l1Reference,
+              status: 'credited',
+              rewardLevel: 1,
+              notes: `Level 1 (${l1Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
+            });
+          } catch (createErr: any) {
+            if (createErr instanceof DuplicateReferralRewardError || createErr.name === 'DuplicateReferralRewardError') {
+              logger.info('REFERRAL_L1_DUPLICATE_IGNORED', `L1 reward already processed for deposit #${depositId}`);
+            } else {
+              throw createErr;
+            }
+          }
 
-          // Credit L1 Referrer's Ledger
-          const l1Balance = await calculateUserBalanceAsync(l1Referrer.id);
-          await createLedgerEntry({
-            userId: l1Referrer.id,
-            type: 'referral_reward_l1',
-            amount: l1RewardAmount,
-            balanceAfter: l1Balance.availableBalance + l1RewardAmount,
-            referenceId: l1Reward.id,
-            description: `Level 1 referral reward from investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l1Percentage}%)`,
-            performedBy: 'referral_engine',
-          });
+          if (l1Reward) {
+            // Atomic Ledger Credit + Audit Log with rollback on failure
+            try {
+              const l1Balance = await calculateUserBalanceAsync(l1Referrer.id);
+              const balanceAfter = Number((l1Balance.availableBalance + l1RewardAmount).toFixed(4));
 
-          await createAuditLog({
-            action: 'REFERRAL_REWARD_L1_CREDITED',
-            actorId: 'system',
-            actorRole: 'system',
-            targetUserId: l1Referrer.id,
-            reason: `Credited ${l1RewardAmount} USDT Level 1 referral reward from deposit #${depositId}`,
-            beforeValue: { availableBalance: l1Balance.availableBalance },
-            afterValue: { rewardAmount: l1RewardAmount, reference: l1Reference, newBalance: l1Balance.availableBalance + l1RewardAmount },
-            referenceId: l1Reference,
-          });
+              await createLedgerEntry({
+                userId: l1Referrer.id,
+                type: 'referral_reward_l1',
+                amount: l1RewardAmount,
+                balanceAfter,
+                referenceId: l1Reward.id,
+                description: `Level 1 referral reward from investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l1Percentage}%)`,
+                performedBy: 'referral_engine',
+              });
 
-          rewardsCreated.push(l1Reward);
+              await createAuditLog({
+                action: 'REFERRAL_REWARD_L1_CREDITED',
+                actorId: 'system',
+                actorRole: 'system',
+                targetUserId: l1Referrer.id,
+                reason: `Credited ${l1RewardAmount} USDT Level 1 referral reward from deposit #${depositId}`,
+                beforeValue: { availableBalance: l1Balance.availableBalance },
+                afterValue: { rewardAmount: l1RewardAmount, reference: l1Reference, newBalance: balanceAfter },
+                referenceId: l1Reference,
+              });
+
+              rewardsCreated.push(l1Reward);
+            } catch (ledgerOrAuditErr: any) {
+              // Rollback partial failure: delete reward to maintain absolute atomicity
+              console.error('[CRITICAL] L1 referral ledger/audit failure, rolling back reward:', ledgerOrAuditErr);
+              await deleteReferralReward(l1Reward.id);
+              throw new Error(`Failed to atomically credit Level 1 referral reward: ${ledgerOrAuditErr.message}`);
+            }
+          }
         }
       }
 
       // =========================================================================
-      // LEVEL 2: Indirect Referrer (Parent of L1 Referrer, 2%)
+      // LEVEL 2: Indirect Referrer (Parent of L1 Referrer, e.g. 2%)
       // =========================================================================
-      if (l1Referrer.referrerId && String(l1Referrer.referrerId) !== String(user.id) && String(l1Referrer.referrerId) !== String(l1Referrer.id)) {
+      if (
+        !isNaN(l2Percentage) &&
+        l2Percentage > 0 &&
+        l1Referrer.referrerId &&
+        String(l1Referrer.referrerId) !== String(user.id) &&
+        String(l1Referrer.referrerId) !== String(l1Referrer.id)
+      ) {
         const l2Referrer = await getProfileById(l1Referrer.referrerId);
 
         if (l2Referrer && l2Referrer.status === 'active') {
           const l2RewardAmount = Number(((depositAmount * l2Percentage) / 100.0).toFixed(4));
 
           if (l2RewardAmount > 0) {
-            const l2Reference = `REF-L2-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
+            const existingL2 = await getReferralRewardByDepositAndLevel(depositId, 2);
+            if (!existingL2) {
+              const l2Reference = `REF-L2-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
 
-            const l2Reward = await createReferralReward({
-              referrerId: l2Referrer.id,
-              referredId: user.id,
-              depositId: String(depositId),
-              amount: l2RewardAmount,
-              percentage: l2Percentage,
-              reference: l2Reference,
-              status: 'credited',
-              notes: `Level 2 (${l2Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
-            });
+              let l2Reward: ReferralReward | null = null;
+              try {
+                l2Reward = await createReferralReward({
+                  referrerId: l2Referrer.id,
+                  referredId: user.id,
+                  depositId: String(depositId),
+                  amount: l2RewardAmount,
+                  percentage: l2Percentage,
+                  reference: l2Reference,
+                  status: 'credited',
+                  rewardLevel: 2,
+                  notes: `Level 2 (${l2Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
+                });
+              } catch (createErr: any) {
+                if (createErr instanceof DuplicateReferralRewardError || createErr.name === 'DuplicateReferralRewardError') {
+                  logger.info('REFERRAL_L2_DUPLICATE_IGNORED', `L2 reward already processed for deposit #${depositId}`);
+                } else {
+                  throw createErr;
+                }
+              }
 
-            // Credit L2 Referrer's Ledger
-            const l2Balance = await calculateUserBalanceAsync(l2Referrer.id);
-            await createLedgerEntry({
-              userId: l2Referrer.id,
-              type: 'referral_reward_l2',
-              amount: l2RewardAmount,
-              balanceAfter: l2Balance.availableBalance + l2RewardAmount,
-              referenceId: l2Reward.id,
-              description: `Level 2 referral reward from 2nd-tier investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l2Percentage}%)`,
-              performedBy: 'referral_engine',
-            });
+              if (l2Reward) {
+                // Atomic Ledger Credit + Audit Log with rollback on failure
+                try {
+                  const l2Balance = await calculateUserBalanceAsync(l2Referrer.id);
+                  const balanceAfter = Number((l2Balance.availableBalance + l2RewardAmount).toFixed(4));
 
-            await createAuditLog({
-              action: 'REFERRAL_REWARD_L2_CREDITED',
-              actorId: 'system',
-              actorRole: 'system',
-              targetUserId: l2Referrer.id,
-              reason: `Credited ${l2RewardAmount} USDT Level 2 referral reward from deposit #${depositId}`,
-              beforeValue: { availableBalance: l2Balance.availableBalance },
-              afterValue: { rewardAmount: l2RewardAmount, reference: l2Reference, newBalance: l2Balance.availableBalance + l2RewardAmount },
-              referenceId: l2Reference,
-            });
+                  await createLedgerEntry({
+                    userId: l2Referrer.id,
+                    type: 'referral_reward_l2',
+                    amount: l2RewardAmount,
+                    balanceAfter,
+                    referenceId: l2Reward.id,
+                    description: `Level 2 referral reward from 2nd-tier investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l2Percentage}%)`,
+                    performedBy: 'referral_engine',
+                  });
 
-            rewardsCreated.push(l2Reward);
+                  await createAuditLog({
+                    action: 'REFERRAL_REWARD_L2_CREDITED',
+                    actorId: 'system',
+                    actorRole: 'system',
+                    targetUserId: l2Referrer.id,
+                    reason: `Credited ${l2RewardAmount} USDT Level 2 referral reward from deposit #${depositId}`,
+                    beforeValue: { availableBalance: l2Balance.availableBalance },
+                    afterValue: { rewardAmount: l2RewardAmount, reference: l2Reference, newBalance: balanceAfter },
+                    referenceId: l2Reference,
+                  });
+
+                  rewardsCreated.push(l2Reward);
+                } catch (ledgerOrAuditErr: any) {
+                  // Rollback partial failure: delete reward to maintain absolute atomicity
+                  console.error('[CRITICAL] L2 referral ledger/audit failure, rolling back reward:', ledgerOrAuditErr);
+                  await deleteReferralReward(l2Reward.id);
+                  throw new Error(`Failed to atomically credit Level 2 referral reward: ${ledgerOrAuditErr.message}`);
+                }
+              }
+            }
           }
         }
       }
@@ -293,6 +374,7 @@ export async function processReferralRewardForDepositAsync(
 
 /**
  * Returns structured referral summary and 2-level referral tree stats for a user.
+ * STRICT PRIVACY: NEVER returns email, phone, wallet, or balance.
  */
 export async function getReferralSummaryAsync(userId: string): Promise<{
   referralCode: string;
@@ -304,13 +386,22 @@ export async function getReferralSummaryAsync(userId: string): Promise<{
   totalReferredCount: number;
   referrals: Array<{
     id: string;
-    email: string;
+    firstName: string;
+    surname: string;
     status: string;
     level: number;
     createdAt: string;
     isQualified: boolean;
+    rewardEarned: number;
   }>;
-  recentRewards: ReferralReward[];
+  recentRewards: Array<{
+    id: string;
+    rewardLevel: number;
+    amount: number;
+    percentage: number;
+    status: string;
+    createdAt: string;
+  }>;
 }> {
   const user = await getProfileById(userId);
   if (!user) {
@@ -355,28 +446,37 @@ export async function getReferralSummaryAsync(userId: string): Promise<{
 
   const totalRewardsEarned = Number((level1RewardsEarned + level2RewardsEarned).toFixed(4));
 
-  // 4. Map user details with privacy masking
+  // 4. Map user details with strict privacy enforcement (No email, phone, wallet, or private transactions)
   const mappedReferrals: Array<{
     id: string;
-    email: string;
+    firstName: string;
+    surname: string;
     status: string;
     level: number;
     createdAt: string;
     isQualified: boolean;
+    rewardEarned: number;
   }> = [];
 
   for (const ref of l1Referrals) {
     try {
       const p = await getProfileById(ref.referredId);
       if (p) {
+        const nameParts = (p.fullName || 'Investor Member').trim().split(/\s+/);
+        const firstName = nameParts[0] || 'Investor';
+        const surname = nameParts.slice(1).join(' ') || (nameParts.length > 1 ? nameParts[1] : '—');
+        const rewardEarned = await getRewardsSumForReferredUser(userId, p.id);
         const pBalance = await calculateUserBalanceAsync(p.id);
+
         mappedReferrals.push({
           id: p.id,
-          email: maskEmail(p.email),
-          status: p.status,
+          firstName,
+          surname,
+          status: p.status === 'active' ? 'Active' : 'Pending',
           level: 1,
           createdAt: ref.createdAt,
-          isQualified: pBalance.totalDeposited >= minDeposit,
+          isQualified: rewardEarned > 0 || (pBalance.totalDeposited >= minDeposit),
+          rewardEarned,
         });
       }
     } catch {
@@ -388,20 +488,37 @@ export async function getReferralSummaryAsync(userId: string): Promise<{
     try {
       const p = await getProfileById(l2Id);
       if (p) {
+        const nameParts = (p.fullName || 'Investor Member').trim().split(/\s+/);
+        const firstName = nameParts[0] || 'Investor';
+        const surname = nameParts.slice(1).join(' ') || (nameParts.length > 1 ? nameParts[1] : '—');
+        const rewardEarned = await getRewardsSumForReferredUser(userId, p.id);
         const pBalance = await calculateUserBalanceAsync(p.id);
+
         mappedReferrals.push({
           id: p.id,
-          email: maskEmail(p.email),
-          status: p.status,
+          firstName,
+          surname,
+          status: p.status === 'active' ? 'Active' : 'Pending',
           level: 2,
           createdAt: p.createdAt,
-          isQualified: pBalance.totalDeposited >= minDeposit,
+          isQualified: rewardEarned > 0 || (pBalance.totalDeposited >= minDeposit),
+          rewardEarned,
         });
       }
     } catch {
       // Continue
     }
   }
+
+  // Filtered recent rewards: remove sensitive internal fields
+  const sanitizedRecentRewards = rewards.slice(0, 20).map(r => ({
+    id: r.id,
+    rewardLevel: (r as any).rewardLevel === 2 || r.reference?.includes('L2') ? 2 : 1,
+    amount: r.amount,
+    percentage: r.percentage,
+    status: r.status,
+    createdAt: r.createdAt,
+  }));
 
   return {
     referralCode,
@@ -412,15 +529,8 @@ export async function getReferralSummaryAsync(userId: string): Promise<{
     level2Count: l2UserIds.length,
     totalReferredCount: l1Referrals.length + l2UserIds.length,
     referrals: mappedReferrals,
-    recentRewards: rewards.slice(0, 20),
+    recentRewards: sanitizedRecentRewards,
   };
-}
-
-function maskEmail(email: string): string {
-  if (!email || !email.includes('@')) return email;
-  const [local, domain] = email.split('@');
-  if (local.length <= 2) return `${local[0]}*@${domain}`;
-  return `${local[0]}***${local[local.length - 1]}@${domain}`;
 }
 
 /**

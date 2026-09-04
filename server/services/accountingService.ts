@@ -62,6 +62,35 @@ function isWithinRange(dateStr?: string, start?: Date, end?: Date): boolean {
   return true;
 }
 
+async function fetchAllTableRowsAsync(table: string, select = '*'): Promise<any[]> {
+  try {
+    const supabase = getServerSupabase();
+    const all: any[] = [];
+    const pageSize = 1000;
+    let page = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      const { data, error } = await supabase.from(table).select(select).range(from, to);
+      if (error || !data || data.length === 0) {
+        break;
+      }
+      all.push(...data);
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    }
+    return all;
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] fetchAllTableRowsAsync(${table}):`, err?.message);
+    return [];
+  }
+}
+
 export async function getAccountingSummaryAsync(options?: {
   period?: string;
   startDate?: string;
@@ -71,21 +100,59 @@ export async function getAccountingSummaryAsync(options?: {
   const feePct = settings.withdrawalFeePercentage || 9.0;
   const minDeposit = settings.minimumDepositAmount || 300;
 
+  // 1. Fetch Complete Datasets using un-truncated pagination to satisfy Accounting Data Completeness
   const [
-    { deposits },
-    { withdrawals },
+    allDepositsRaw,
+    allWithdrawalsRaw,
     earnings,
-    { rewards },
+    allRewardsRaw,
     opSummary,
-    { users },
+    allUsersRaw,
+    allLedgerRows,
   ] = await Promise.all([
-    getAllDeposits({ limit: 10000 }).catch(() => ({ deposits: [], total: 0 })),
-    getAllWithdrawals({ limit: 10000 }).catch(() => ({ withdrawals: [], total: 0 })),
+    fetchAllTableRowsAsync('deposits').catch(() => []),
+    fetchAllTableRowsAsync('withdrawals').catch(() => []),
     getAllEarnings().catch(() => []),
-    getAllReferralRewards({ limit: 10000 }).catch(() => ({ rewards: [], total: 0 })),
+    fetchAllTableRowsAsync('referral_rewards').catch(() => []),
     getOperationalFundSummaryAsync().catch(() => ({ currentBalance: 0, totalInflow: 0, totalOutflow: 0, totalFeeIncome: 0, recentEntries: [] })),
-    getAllProfiles({ limit: 10000 }).catch(() => ({ users: [], total: 0 })),
+    fetchAllTableRowsAsync('profiles').catch(() => []),
+    fetchAllTableRowsAsync('ledger', 'amount, user_id, type').catch(() => []),
   ]);
+
+  // Map deposits
+  const deposits = allDepositsRaw.length > 0 ? allDepositsRaw.map((d: any) => ({
+    id: String(d.id),
+    userId: String(d.user_id),
+    amount: Number(d.amount || 0),
+    actualAmount: d.actual_amount !== undefined && d.actual_amount !== null ? Number(d.actual_amount) : Number(d.amount || 0),
+    status: d.status || 'pending',
+    createdAt: d.created_at || new Date().toISOString(),
+    confirmedAt: d.confirmed_at,
+  })) : (await getAllDeposits().catch(() => ({ deposits: [] }))).deposits;
+
+  // Map withdrawals
+  const withdrawals = allWithdrawalsRaw.length > 0 ? allWithdrawalsRaw.map((w: any) => ({
+    id: String(w.id),
+    userId: String(w.user_id),
+    requestedAmount: Number(w.requested_amount || w.amount || 0),
+    feeAmount: Number(w.fee_amount || 0),
+    netAmount: Number(w.net_amount || 0),
+    status: w.status || 'pending',
+    createdAt: w.created_at || new Date().toISOString(),
+    paidAt: w.paid_at,
+  })) : (await getAllWithdrawals().catch(() => ({ withdrawals: [] }))).withdrawals;
+
+  // Map referral rewards
+  const rewards = allRewardsRaw.length > 0 ? allRewardsRaw.map((r: any) => ({
+    id: String(r.id),
+    referrerId: String(r.referrer_id),
+    referredId: String(r.referred_id),
+    amount: Number(r.amount || 0),
+    rewardLevel: Number(r.reward_level || 1),
+    reference: r.reference,
+    status: r.status || 'credited',
+    createdAt: r.created_at || new Date().toISOString(),
+  })) : (await getAllReferralRewards().catch(() => ({ rewards: [] }))).rewards;
 
   const now = new Date();
   const todayStart = new Date(now);
@@ -169,35 +236,72 @@ export async function getAccountingSummaryAsync(options?: {
   }
   const qualifyingReferralsCount = qualifiedUserIds.size;
 
-  // Active User Available Balances from Ledger
+  // Active User Available Balances from Complete Ledger Records
   let totalUserAvailableBalances = 0;
-  try {
-    const supabase = getServerSupabase();
-    const { data: ledgerRows, error: ledgerErr } = await supabase.from('ledger').select('amount');
-    if (!ledgerErr && ledgerRows) {
-      totalUserAvailableBalances = ledgerRows.reduce((acc: number, entry: any) => acc + (Number(entry.amount) || 0), 0);
-    }
-  } catch {
-    totalUserAvailableBalances = 0;
+  if (allLedgerRows && allLedgerRows.length > 0) {
+    totalUserAvailableBalances = allLedgerRows.reduce((acc: number, entry: any) => acc + (Number(entry.amount) || 0), 0);
   }
 
-  // Active Compounding Principal (Confirmed deposits minus gross paid withdrawals, non-compounding referral rewards excluded)
+  // Authoritative Active Compounding Principal based on FINEXJ Eligibility & Principal Rules:
+  // Evaluated per user: only active users with confirmed deposit balance qualifying under FINEXJ rules
+  const userDepositsMap: Record<string, number> = {};
+  const userWithdrawalsMap: Record<string, number> = {};
+
+  for (const d of deposits) {
+    if (d.status === 'confirmed') {
+      userDepositsMap[d.userId] = (userDepositsMap[d.userId] || 0) + (d.actualAmount || d.amount);
+    }
+  }
+  for (const w of withdrawals) {
+    if (w.status === 'paid' || (w.status as string) === 'completed') {
+      userWithdrawalsMap[w.userId] = (userWithdrawalsMap[w.userId] || 0) + w.requestedAmount;
+    }
+  }
+
+  // Active users set
+  const activeUserIds = new Set(
+    allUsersRaw.length > 0
+      ? allUsersRaw.filter((u: any) => u.status !== 'suspended' && u.status !== 'banned').map((u: any) => String(u.id))
+      : Object.keys(userDepositsMap)
+  );
+
+  let activeCompoundingPrincipal = 0;
+  for (const userId of activeUserIds) {
+    const uDep = userDepositsMap[userId] || 0;
+    const uWd = userWithdrawalsMap[userId] || 0;
+    const userPrincipal = Math.max(0, uDep - uWd);
+    // User is eligible for compounding returns when their active principal meets the minimum deposit requirement
+    if (userPrincipal >= minDeposit) {
+      activeCompoundingPrincipal += userPrincipal;
+    }
+  }
+
+  // Fallback if no individual user accounts or all below minDeposit
+  if (activeCompoundingPrincipal === 0) {
+    const allConfirmedDeps = deposits.filter(d => d.status === 'confirmed');
+    const allTimeDep = allConfirmedDeps.reduce((acc, d) => acc + (d.actualAmount || d.amount), 0);
+    const allPaidWd = withdrawals.filter(w => w.status === 'paid' || (w.status as string) === 'completed');
+    const allTimeWd = allPaidWd.reduce((acc, w) => acc + w.requestedAmount, 0);
+    activeCompoundingPrincipal = Math.max(0, allTimeDep - allTimeWd);
+  }
+
+  // --- Financial Reconciliation ---
+  // System Liquid Capital = Confirmed Deposits + Operational Fund Inflow - User Net Payouts - Operational Fund Outflow
+  // Total Liabilities = Total User Available Balances
+  // Operational Fund Balance = Actual recorded FINEXJ Operational Fund
   const allConfirmedDeposits = deposits.filter(d => d.status === 'confirmed');
   const allTimeDeposited = allConfirmedDeposits.reduce((acc, d) => acc + (d.actualAmount || d.amount), 0);
   const allPaidWithdrawals = withdrawals.filter(w => w.status === 'paid' || (w.status as string) === 'completed');
   const allTimeGrossWithdrawn = allPaidWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
-  const activeCompoundingPrincipal = Math.max(0, allTimeDeposited - allTimeGrossWithdrawn);
 
-  // --- Financial Reconciliation ---
-  // System Liquid Capital = Confirmed Deposits + Operational Fund Inflow (Capital injections) - User Net Payouts - Operational Fund Outflow
-  // Total Liabilities = Total User Available Balances
-  // Operational Fund Balance = Actual recorded FINEXJ Operational Fund
-  // Expected Accounting Position = Net System Capital Balance
   const netSystemCapital = Number((allTimeDeposited + opSummary.totalInflow - (allTimeGrossWithdrawn - allPaidWithdrawals.reduce((acc, w) => acc + w.feeAmount, 0)) - opSummary.totalOutflow).toFixed(4));
   const recordedLiabilitiesAndEquity = Number((totalUserAvailableBalances + opSummary.currentBalance).toFixed(4));
   const rawDiff = Number((netSystemCapital - recordedLiabilitiesAndEquity).toFixed(4));
-  const isBalanced = Math.abs(rawDiff) < 0.05;
-  const reconciliationDifference = isBalanced ? 0 : rawDiff;
+
+  // Defined strict tolerance policy: 0.0001 (standard 4-decimal currency precision)
+  const isBalanced = Math.abs(rawDiff) <= 0.0001;
+  // NEVER silently zero out difference; preserve exact difference
+  const reconciliationDifference = rawDiff;
   const reconciliationStatus: 'BALANCED' | 'REQUIRES_REVIEW' = isBalanced ? 'BALANCED' : 'REQUIRES_REVIEW';
 
   return {
@@ -238,7 +342,23 @@ export async function getAccountingSummaryAsync(options?: {
 }
 
 export async function getReferralAccountingSummaryAsync(): Promise<ReferralAccountingSummary> {
-  const { rewards, total } = await getAllReferralRewards({ limit: 1000 }).catch(() => ({ rewards: [], total: 0 }));
+  // Fetch complete un-truncated referral rewards data
+  const rawRewards = await fetchAllTableRowsAsync('referral_rewards').catch(() => []);
+  const rewards = rawRewards.length > 0 ? rawRewards.map((r: any) => ({
+    id: String(r.id),
+    referrerId: String(r.referrer_id),
+    referredId: String(r.referred_id),
+    amount: Number(r.amount || 0),
+    rewardLevel: Number(r.reward_level || 1),
+    reference: r.reference,
+    status: r.status || 'credited',
+    createdAt: r.created_at || new Date().toISOString(),
+    depositId: r.deposit_id,
+    qualifyingDepositAmount: r.qualifying_deposit_amount,
+    percentage: r.percentage,
+  })) : (await getAllReferralRewards().catch(() => ({ rewards: [] }))).rewards;
+
+  const total = rewards.length;
   const supabase = getServerSupabase();
   const settings = await getSettings().catch(() => ({ minimumDepositAmount: 300 } as any));
   const minDeposit = settings.minimumDepositAmount || 300;
@@ -274,9 +394,9 @@ export async function getReferralAccountingSummaryAsync(): Promise<ReferralAccou
     enrichedRewards.push({
       id: r.id,
       referrerId: r.referrerId,
-      referrerEmail: r.referrerEmail || 'Referrer',
+      referrerEmail: 'User ' + r.referrerId.slice(0, 6) + '...',
       referredId: r.referredId,
-      referredEmail: r.referredEmail || 'Referred User',
+      referredEmail: 'User ' + r.referredId.slice(0, 6) + '...',
       rewardLevel: level,
       qualifyingDepositAmount: (r as any).qualifyingDepositAmount || (level === 1 ? r.amount / 0.05 : r.amount / 0.02),
       depositId: (r as any).depositId || r.reference,

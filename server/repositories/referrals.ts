@@ -189,6 +189,7 @@ export async function getReferralRewardByDepositId(depositId: string | number): 
       .from('referral_rewards')
       .select('*')
       .eq('deposit_id', dbDepositId)
+      .limit(1)
       .maybeSingle();
 
     if (error || !data) return null;
@@ -199,14 +200,73 @@ export async function getReferralRewardByDepositId(depositId: string | number): 
   }
 }
 
+export async function getReferralRewardsByDepositId(depositId: string | number): Promise<ReferralReward[]> {
+  try {
+    const supabase = getServerSupabase();
+    const dbDepositId = !isNaN(Number(depositId)) ? Number(depositId) : depositId;
+
+    const { data, error } = await supabase
+      .from('referral_rewards')
+      .select('*')
+      .eq('deposit_id', dbDepositId);
+
+    if (error || !data) return [];
+    return data.map(mapDbReferralReward);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getReferralRewardsByDepositId(${depositId}):`, err?.message);
+    return [];
+  }
+}
+
+export async function getReferralRewardByDepositAndLevel(
+  depositId: string | number,
+  rewardLevel: number
+): Promise<ReferralReward | null> {
+  try {
+    const supabase = getServerSupabase();
+    const dbDepositId = !isNaN(Number(depositId)) ? Number(depositId) : depositId;
+
+    const { data, error } = await supabase
+      .from('referral_rewards')
+      .select('*')
+      .eq('deposit_id', dbDepositId)
+      .eq('reward_level', rewardLevel)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return mapDbReferralReward(data);
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getReferralRewardByDepositAndLevel(${depositId}, ${rewardLevel}):`, err?.message);
+    return null;
+  }
+}
+
+export class DuplicateReferralRewardError extends Error {
+  public readonly depositId: string | number;
+  public readonly rewardLevel: number;
+  constructor(depositId: string | number, rewardLevel: number, message?: string) {
+    super(message || `Referral reward for deposit #${depositId} at level ${rewardLevel} already exists.`);
+    this.name = 'DuplicateReferralRewardError';
+    this.depositId = depositId;
+    this.rewardLevel = rewardLevel;
+  }
+}
+
 export async function createReferralReward(reward: Partial<ReferralReward>): Promise<ReferralReward> {
   const supabase = getServerSupabase();
   const dbReferrerId = await resolveUserIdForDb(reward.referrerId);
   const dbReferredId = await resolveUserIdForDb(reward.referredId);
   const dbDepositId = !isNaN(Number(reward.depositId)) ? Number(reward.depositId) : reward.depositId;
+  const rewardLevel = reward.rewardLevel || (reward.reference?.includes('L2') ? 2 : 1);
 
   if (String(dbReferrerId) === String(dbReferredId)) {
     throw new Error('Cannot reward self-referral.');
+  }
+
+  // Pre-check for existing reward at this level
+  const existing = await getReferralRewardByDepositAndLevel(dbDepositId, rewardLevel);
+  if (existing) {
+    throw new DuplicateReferralRewardError(dbDepositId, rewardLevel);
   }
 
   const payload = {
@@ -218,6 +278,8 @@ export async function createReferralReward(reward: Partial<ReferralReward>): Pro
     percentage: reward.percentage || 0,
     reference: reward.reference || `REF-REW-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
     status: reward.status || 'credited',
+    reward_level: rewardLevel,
+    event_type: 'qualifying_deposit',
     notes: reward.notes || null,
     created_at: reward.createdAt || new Date().toISOString(),
   };
@@ -229,11 +291,26 @@ export async function createReferralReward(reward: Partial<ReferralReward>): Pro
     .single();
 
   if (error) {
+    if (error.code === '23505' || error.message.includes('unique') || error.message.includes('uq_referral_reward')) {
+      console.warn(`[Supabase Duplicate Reward Caught]: Deposit #${dbDepositId} Level ${rewardLevel}`);
+      throw new DuplicateReferralRewardError(dbDepositId, rewardLevel);
+    }
     console.error('[Supabase Error] createReferralReward:', error.message);
     throw new Error(`Failed to create referral reward record: ${error.message}`);
   }
 
   return mapDbReferralReward(data);
+}
+
+export async function deleteReferralReward(id: string | number): Promise<boolean> {
+  try {
+    const supabase = getServerSupabase();
+    const { error } = await supabase.from('referral_rewards').delete().eq('id', id);
+    return !error;
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] deleteReferralReward(${id}):`, err?.message);
+    return false;
+  }
 }
 
 export async function getReferralRewardsByReferrerId(referrerId: string): Promise<ReferralReward[]> {
