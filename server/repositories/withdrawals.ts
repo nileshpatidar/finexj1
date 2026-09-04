@@ -299,3 +299,122 @@ export async function getAllWithdrawals(options?: GetAllWithdrawalsOptions): Pro
   return { withdrawals, total: count !== null && count !== undefined ? count : withdrawals.length };
 }
 
+export interface CreateWithdrawalAtomicInput {
+  userId: number | string;
+  requestedAmount: number;
+  destinationAddress: string;
+  reference: string;
+  idempotencyKey?: string;
+  userNotes?: string;
+  feePercentage?: number;
+  feeAmount?: number;
+  netAmount?: number;
+  fundLockDays?: number;
+  confirmLockBreak?: boolean;
+  confirmMinimumBreak?: boolean;
+}
+
+export async function createWithdrawalAtomic(input: CreateWithdrawalAtomicInput): Promise<{
+  success: boolean;
+  withdrawal?: Withdrawal;
+  isDuplicate?: boolean;
+  requiresConfirmation?: boolean;
+  warningType?: 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
+  error?: string;
+}> {
+  try {
+    const supabase = getServerSupabase();
+    const numericUserId = Number(input.userId);
+
+    const { data, error } = await supabase.rpc('create_withdrawal_atomic', {
+      p_user_id: !isNaN(numericUserId) ? numericUserId : input.userId,
+      p_requested_amount: input.requestedAmount,
+      p_destination_address: input.destinationAddress.trim(),
+      p_reference: input.reference,
+      p_idempotency_key: input.idempotencyKey || null,
+      p_user_notes: input.userNotes || null,
+      p_fee_percentage: input.feePercentage ?? null,
+      p_fee_amount: input.feeAmount ?? null,
+      p_net_amount: input.netAmount ?? null,
+      p_fund_lock_days: input.fundLockDays ?? 0,
+      p_confirm_lock_break: input.confirmLockBreak ?? false,
+      p_confirm_minimum_break: input.confirmMinimumBreak ?? false,
+    });
+
+    if (error) {
+      console.error('[Supabase RPC Error] create_withdrawal_atomic:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    if (!data || !data.success) {
+      return {
+        success: false,
+        isDuplicate: data?.is_duplicate === true,
+        requiresConfirmation: data?.requires_confirmation === true,
+        warningType: data?.warning_type,
+        error: data?.error || 'Atomic withdrawal creation failed.',
+        withdrawal: data?.withdrawal ? mapDbWithdrawalToWithdrawal(data.withdrawal) : undefined,
+      };
+    }
+
+    return {
+      success: true,
+      isDuplicate: data?.is_duplicate === true,
+      withdrawal: mapDbWithdrawalToWithdrawal(data.withdrawal),
+    };
+  } catch (err: any) {
+    console.error('[createWithdrawalAtomic Exception]:', err?.message);
+    return { success: false, error: err?.message || 'Unexpected failure in createWithdrawalAtomic' };
+  }
+}
+
+export interface ProcessWithdrawalStatusAtomicInput {
+  adminId: string;
+  adminRole?: string;
+  withdrawalId: number | string;
+  newStatus: string;
+  txHash?: string;
+  adminNotes?: string;
+}
+
+export async function processWithdrawalStatusAtomic(input: ProcessWithdrawalStatusAtomicInput): Promise<{
+  success: boolean;
+  withdrawal?: Withdrawal;
+  error?: string;
+}> {
+  try {
+    const supabase = getServerSupabase();
+    const numericId = Number(input.withdrawalId);
+
+    const { data, error } = await supabase.rpc('process_withdrawal_status_atomic', {
+      p_admin_id: input.adminId,
+      p_admin_role: input.adminRole || 'admin',
+      p_withdrawal_id: !isNaN(numericId) ? numericId : input.withdrawalId,
+      p_new_status: input.newStatus,
+      p_tx_hash: input.txHash ? input.txHash.trim().toLowerCase() : null,
+      p_admin_notes: input.adminNotes || null,
+    });
+
+    if (error) {
+      console.error('[Supabase RPC Error] process_withdrawal_status_atomic:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    if (!data || !data.success) {
+      return {
+        success: false,
+        error: data?.error || 'Atomic withdrawal status update failed.',
+      };
+    }
+
+    return {
+      success: true,
+      withdrawal: mapDbWithdrawalToWithdrawal(data.withdrawal),
+    };
+  } catch (err: any) {
+    console.error('[processWithdrawalStatusAtomic Exception]:', err?.message);
+    return { success: false, error: err?.message || 'Unexpected failure in processWithdrawalStatusAtomic' };
+  }
+}
+
+

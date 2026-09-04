@@ -1,6 +1,7 @@
 import { getAllProfiles } from '../repositories/profiles';
 import { getDepositsByUserId, getAllDeposits } from '../repositories/deposits';
 import { getAllWithdrawals } from '../repositories/withdrawals';
+import { getSettings } from '../repositories/settings';
 import {
   createDailyPerformance,
   getDailyPerformanceByDate,
@@ -11,6 +12,7 @@ import { createEarning, deleteEarningsByDate } from '../repositories/earnings';
 import { createLedgerEntry, deleteLedgerByReferenceAndTypes } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { calculateUserBalanceAsync } from './balanceService';
+import { fetchAllTableRowsAsync } from './accountingService';
 import { DailyPerformance } from '../types';
 
 export interface AdminDailyPerformanceInput {
@@ -84,6 +86,22 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
     const rawRate = typeof input.applicableRate === 'string' ? parseFloat(input.applicableRate) : Number(input.applicableRate);
     if (isNaN(rawRate) || !isFinite(rawRate)) {
       return { success: false, error: `Invalid applicableRate '${input.applicableRate}'. Must be a finite number.` };
+    }
+
+    // STRICT CONFIGURATION SAFETY: Read and validate minimumDepositAmount
+    const settings = await getSettings();
+    const minDeposit = Number(settings.minimumDepositAmount);
+    if (isNaN(minDeposit) || minDeposit <= 0) {
+      await createAuditLog({
+        action: 'CONFIGURATION_ERROR',
+        actorId: input.adminUserId,
+        actorRole: 'admin',
+        reason: `Missing or invalid minimumDepositAmount in system settings: ${settings.minimumDepositAmount}`,
+      });
+      return {
+        success: false,
+        error: 'Financial configuration error: minimumDepositAmount is invalid or missing in system settings. Yield calculation aborted.',
+      };
     }
 
     // Derive canonical percentage points and decimal multiplier
@@ -185,7 +203,8 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       const userTotalWithdrawn = userPaidWithdrawals.reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
       const userEligiblePrincipal = Math.max(0, Number((userGrossPrincipal - userTotalWithdrawn).toFixed(4)));
 
-      if (userEligiblePrincipal > 0) {
+      // Requirement 9: Respect minimum eligible principal rules (e.g. minDeposit = 300 USDT)
+      if (userEligiblePrincipal >= minDeposit) {
         totalEligiblePrincipal += userEligiblePrincipal;
         const calculated = calculateUserDailyEarning(userEligiblePrincipal, input.applicableRate);
         const yieldPayout = calculated.earningsAmount;

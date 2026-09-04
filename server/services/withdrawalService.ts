@@ -7,6 +7,7 @@ import {
   updateWithdrawal,
   getAllWithdrawals,
   mapDbWithdrawalToWithdrawal,
+  processWithdrawalStatusAtomic,
 } from '../repositories/withdrawals';
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
@@ -348,7 +349,25 @@ export async function updateWithdrawalStatusAsync(
       }
     }
 
-    // 4. Update withdrawal record
+    // 4. Primary: Atomic PostgreSQL state transition via process_withdrawal_status_atomic
+    const atomicResult = await processWithdrawalStatusAtomic({
+      adminId,
+      adminRole: 'admin',
+      withdrawalId: withdrawal.id,
+      newStatus,
+      txHash: normalizedTxHash,
+      adminNotes,
+    });
+
+    if (atomicResult.success && atomicResult.withdrawal) {
+      return { success: true, withdrawal: atomicResult.withdrawal };
+    }
+
+    if (atomicResult.error && !atomicResult.error.includes('function process_withdrawal_status_atomic') && !atomicResult.error.includes('does not exist')) {
+      return { success: false, error: atomicResult.error };
+    }
+
+    // 5. ACID-Compliant Repository Fallback (Only if atomic RPC is not yet registered in environment)
     const now = new Date();
     const updated = await updateWithdrawal(withdrawal.id, {
       status: newStatus,
@@ -359,7 +378,7 @@ export async function updateWithdrawalStatusAsync(
       paidAt: newStatus === 'paid' ? now.toISOString() : undefined,
     });
 
-    // 5. Accounting, Ledgers, & Audit Logging
+    // Accounting, Ledgers, & Audit Logging Fallback
     if (newStatus === 'rejected') {
       // Refund held funds back to user balance in ledger atomically
       try {

@@ -62,7 +62,7 @@ function isWithinRange(dateStr?: string, start?: Date, end?: Date): boolean {
   return true;
 }
 
-async function fetchAllTableRowsAsync(table: string, select = '*'): Promise<any[]> {
+export async function fetchAllTableRowsAsync(table: string, select = '*'): Promise<any[]> {
   try {
     const supabase = getServerSupabase();
     const all: any[] = [];
@@ -274,15 +274,6 @@ export async function getAccountingSummaryAsync(options?: {
     if (userPrincipal >= minDeposit) {
       activeCompoundingPrincipal += userPrincipal;
     }
-  }
-
-  // Fallback if no individual user accounts or all below minDeposit
-  if (activeCompoundingPrincipal === 0) {
-    const allConfirmedDeps = deposits.filter(d => d.status === 'confirmed');
-    const allTimeDep = allConfirmedDeps.reduce((acc, d) => acc + (d.actualAmount || d.amount), 0);
-    const allPaidWd = withdrawals.filter(w => w.status === 'paid' || (w.status as string) === 'completed');
-    const allTimeWd = allPaidWd.reduce((acc, w) => acc + w.requestedAmount, 0);
-    activeCompoundingPrincipal = Math.max(0, allTimeDep - allTimeWd);
   }
 
   // --- Financial Reconciliation ---

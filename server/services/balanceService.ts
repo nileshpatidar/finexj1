@@ -191,8 +191,56 @@ export async function checkWithdrawalImpactAsync(
 ): Promise<WithdrawalImpactResult> {
   const balance = await calculateUserBalanceAsync(userId);
   const settings = await getSettings();
-  const feePercentage = Number(settings.withdrawalFeePercentage) || 9.0;
-  const minDeposit = Number(settings.minimumDepositAmount) || 300.0;
+
+  // STRICT CONFIGURATION SAFETY: Fail safely if financial settings are missing or invalid
+  const rawFee = Number(settings.withdrawalFeePercentage);
+  if (isNaN(rawFee) || rawFee < 0 || rawFee >= 100) {
+    return {
+      canWithdraw: false,
+      error: 'Financial configuration error: withdrawalFeePercentage is invalid or missing in system settings.',
+      availableBalance: balance.availableBalance,
+      referralEarnings: balance.referralEarnings,
+      activeCompoundingPrincipal: balance.activeCompoundingPrincipal,
+      depositLockedPrincipal: balance.depositLockedPrincipal,
+      isFundLocked: balance.isFundLocked,
+      is30DaysOld: balance.is30DaysOld,
+      requestedAmount,
+      feePercentage: 0,
+      feeAmount: 0,
+      netAmount: 0,
+      isReferralOnly: false,
+      touchesProtectedFund: false,
+      requiresLockBreakConfirmation: false,
+      requiresMinimumBreakConfirmation: false,
+      projectedRemainingPrincipal: balance.activeCompoundingPrincipal,
+    };
+  }
+
+  const rawMin = Number(settings.minimumDepositAmount);
+  if (isNaN(rawMin) || rawMin <= 0) {
+    return {
+      canWithdraw: false,
+      error: 'Financial configuration error: minimumDepositAmount is invalid or missing in system settings.',
+      availableBalance: balance.availableBalance,
+      referralEarnings: balance.referralEarnings,
+      activeCompoundingPrincipal: balance.activeCompoundingPrincipal,
+      depositLockedPrincipal: balance.depositLockedPrincipal,
+      isFundLocked: balance.isFundLocked,
+      is30DaysOld: balance.is30DaysOld,
+      requestedAmount,
+      feePercentage: rawFee,
+      feeAmount: 0,
+      netAmount: 0,
+      isReferralOnly: false,
+      touchesProtectedFund: false,
+      requiresLockBreakConfirmation: false,
+      requiresMinimumBreakConfirmation: false,
+      projectedRemainingPrincipal: balance.activeCompoundingPrincipal,
+    };
+  }
+
+  const feePercentage = rawFee;
+  const minDeposit = rawMin;
 
   if (requestedAmount <= 0) {
     return {

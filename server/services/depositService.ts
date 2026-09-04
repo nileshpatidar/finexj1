@@ -196,11 +196,11 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     toAddress: verification.toAddress || settings.bep20DepositAddress,
     tokenContract: verification.tokenContract || settings.usdtContractAddress,
     blockNumber: verification.blockNumber,
-    status: isConfirmed ? 'confirmed' : 'pending',
+    status: 'pending',
     confirmations: verification.confirmations || 0,
     requiredConfirmations: verification.requiredConfirmations || settings.requiredConfirmations || 12,
     createdAt: now.toISOString(),
-    confirmedAt: isConfirmed ? now.toISOString() : undefined,
+    confirmedAt: undefined,
     verifiedAt: verification.blockNumber || isTestUser ? now.toISOString() : undefined,
     eligibilityDate: tomorrow.toISOString(),
     depositLockEndDate: lockEndDate,
@@ -217,34 +217,52 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
 
   // 4. Atomic Financial Credit (Only when verified with >= required confirmations)
   if (isConfirmed) {
-    const balance = await calculateUserBalanceAsync(user.id);
-    await createLedgerEntry({
-      userId: user.id,
-      type: 'deposit',
-      amount: authoritativeAmount,
-      balanceAfter: balance.availableBalance,
-      referenceId: newDeposit.id,
-      description: `Confirmed BEP-20 USDT deposit of ${authoritativeAmount} USDT (Tx: ${rawTxHash})`,
-      createdAt: now.toISOString(),
-      performedBy: 'blockchain_verifier',
+    const confirmResult = await confirmDepositAtomic({
+      depositId: newDeposit.id,
+      adminId: 'blockchain_verifier',
+      adminNotes: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations || 12} BSC confirmations.`,
+      txHash: rawTxHash,
+      fromAddress: verification.fromAddress,
+      blockNumber: verification.blockNumber,
+      tokenContract: verification.tokenContract,
+      confirmations: verification.confirmations,
+      actualAmount: authoritativeAmount,
     });
 
-    await createAuditLog({
-      action: 'DEPOSIT_CONFIRMED',
-      actorId: user.id,
-      actorEmail: user.email,
-      actorRole: user.role,
-      targetUserId: user.id,
-      reason: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations} confirmations.`,
-      timestamp: now.toISOString(),
-    });
+    if (!confirmResult.success || !confirmResult.deposit) {
+      return { success: false, error: confirmResult.error || 'Failed to confirm deposit atomically.' };
+    }
 
-    // Idempotently trigger referral commission if user has an active referrer
-    processReferralRewardForDepositAsync(newDeposit.id, authoritativeAmount, user.id).catch(() => {});
+    if (!confirmResult.ledgerCreatedInDb) {
+      const balance = await calculateUserBalanceAsync(user.id);
+      await createLedgerEntry({
+        userId: user.id,
+        type: 'deposit',
+        amount: authoritativeAmount,
+        balanceAfter: balance.availableBalance,
+        referenceId: newDeposit.id,
+        description: `Confirmed BEP-20 USDT deposit of ${authoritativeAmount} USDT (Tx: ${rawTxHash})`,
+        createdAt: now.toISOString(),
+        performedBy: 'blockchain_verifier',
+      });
+
+      await createAuditLog({
+        action: 'DEPOSIT_CONFIRMED',
+        actorId: user.id,
+        actorEmail: user.email,
+        actorRole: user.role,
+        targetUserId: user.id,
+        reason: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations} confirmations.`,
+        timestamp: now.toISOString(),
+      });
+
+      // Idempotently trigger referral commission in application fallback mode only
+      processReferralRewardForDepositAsync(newDeposit.id, authoritativeAmount, user.id).catch(() => {});
+    }
 
     return {
       success: true,
-      deposit: newDeposit,
+      deposit: confirmResult.deposit,
       message: `Deposit of $${authoritativeAmount.toFixed(2)} USDT successfully verified on BNB Smart Chain and credited!`,
     };
   }
