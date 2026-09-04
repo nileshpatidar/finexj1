@@ -21,6 +21,95 @@ export interface UserProfile {
   isTestUser?: boolean;
 }
 
+export interface AdminUserListItem {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  country: string;
+  role: UserRole;
+  status: AccountStatus;
+  createdAt: string;
+  twoFactorEnabled: boolean;
+  profilePictureUrl?: string;
+  walletAddress?: string;
+  referralCode?: string;
+  referrerId?: string;
+  referrer?: {
+    id: string;
+    fullName: string;
+    email: string;
+    referralCode?: string;
+  } | null;
+  isTestUser?: boolean;
+  isFlaggedForReview?: boolean;
+  riskScore?: number;
+  fraudFlags?: string[];
+  fundLockUntil?: string;
+  fundLockReason?: string;
+  balance: UserBalanceSummary & {
+    eligiblePrincipal?: number;
+  };
+}
+
+export interface AdminUserDetailResponse {
+  success: boolean;
+  user: UserProfile & {
+    isFlaggedForReview?: boolean;
+    riskScore?: number;
+    fraudFlags?: string[];
+    lockUntil?: string;
+    loginAttempts?: number;
+    lastLoginAt?: string;
+  };
+  referrer?: {
+    id: string;
+    fullName: string;
+    email: string;
+    referralCode?: string;
+  } | null;
+  balance: UserBalanceSummary;
+  referralDetails: {
+    referralCode: string;
+    referrer?: {
+      id: string;
+      fullName: string;
+      email: string;
+      referralCode?: string;
+    } | null;
+    level1Count: number;
+    level2Count: number;
+    totalReferredCount: number;
+    level1RewardsEarned: number;
+    level2RewardsEarned: number;
+    totalRewardsEarned: number;
+    level1Referrals: Array<{
+      id: string;
+      email: string;
+      status: string;
+      level: number;
+      createdAt: string;
+      isQualified: boolean;
+    }>;
+    level2Referrals: Array<{
+      id: string;
+      email: string;
+      status: string;
+      level: number;
+      createdAt: string;
+      isQualified: boolean;
+    }>;
+  };
+  history: {
+    deposits: DepositItem[];
+    withdrawals: WithdrawalItem[];
+    earnings: any[];
+    referralRewards: any[];
+    ledger: any[];
+    auditLogs: any[];
+  };
+}
+
 export interface UserBalanceSummary {
   userId: string;
   totalDeposited: number;
@@ -96,6 +185,37 @@ export interface DepositItem {
   reviewedAt?: string;
   reviewedBy?: string;
   notes?: string;
+  userName?: string;
+  userEmail?: string;
+  isTestUser?: boolean;
+  userStatus?: string;
+  isQualifying?: boolean;
+}
+
+export interface AdminDepositListItem extends DepositItem {}
+
+export interface AdminDepositDetailResponse {
+  success: boolean;
+  deposit: AdminDepositListItem;
+  user?: {
+    id: string;
+    fullName: string;
+    email: string;
+    role: string;
+    status: string;
+    isTestUser: boolean;
+    createdAt: string;
+    referralCode?: string;
+    referredBy?: string;
+  };
+  isQualifying: boolean;
+  minimumDepositAmount: number;
+  proofUrl?: string;
+  history: {
+    ledger: any[];
+    referralRewards: any[];
+    auditLogs: any[];
+  };
 }
 
 export interface WithdrawalItem {

@@ -166,7 +166,17 @@ export async function updateDeposit(id: string, updates: Partial<Deposit>): Prom
   if (updates.confirmations !== undefined) payload.confirmations = updates.confirmations;
   if (updates.confirmedAt !== undefined) payload.confirmed_at = updates.confirmedAt;
   if (updates.verifiedAt !== undefined) payload.verified_at = updates.verifiedAt;
-  if (updates.adminNotes !== undefined) payload.notes = updates.adminNotes;
+  if (updates.adminNotes !== undefined) {
+    payload.notes = updates.adminNotes;
+    payload.admin_notes = updates.adminNotes;
+  }
+  if (updates.reviewedAt !== undefined) payload.reviewed_at = updates.reviewedAt;
+  if (updates.reviewedBy !== undefined) payload.reviewed_by = updates.reviewedBy;
+  if (updates.eligibilityDate !== undefined) payload.eligibility_date = updates.eligibilityDate;
+  if (updates.depositLockEndDate !== undefined) {
+    payload.deposit_lock_end_date = updates.depositLockEndDate;
+    payload.lock_expires_at = updates.depositLockEndDate;
+  }
   if (updates.txHash !== undefined) payload.tx_hash = updates.txHash;
   if (updates.amount !== undefined) payload.amount = updates.amount;
   if (updates.actualAmount !== undefined) payload.actual_amount = updates.actualAmount;
@@ -188,20 +198,69 @@ export async function updateDeposit(id: string, updates: Partial<Deposit>): Prom
   return mapDbDepositToDeposit(data);
 }
 
-export async function getAllDeposits(options?: {
+export interface GetAllDepositsOptions {
   page?: number;
   limit?: number;
   status?: string;
-}): Promise<{ deposits: Deposit[]; total: number }> {
+  search?: string;
+  txHash?: string;
+  userId?: string;
+  userIds?: string[];
+  minAmount?: number;
+  maxAmount?: number;
+  startDate?: string;
+  endDate?: string;
+}
+
+export async function getAllDeposits(options?: GetAllDepositsOptions): Promise<{ deposits: Deposit[]; total: number }> {
   const supabase = getServerSupabase();
-  const page = options?.page || 1;
-  const limit = options?.limit || 50;
+  const page = Math.max(1, Number(options?.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(options?.limit) || 50));
   const offset = (page - 1) * limit;
 
   let query = supabase.from('deposits').select('*', { count: 'exact' });
 
   if (options?.status && options.status !== 'all') {
     query = query.eq('status', options.status);
+  }
+
+  if (options?.userId) {
+    query = query.eq('user_id', options.userId);
+  }
+
+  if (options?.userIds && options.userIds.length > 0) {
+    query = query.in('user_id', options.userIds);
+  }
+
+  if (options?.txHash && options.txHash.trim()) {
+    query = query.ilike('tx_hash', `%${options.txHash.trim()}%`);
+  }
+
+  if (options?.minAmount !== undefined && !isNaN(Number(options.minAmount))) {
+    query = query.gte('amount', Number(options.minAmount));
+  }
+
+  if (options?.maxAmount !== undefined && !isNaN(Number(options.maxAmount))) {
+    query = query.lte('amount', Number(options.maxAmount));
+  }
+
+  if (options?.startDate) {
+    query = query.gte('created_at', options.startDate);
+  }
+
+  if (options?.endDate) {
+    query = query.lte('created_at', options.endDate);
+  }
+
+  if (options?.search && options.search.trim()) {
+    const term = options.search.trim().replace(/[%_]/g, '');
+    if (term) {
+      if (!isNaN(Number(term))) {
+        query = query.or(`tx_hash.ilike.%${term}%,id.eq.${Number(term)},user_id.eq.${Number(term)}`);
+      } else {
+        query = query.ilike('tx_hash', `%${term}%`);
+      }
+    }
   }
 
   const { data, count, error } = await query
@@ -214,7 +273,7 @@ export async function getAllDeposits(options?: {
   }
 
   const deposits = (data || []).map(mapDbDepositToDeposit);
-  return { deposits, total: count || deposits.length };
+  return { deposits, total: count !== null && count !== undefined ? count : deposits.length };
 }
 
 export interface ConfirmDepositAtomicInput {
@@ -303,6 +362,8 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
     confirmedAt: now,
     verifiedAt: now,
     adminNotes: input.adminNotes || existing.adminNotes,
+    reviewedBy: input.adminId,
+    reviewedAt: now,
     txHash: input.txHash || existing.txHash,
     fromAddress: input.fromAddress || existing.fromAddress,
     blockNumber: input.blockNumber !== undefined ? input.blockNumber : existing.blockNumber,

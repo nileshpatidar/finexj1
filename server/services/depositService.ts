@@ -422,6 +422,12 @@ export async function updateDepositStatusAsync(
     return { success: false, error: 'This deposit has already been confirmed.' };
   }
 
+  if (status === 'rejected' && deposit.status === 'rejected') {
+    return { success: false, error: 'This deposit has already been rejected.' };
+  }
+
+  const now = new Date().toISOString();
+
   if (status === 'confirmed') {
     const confirmResult = await confirmDepositAtomic({
       depositId: deposit.id,
@@ -444,7 +450,7 @@ export async function updateDepositStatusAsync(
         balanceAfter: balance.availableBalance,
         referenceId: deposit.id,
         description: `Admin approved deposit of ${deposit.amount} USDT`,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
         performedBy: adminId,
       });
 
@@ -454,7 +460,10 @@ export async function updateDepositStatusAsync(
         actorRole: 'admin',
         targetUserId: deposit.userId,
         reason: adminNotes || `Admin approved deposit #${deposit.id} for ${deposit.amount} USDT`,
-        timestamp: new Date().toISOString(),
+        timestamp: now,
+        referenceId: String(deposit.id),
+        beforeValue: { status: deposit.status },
+        afterValue: { status: 'confirmed', amount: deposit.amount },
       });
 
       processReferralRewardForDepositAsync(deposit.id, deposit.amount, deposit.userId).catch(() => {});
@@ -467,6 +476,8 @@ export async function updateDepositStatusAsync(
   const updated = await updateDeposit(depositId, {
     status: 'rejected',
     adminNotes,
+    reviewedBy: adminId,
+    reviewedAt: now,
     txHash: txHash || deposit.txHash,
   });
 
@@ -476,7 +487,10 @@ export async function updateDepositStatusAsync(
     actorRole: 'admin',
     targetUserId: deposit.userId,
     reason: adminNotes || `Admin rejected deposit #${deposit.id}`,
-    timestamp: new Date().toISOString(),
+    timestamp: now,
+    referenceId: String(deposit.id),
+    beforeValue: { status: deposit.status },
+    afterValue: { status: 'rejected' },
   });
 
   return { success: true, deposit: updated };

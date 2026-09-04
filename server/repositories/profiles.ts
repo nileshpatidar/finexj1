@@ -162,6 +162,7 @@ export async function createProfile(user: Partial<User>): Promise<User> {
     is_flagged_for_review: Boolean(user.isFlaggedForReview),
     risk_score: user.riskScore || 0,
     fraud_flags: user.fraudFlags || [],
+    is_test_user: Boolean(user.isTestUser),
     created_at: user.createdAt || new Date().toISOString(),
   };
 
@@ -238,6 +239,7 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
   if (updates.isFlaggedForReview !== undefined) payload.is_flagged_for_review = updates.isFlaggedForReview;
   if (updates.riskScore !== undefined) payload.risk_score = updates.riskScore;
   if (updates.fraudFlags !== undefined) payload.fraud_flags = updates.fraudFlags;
+  if (updates.isTestUser !== undefined) payload.is_test_user = updates.isTestUser;
 
   // If payload is completely empty, safely return existing profile
   if (Object.keys(payload).length === 0) {
@@ -296,32 +298,52 @@ export async function getAllProfiles(options?: {
   limit?: number;
   role?: string;
   status?: string;
+  search?: string;
+  isTestUser?: boolean;
 }): Promise<{ users: User[]; total: number }> {
   const supabase = getServerSupabase();
-  const page = options?.page || 1;
-  const limit = options?.limit || 50;
+  const page = Math.max(1, Number(options?.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(options?.limit) || 50));
   const offset = (page - 1) * limit;
 
-  let query = supabase.from('users').select('*', { count: 'exact' });
+  try {
+    let query = supabase.from('users').select('*', { count: 'exact' });
 
-  if (options?.role && options.role !== 'all') {
-    query = query.eq('role', options.role);
+    if (options?.role && options.role !== 'all') {
+      query = query.eq('role', options.role);
+    }
+    if (options?.status && options.status !== 'all') {
+      query = query.eq('status', options.status);
+    }
+    if (options?.isTestUser !== undefined) {
+      query = query.eq('is_test_user', options.isTestUser);
+    }
+    if (options?.search && options.search.trim()) {
+      const term = options.search.trim().replace(/[%_]/g, '');
+      if (term) {
+        if (!isNaN(Number(term))) {
+          query = query.or(`full_name.ilike.%${term}%,email.ilike.%${term}%,referral_code.ilike.%${term}%,wallet_address.ilike.%${term}%,id.eq.${Number(term)}`);
+        } else {
+          query = query.or(`full_name.ilike.%${term}%,email.ilike.%${term}%,referral_code.ilike.%${term}%,wallet_address.ilike.%${term}%`);
+        }
+      }
+    }
+
+    const { data, count, error } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.warn('[Supabase Warn] getAllProfiles:', error.message);
+      return { users: [], total: 0 };
+    }
+
+    const users = (data || []).map(mapDbUserToUser);
+    return { users, total: count !== null && count !== undefined ? count : users.length };
+  } catch (err: any) {
+    console.warn('[Supabase Exception] getAllProfiles:', err?.message);
+    return { users: [], total: 0 };
   }
-  if (options?.status && options.status !== 'all') {
-    query = query.eq('status', options.status);
-  }
-
-  const { data, count, error } = await query
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (error) {
-    console.error('[Supabase Error] getAllProfiles:', error.message);
-    throw new Error(`Failed to list profiles: ${error.message}`);
-  }
-
-  const users = (data || []).map(mapDbUserToUser);
-  return { users, total: count || users.length };
 }
 
 export async function getProfileByReferralCode(code: string): Promise<User | null> {

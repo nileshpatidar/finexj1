@@ -36,7 +36,7 @@ import {
   validateReferralCodeAsync,
 } from './services/referralService';
 import { getFraudSignals, resolveFraudSignal } from './services/fraudService';
-import { getReferralsByReferrerId } from './repositories/referrals';
+import { getReferralsByReferrerId, getReferralRewardsByReferrerId } from './repositories/referrals';
 import { generateWithdrawalOtp } from './services/otpService';
 import { getOperationalFundSummaryAsync, adjustOperationalFundAsync } from './services/operationalFundService';
 import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync, getAdminLedgerAsync } from './services/accountingService';
@@ -1225,29 +1225,213 @@ app.get(['/api/admin/dashboard', '/admin/dashboard'], authMiddleware, adminMiddl
   }
 });
 
-// Admin Users list
+// ==========================================
+// 8. ADMIN USER MANAGEMENT (STEP 12)
+// ==========================================
+
+// Admin Users list with server-side search, pagination, status & test-user filtering, and authoritative balances
 app.get(['/api/admin/users', '/admin/users'], authMiddleware, adminMiddleware(), async (req, res, next) => {
   try {
-    const { users } = await getAllProfiles({ limit: 500 });
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const status = req.query.status ? String(req.query.status).trim() : undefined;
+    const role = req.query.role ? String(req.query.role).trim() : undefined;
+
+    let isTestUser: boolean | undefined = undefined;
+    if (req.query.isTestUser === 'true') isTestUser = true;
+    else if (req.query.isTestUser === 'false') isTestUser = false;
+
+    const { users, total } = await getAllProfiles({
+      page,
+      limit,
+      search,
+      status,
+      role,
+      isTestUser,
+    });
+
+    // Efficiently batch-resolve referrers to avoid N+1 database queries
+    const referrerIds = Array.from(
+      new Set(users.map(u => u.referrerId).filter(id => Boolean(id)))
+    ) as string[];
+
+    const referrerMap = new Map<string, { id: string; fullName: string; email: string; referralCode?: string }>();
+    if (referrerIds.length > 0) {
+      await Promise.all(
+        referrerIds.map(async rId => {
+          try {
+            const rUser = await getProfileById(String(rId));
+            if (rUser) {
+              referrerMap.set(String(rId), {
+                id: rUser.id,
+                fullName: rUser.fullName,
+                email: rUser.email,
+                referralCode: rUser.referralCode,
+              });
+            }
+          } catch {
+            // Graceful fallback
+          }
+        })
+      );
+    }
+
+    // Attach authoritative financial calculations & strip sensitive authentication secrets
     const usersWithBalances = await Promise.all(
       users.map(async u => {
         const balance = await calculateUserBalanceAsync(u.id);
+        const referrer = u.referrerId ? referrerMap.get(String(u.referrerId)) || null : null;
+
         return {
           id: u.id,
           fullName: u.fullName,
           email: u.email,
-          phone: u.phone,
-          country: u.country,
+          phone: u.phone || '',
+          country: u.country || '',
           role: u.role,
           status: u.status,
           createdAt: u.createdAt,
-          twoFactorEnabled: u.twoFactorEnabled,
-          profilePictureUrl: u.profilePictureUrl,
-          balance,
+          twoFactorEnabled: Boolean(u.twoFactorEnabled),
+          profilePictureUrl: u.profilePictureUrl || null,
+          walletAddress: u.walletAddress || '',
+          referralCode: u.referralCode || `FXJ-${u.id.substring(0, 6).toUpperCase()}`,
+          referrerId: u.referrerId || null,
+          referrer,
+          isTestUser: Boolean(u.isTestUser),
+          isFlaggedForReview: Boolean(u.isFlaggedForReview),
+          riskScore: u.riskScore || 0,
+          fraudFlags: u.fraudFlags || [],
+          fundLockUntil: u.fundLockUntil || null,
+          fundLockReason: u.fundLockReason || null,
+          balance: {
+            availableBalance: balance.availableBalance,
+            activeCompoundingPrincipal: balance.activeCompoundingPrincipal,
+            eligiblePrincipal: balance.activeCompoundingPrincipal,
+            totalDeposited: balance.totalDeposited,
+            totalEarnings: balance.totalEarnings,
+            referralEarnings: balance.referralEarnings,
+            totalWithdrawn: balance.totalWithdrawn,
+            depositLockedPrincipal: balance.depositLockedPrincipal,
+            lockedBalance: balance.lockedBalance,
+            eligibleForWithdrawal: balance.eligibleForWithdrawal,
+            isFundLocked: balance.isFundLocked,
+            fundLockUntil: balance.fundLockUntil,
+            fundLockRemainingDays: balance.fundLockRemainingDays,
+            accountAgeDays: balance.accountAgeDays,
+            canWithdraw: balance.canWithdraw,
+          },
         };
       })
     );
-    res.json({ users: usersWithBalances });
+
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    res.json({
+      users: usersWithBalances,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin User Details: Authoritative breakdown, 2-tier referral network, deposits, withdrawals, earnings, ledger, and audit history
+app.get(['/api/admin/users/:id', '/admin/users/:id'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const user = await getProfileById(id);
+    if (!user) {
+      throw Errors.notFound('USER_NOT_FOUND', 'User not found.');
+    }
+
+    // 1. Authoritative financial balance
+    const balance = await calculateUserBalanceAsync(user.id);
+
+    // 2. Referrer information
+    let referrer: { id: string; fullName: string; email: string; referralCode?: string } | null = null;
+    if (user.referrerId) {
+      const rUser = await getProfileById(String(user.referrerId));
+      if (rUser) {
+        referrer = {
+          id: rUser.id,
+          fullName: rUser.fullName,
+          email: rUser.email,
+          referralCode: rUser.referralCode,
+        };
+      }
+    }
+
+    // 3. Authoritative 2-tier Referral tree (Level 1 & Level 2 only. Max 2 levels — strictly no Level 3)
+    const referralSummary = await getReferralSummaryAsync(user.id);
+    const l1Referrals = referralSummary.referrals.filter(r => r.level === 1);
+    const l2Referrals = referralSummary.referrals.filter(r => r.level === 2);
+
+    // 4. Financial histories & audit trail
+    const deposits = await getDepositsByUserId(user.id);
+    const withdrawals = await getWithdrawalsByUserId(user.id);
+    const earnings = await getEarningsByUserId(user.id);
+    const referralRewards = await getReferralRewardsByReferrerId(user.id);
+    const ledger = await getLedgerByUserId(user.id);
+    const auditLogs = await getAuditLogs({ targetUserId: user.id, limit: 50 });
+
+    // Sensitive field protection: Never expose passwordHash, salt, twoFactorSecret, session tokens, private keys
+    const sanitizedUser = {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone || '',
+      country: user.country || '',
+      role: user.role,
+      status: user.status,
+      createdAt: user.createdAt,
+      twoFactorEnabled: Boolean(user.twoFactorEnabled),
+      profilePictureUrl: user.profilePictureUrl || null,
+      walletAddress: user.walletAddress || '',
+      referralCode: user.referralCode || `FXJ-${user.id.substring(0, 6).toUpperCase()}`,
+      referrerId: user.referrerId || null,
+      isTestUser: Boolean(user.isTestUser),
+      isFlaggedForReview: Boolean(user.isFlaggedForReview),
+      riskScore: user.riskScore || 0,
+      fraudFlags: user.fraudFlags || [],
+      fundLockUntil: user.fundLockUntil || null,
+      fundLockReason: user.fundLockReason || null,
+      lockUntil: user.lockUntil || null,
+      loginAttempts: user.loginAttempts || 0,
+      lastLoginAt: user.lastLoginAt || null,
+    };
+
+    res.json({
+      success: true,
+      user: sanitizedUser,
+      referrer,
+      balance,
+      referralDetails: {
+        referralCode: user.referralCode || `FXJ-${user.id.substring(0, 6).toUpperCase()}`,
+        referrer,
+        level1Count: referralSummary.level1Count,
+        level2Count: referralSummary.level2Count,
+        totalReferredCount: referralSummary.totalReferredCount,
+        level1RewardsEarned: referralSummary.level1RewardsEarned,
+        level2RewardsEarned: referralSummary.level2RewardsEarned,
+        totalRewardsEarned: referralSummary.totalRewardsEarned,
+        level1Referrals: l1Referrals,
+        level2Referrals: l2Referrals,
+      },
+      history: {
+        deposits,
+        withdrawals,
+        earnings,
+        referralRewards,
+        ledger,
+        auditLogs,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -1257,22 +1441,30 @@ app.get(['/api/admin/users', '/admin/users'], authMiddleware, adminMiddleware(),
 app.post(['/api/admin/users/:id/status', '/admin/users/:id/status'], authMiddleware, adminMiddleware(['super_admin', 'support_admin']), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, reason } = req.body;
     const admin: User = (req as any).user;
 
     if (!['active', 'suspended', 'pending_verification'].includes(status)) {
-      throw Errors.validation('Invalid status value.');
+      throw Errors.validation('Invalid status value. Must be active, suspended, or pending_verification.');
     }
 
+    const existingUser = await getProfileById(id);
+    if (!existingUser) {
+      throw Errors.notFound('USER_NOT_FOUND', 'User not found.');
+    }
+
+    const previousStatus = existingUser.status;
     const updated = await updateProfile(id, { status });
+
     await createAuditLog({
       action: 'USER_STATUS_UPDATED',
       actorId: admin.id,
       actorEmail: admin.email,
       actorRole: admin.role,
       targetUserId: id,
+      beforeValue: { status: previousStatus },
       afterValue: { status },
-      reason: `Admin updated account status to ${status}`,
+      reason: reason || `Admin updated account status from ${previousStatus} to ${status}`,
     });
 
     res.json({ success: true, user: updated });
@@ -1281,21 +1473,260 @@ app.post(['/api/admin/users/:id/status', '/admin/users/:id/status'], authMiddlew
   }
 });
 
-// Admin Deposits
+// Admin toggle test user status (Reuses existing is_test_user field, audits change)
+app.post(['/api/admin/users/:id/test-user', '/admin/users/:id/test-user'], authMiddleware, adminMiddleware(['super_admin', 'support_admin']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { isTestUser, reason } = req.body;
+    const admin: User = (req as any).user;
+
+    if (typeof isTestUser !== 'boolean') {
+      throw Errors.validation('isTestUser must be a boolean.');
+    }
+
+    const existingUser = await getProfileById(id);
+    if (!existingUser) {
+      throw Errors.notFound('USER_NOT_FOUND', 'User not found.');
+    }
+
+    const previousTestStatus = Boolean(existingUser.isTestUser);
+    const updated = await updateProfile(id, { isTestUser });
+
+    await createAuditLog({
+      action: 'USER_TEST_STATUS_UPDATED',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      targetUserId: id,
+      beforeValue: { isTestUser: previousTestStatus },
+      afterValue: { isTestUser },
+      reason: reason || `Admin updated test-user status from ${previousTestStatus} to ${isTestUser}`,
+    });
+
+    res.json({ success: true, user: updated, isTestUser: updated.isTestUser });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin toggle fund lock
+app.post(['/api/admin/users/:id/fund-lock', '/admin/users/:id/fund-lock'], authMiddleware, adminMiddleware(['super_admin', 'support_admin']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { action, days = 30, reason } = req.body;
+    const admin: User = (req as any).user;
+
+    const existingUser = await getProfileById(id);
+    if (!existingUser) {
+      throw Errors.notFound('USER_NOT_FOUND', 'User not found.');
+    }
+
+    let fundLockUntil: string | null = null;
+    let fundLockReason: string | null = null;
+
+    if (action === 'lock') {
+      const lockDays = Math.max(1, Math.min(365, Number(days) || 30));
+      fundLockUntil = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000).toISOString();
+      fundLockReason = reason || `Administrative ${lockDays}-day fund lock applied`;
+    } else if (action === 'unlock') {
+      fundLockUntil = null;
+      fundLockReason = null;
+    } else {
+      throw Errors.validation('Action must be lock or unlock.');
+    }
+
+    const updated = await updateProfile(id, {
+      fundLockUntil: fundLockUntil as any,
+      fundLockReason: fundLockReason as any,
+    });
+
+    await createAuditLog({
+      action: action === 'lock' ? 'USER_FUND_LOCK_APPLIED' : 'USER_FUND_LOCK_RELEASED',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      actorRole: admin.role,
+      targetUserId: id,
+      beforeValue: {
+        fundLockUntil: existingUser.fundLockUntil,
+        fundLockReason: existingUser.fundLockReason,
+      },
+      afterValue: {
+        fundLockUntil,
+        fundLockReason,
+      },
+      reason: reason || `Admin performed ${action} on funds`,
+    });
+
+    res.json({ success: true, user: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Deposits - Paginated List with Search and Filter
 app.get(['/api/admin/deposits', '/admin/deposits'], authMiddleware, adminMiddleware(), async (req, res, next) => {
   try {
-    const { deposits } = await getAllDeposits({ limit: 500 });
-    const depositsWithUsers = await Promise.all(
-      deposits.map(async d => {
-        const user = await getProfileById(d.userId);
-        return {
-          ...d,
-          userName: user ? user.fullName : 'Unknown User',
-          userEmail: user ? user.email : '',
-        };
-      })
-    );
-    res.json({ deposits: depositsWithUsers });
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const status = req.query.status as string | undefined;
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const txHash = req.query.txHash ? String(req.query.txHash).trim() : undefined;
+    const minAmount = req.query.minAmount !== undefined && req.query.minAmount !== '' ? Number(req.query.minAmount) : undefined;
+    const maxAmount = req.query.maxAmount !== undefined && req.query.maxAmount !== '' ? Number(req.query.maxAmount) : undefined;
+    const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+    const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+
+    const supabase = getServerSupabase();
+    const settings = await getSettings();
+    const minDepositAmount = Number(settings.minimumDepositAmount) || 300;
+
+    // If search text is provided, find matching user IDs to search both users and tx_hash
+    let matchedUserIds: string[] | undefined = undefined;
+    if (search) {
+      const cleanTerm = search.replace(/[%_]/g, '');
+      const { data: matchedUsers } = await supabase
+        .from('users')
+        .select('id')
+        .or(`full_name.ilike.%${cleanTerm}%,email.ilike.%${cleanTerm}%`)
+        .limit(100);
+
+      if (matchedUsers && matchedUsers.length > 0) {
+        matchedUserIds = matchedUsers.map(u => String(u.id));
+      }
+    }
+
+    const { deposits, total } = await getAllDeposits({
+      page,
+      limit,
+      status: status && status !== 'all' ? status : undefined,
+      search: search && (!matchedUserIds || matchedUserIds.length === 0) ? search : undefined,
+      userIds: matchedUserIds,
+      txHash: txHash || undefined,
+      minAmount: minAmount !== undefined && !isNaN(minAmount) ? minAmount : undefined,
+      maxAmount: maxAmount !== undefined && !isNaN(maxAmount) ? maxAmount : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    });
+
+    // Batch fetch users to eliminate N+1 queries
+    const uniqueUserIds = Array.from(new Set(deposits.map(d => d.userId).filter(Boolean)));
+    const userMap = new Map<string, any>();
+    if (uniqueUserIds.length > 0) {
+      const { data: usersData } = await supabase
+        .from('users')
+        .select('id, full_name, email, role, status, is_test_user, created_at')
+        .in('id', uniqueUserIds);
+
+      (usersData || []).forEach(u => userMap.set(String(u.id), u));
+    }
+
+    const depositsWithUsers = deposits.map(d => {
+      const user = userMap.get(String(d.userId));
+      return {
+        ...d,
+        userName: user ? user.full_name : 'Unknown User',
+        userEmail: user ? user.email : '',
+        isTestUser: Boolean(user?.is_test_user),
+        userStatus: user?.status || 'active',
+        isQualifying: Number(d.amount) >= minDepositAmount,
+      };
+    });
+
+    res.json({
+      deposits: depositsWithUsers,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+      minimumDepositAmount: minDepositAmount,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Deposit Detail View
+app.get(['/api/admin/deposits/:id', '/admin/deposits/:id'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const deposit = await getDepositById(id);
+    if (!deposit) {
+      throw Errors.notFound('DEPOSIT_NOT_FOUND', 'Deposit record not found.');
+    }
+
+    const supabase = getServerSupabase();
+    const settings = await getSettings();
+    const minDepositAmount = Number(settings.minimumDepositAmount) || 300;
+
+    // Fetch user without sensitive credentials (no password, salt, 2fa secret)
+    const user = await getProfileById(deposit.userId);
+    const sanitizedUser = user ? {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      isTestUser: Boolean(user.isTestUser),
+      createdAt: user.createdAt,
+      referralCode: user.referralCode,
+      referredBy: user.referrerId,
+    } : null;
+
+    // Fetch signed proof URL if present
+    let proofSignedUrl: string | undefined = undefined;
+    if (deposit.proofPhotoUrl) {
+      try {
+        const signed = await getSignedDepositProofUrl(deposit.proofPhotoUrl, 3600);
+        proofSignedUrl = signed || deposit.proofPhotoUrl;
+      } catch (e) {
+        proofSignedUrl = deposit.proofPhotoUrl;
+      }
+    }
+
+    // Associated ledger records
+    const { data: ledgerData } = await supabase
+      .from('ledger_entries')
+      .select('*')
+      .eq('reference_id', String(deposit.id))
+      .order('created_at', { ascending: false });
+
+    // Associated referral rewards
+    const { data: rewardsData } = await supabase
+      .from('referral_rewards')
+      .select('*')
+      .eq('deposit_id', String(deposit.id))
+      .order('created_at', { ascending: false });
+
+    // Associated audit logs
+    const { data: auditData } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .or(`reference_id.eq.${deposit.id},target_user_id.eq.${deposit.userId}`)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    res.json({
+      success: true,
+      deposit: {
+        ...deposit,
+        userName: user ? user.fullName : 'Unknown User',
+        userEmail: user ? user.email : '',
+        isTestUser: Boolean(user?.isTestUser),
+        userStatus: user?.status || 'active',
+        isQualifying: Number(deposit.amount) >= minDepositAmount,
+      },
+      user: sanitizedUser,
+      isQualifying: Number(deposit.amount) >= minDepositAmount,
+      minimumDepositAmount: minDepositAmount,
+      proofUrl: proofSignedUrl,
+      history: {
+        ledger: ledgerData || [],
+        referralRewards: rewardsData || [],
+        auditLogs: auditData || [],
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -1317,19 +1748,24 @@ app.get(['/api/admin/deposits/:id/proof-url', '/admin/deposits/:id/proof-url'], 
   }
 });
 
-// Admin process deposit
+// Admin process deposit (Confirm / Reject)
 app.post(['/api/admin/deposits/:id/action', '/admin/deposits/:id/action'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
   try {
     const admin: User = (req as any).user;
     const { id } = req.params;
-    const { action, adminNotes, txHash } = req.body;
+    const { action, adminNotes, txHash, reason } = req.body;
 
     if (!['confirmed', 'rejected', 'approve', 'reject'].includes(action)) {
       throw Errors.validation('Invalid action. Must be confirmed or rejected.');
     }
 
+    const note = adminNotes || reason;
+    if ((action === 'rejected' || action === 'reject') && (!note || !note.trim())) {
+      throw Errors.validation('A valid rejection reason is required.');
+    }
+
     const normalizedStatus = (action === 'approve' || action === 'confirmed') ? 'confirmed' : 'rejected';
-    const result = await updateDepositStatusAsync(admin.id, id, normalizedStatus, adminNotes, txHash);
+    const result = await updateDepositStatusAsync(admin.id, id, normalizedStatus, note, txHash);
     if (!result.success) {
       throw Errors.validation(result.error || 'Failed to update deposit status.');
     }

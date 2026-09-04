@@ -1,6 +1,7 @@
 import {
   DashboardResponse,
   DepositItem,
+  AdminDepositDetailResponse,
   WithdrawalItem,
   EarningItem,
   LedgerItem,
@@ -199,13 +200,98 @@ export const api = {
 
   // Admin
   getAdminDashboard: () => request<any>('/api/admin/dashboard'),
-  getAdminUsers: () => request<{ users: any[] }>('/api/admin/users'),
-  updateUserStatus: (userId: string, status: string) =>
+  getAdminUsers: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    isTestUser?: string | boolean;
+    role?: string;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.search) query.set('search', params.search);
+    if (params?.status && params.status !== 'all') query.set('status', params.status);
+    if (params?.isTestUser !== undefined && params.isTestUser !== 'all') query.set('isTestUser', String(params.isTestUser));
+    if (params?.role && params.role !== 'all') query.set('role', params.role);
+    const qs = query.toString();
+    return request<{
+      users: any[];
+      pagination?: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>(`/api/admin/users${qs ? `?${qs}` : ''}`);
+  },
+  getAdminUserDetail: (userId: string) =>
+    request<{
+      success: boolean;
+      user: any;
+      referrer?: any;
+      balance: any;
+      referralDetails: any;
+      history: {
+        deposits: any[];
+        withdrawals: any[];
+        earnings: any[];
+        referralRewards: any[];
+        ledger: any[];
+        auditLogs: any[];
+      };
+    }>(`/api/admin/users/${userId}`),
+  updateUserStatus: (userId: string, status: string, reason?: string) =>
     request<{ success: boolean; user: any }>(`/api/admin/users/${userId}/status`, {
       method: 'POST',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, reason }),
     }),
-  getAdminDeposits: () => request<{ deposits: DepositItem[] }>('/api/admin/deposits'),
+  updateUserTestStatus: (userId: string, isTestUser: boolean, reason?: string) =>
+    request<{ success: boolean; user: any; isTestUser: boolean }>(`/api/admin/users/${userId}/test-user`, {
+      method: 'POST',
+      body: JSON.stringify({ isTestUser, reason }),
+    }),
+  updateUserFundLock: (userId: string, action: 'lock' | 'unlock', days?: number, reason?: string) =>
+    request<{ success: boolean; user: any }>(`/api/admin/users/${userId}/fund-lock`, {
+      method: 'POST',
+      body: JSON.stringify({ action, days, reason }),
+    }),
+  getAdminDeposits: (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+    txHash?: string;
+    minAmount?: number;
+    maxAmount?: number;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.status && params.status !== 'all') query.set('status', params.status);
+    if (params?.search) query.set('search', params.search);
+    if (params?.txHash) query.set('txHash', params.txHash);
+    if (params?.minAmount !== undefined && !isNaN(params.minAmount)) query.set('minAmount', String(params.minAmount));
+    if (params?.maxAmount !== undefined && !isNaN(params.maxAmount)) query.set('maxAmount', String(params.maxAmount));
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    const qs = query.toString();
+    return request<{
+      deposits: DepositItem[];
+      pagination?: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+      minimumDepositAmount?: number;
+    }>(`/api/admin/deposits${qs ? `?${qs}` : ''}`);
+  },
+  getAdminDepositDetail: (depositId: string) =>
+    request<AdminDepositDetailResponse>(`/api/admin/deposits/${depositId}`),
   verifyAdminDeposit: (depositId: string) =>
     request<{ success: boolean; deposit?: DepositItem; isPendingConfirmations?: boolean; confirmations?: number; requiredConfirmations?: number; message?: string; error?: string }>(
       `/api/admin/deposits/${depositId}/verify`,
