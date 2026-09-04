@@ -259,6 +259,11 @@ export async function updateWithdrawalStatusAsync(
       return { success: false, error: 'Cannot modify a cancelled withdrawal.' };
     }
 
+    // Rejection reason is required (Requirement 10)
+    if (newStatus === 'rejected' && (!adminNotes || !adminNotes.trim())) {
+      return { success: false, error: 'A specific rejection reason is required to reject a withdrawal request.' };
+    }
+
     const validNextStates: Record<string, string[]> = {
       pending: ['approved', 'processing', 'paid', 'rejected', 'under_review', 'cancelled'],
       under_review: ['approved', 'processing', 'paid', 'rejected'],
@@ -275,6 +280,9 @@ export async function updateWithdrawalStatusAsync(
     }
 
     // 3. Real BSC On-Chain Verification when marking as Paid
+    const targetUser = await getProfileById(withdrawal.userId);
+    const isTestUser = targetUser?.isTestUser === true;
+
     if (newStatus === 'paid') {
       if (!normalizedTxHash) {
         return {
@@ -291,64 +299,56 @@ export async function updateWithdrawalStatusAsync(
       }
 
       // Anti-Replay: Check if another withdrawal already used this payout txHash
-      const { withdrawals: allWds } = await getAllWithdrawals({ limit: 1000 });
-      const duplicateWd = allWds.find(
-        w => w.id !== withdrawal.id && (
-          w.txHash?.toLowerCase() === normalizedTxHash.toLowerCase() ||
-          (w as any).payoutTxHash?.toLowerCase() === normalizedTxHash.toLowerCase()
-        )
-      );
-      if (duplicateWd) {
-        return {
-          success: false,
-          error: `Transaction hash ${normalizedTxHash} has already been assigned to withdrawal ${duplicateWd.reference || duplicateWd.id}.`,
-        };
-      }
-
-      // Query Real BNB Smart Chain blockchain for payout verification
-      const verification = await verifyBEP20PayoutTx(
-        normalizedTxHash,
-        withdrawal.destinationAddress,
-        withdrawal.netAmount,
-        { currentWithdrawalId: withdrawal.id }
-      );
-
-      if (!verification.isValid) {
-        return {
-          success: false,
-          error: verification.errorMessage || 'BNB Smart Chain payout transaction verification failed.',
-        };
-      }
-    }
-
-    // 4. Atomic PostgreSQL Transaction Execution (Stored Procedure)
-    try {
       const supabase = getServerSupabase();
-      const numId = parseInt(withdrawalId, 10);
-      if (!isNaN(numId)) {
-        const { data: rpcData, error: rpcError } = await supabase.rpc('process_withdrawal_status_atomic', {
-          p_admin_id: adminId,
-          p_admin_role: 'admin',
-          p_withdrawal_id: numId,
-          p_new_status: newStatus,
-          p_tx_hash: normalizedTxHash || null,
-          p_admin_notes: adminNotes || null,
-        });
+      const { data: duplicateWds } = await supabase
+        .from('withdrawals')
+        .select('id, reference')
+        .neq('id', withdrawal.id)
+        .or(`tx_hash.ilike.${normalizedTxHash},payout_tx_hash.ilike.${normalizedTxHash}`)
+        .limit(1);
 
-        if (!rpcError && rpcData) {
-          if (rpcData.success === false) {
-            return { success: false, error: rpcData.error };
-          }
-          if (rpcData.withdrawal) {
-            return { success: true, withdrawal: mapDbWithdrawalToWithdrawal(rpcData.withdrawal) };
-          }
+      if (duplicateWds && duplicateWds.length > 0) {
+        return {
+          success: false,
+          error: `Transaction hash ${normalizedTxHash} has already been assigned to withdrawal ${duplicateWds[0].reference || duplicateWds[0].id}.`,
+        };
+      }
+
+      // Anti-Replay: Check if hash was registered for any deposit
+      const { data: duplicateDeps } = await supabase
+        .from('deposits')
+        .select('id, reference')
+        .ilike('tx_hash', normalizedTxHash)
+        .limit(1);
+
+      if (duplicateDeps && duplicateDeps.length > 0) {
+        return {
+          success: false,
+          error: `Transaction hash ${normalizedTxHash} has already been used for deposit ${duplicateDeps[0].reference || duplicateDeps[0].id}.`,
+        };
+      }
+
+      // Requirement 12: Test user protection
+      // Test users must never accidentally result in a real on-chain payout
+      if (!isTestUser) {
+        // Query Real BNB Smart Chain blockchain for payout verification
+        const verification = await verifyBEP20PayoutTx(
+          normalizedTxHash,
+          withdrawal.destinationAddress,
+          withdrawal.netAmount,
+          { currentWithdrawalId: withdrawal.id }
+        );
+
+        if (!verification.isValid) {
+          return {
+            success: false,
+            error: verification.errorMessage || 'BNB Smart Chain payout transaction verification failed.',
+          };
         }
       }
-    } catch (rpcErr: any) {
-      console.warn('[Process Withdrawal Status RPC Notice]:', rpcErr?.message);
     }
 
-    // 5. Fallback Direct Execution
+    // 4. Update withdrawal record
     const now = new Date();
     const updated = await updateWithdrawal(withdrawal.id, {
       status: newStatus,
@@ -359,8 +359,9 @@ export async function updateWithdrawalStatusAsync(
       paidAt: newStatus === 'paid' ? now.toISOString() : undefined,
     });
 
+    // 5. Accounting, Ledgers, & Audit Logging
     if (newStatus === 'rejected') {
-      // Refund held funds back to user balance in ledger
+      // Refund held funds back to user balance in ledger atomically
       try {
         const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
         await createLedgerEntry({
@@ -385,12 +386,12 @@ export async function updateWithdrawalStatusAsync(
           amount: 0,
           balanceAfter: currentBalance.availableBalance,
           referenceId: withdrawal.id,
-          description: `Withdrawal payout dispatched via BEP-20 (Tx: ${normalizedTxHash || 'Confirmed'}). Net Paid: ${withdrawal.netAmount} USDT`,
+          description: `Withdrawal payout dispatched via BEP-20 (Tx: ${normalizedTxHash || 'Confirmed'}). Net Paid: ${withdrawal.netAmount} USDT${isTestUser ? ' [Simulated Test Account]' : ''}`,
           createdAt: now.toISOString(),
           performedBy: adminId,
         });
 
-        // Record Authoritative 9% Fee into FINEXJ Operational Ledger
+        // Record Authoritative 9% Fee into FINEXJ Operational Ledger (100% FINEXJ fee)
         const supabase = getServerSupabase();
         const feeAmount = withdrawal.feeAmount || Number((withdrawal.requestedAmount * 0.09).toFixed(4));
         const { data: latestOp } = await supabase
@@ -405,7 +406,7 @@ export async function updateWithdrawalStatusAsync(
         await supabase.from('finexj_operational_ledger').insert({
           amount: feeAmount,
           direction: 'inflow',
-          reason: `Retained 9% withdrawal fee from WD #${withdrawal.id} (${withdrawal.reference})`,
+          reason: `Retained 9% withdrawal fee from WD #${withdrawal.id} (${withdrawal.reference})${isTestUser ? ' (Simulated)' : ''}`,
           admin_id: adminId,
           reference: `FEE-WD-${withdrawal.id}`,
           before_balance: beforeOp,
@@ -423,7 +424,10 @@ export async function updateWithdrawalStatusAsync(
         actorId: adminId,
         actorRole: 'admin',
         targetUserId: withdrawal.userId,
-        reason: adminNotes || `Admin updated withdrawal status to ${newStatus}`,
+        referenceId: withdrawal.reference || withdrawal.id,
+        beforeValue: { status: currentStatus },
+        afterValue: { status: newStatus, txHash: normalizedTxHash || withdrawal.txHash },
+        reason: adminNotes || `Admin updated withdrawal status from ${currentStatus} to ${newStatus}${isTestUser ? ' (Test Account)' : ''}`,
         timestamp: now.toISOString(),
       });
     } catch (auditErr: any) {

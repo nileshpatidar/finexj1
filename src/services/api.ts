@@ -3,6 +3,9 @@ import {
   DepositItem,
   AdminDepositDetailResponse,
   WithdrawalItem,
+  AdminWithdrawalsListResponse,
+  AdminWithdrawalDetailResponse,
+  PayoutVerificationResponse,
   EarningItem,
   LedgerItem,
   MarketPrice,
@@ -302,8 +305,43 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  getAdminWithdrawals: () => request<{ withdrawals: WithdrawalItem[] }>('/api/admin/withdrawals'),
-  updateWithdrawalAction: (withdrawalId: string, payload: { action: string; txHash?: string; adminNotes?: string }) =>
+  getAdminWithdrawals: (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+    walletAddress?: string;
+    txHash?: string;
+    minAmount?: number;
+    maxAmount?: number;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.status && params.status !== 'all') query.set('status', params.status);
+    if (params?.search) query.set('search', params.search);
+    if (params?.walletAddress) query.set('walletAddress', params.walletAddress);
+    if (params?.txHash) query.set('txHash', params.txHash);
+    if (params?.minAmount !== undefined && !isNaN(params.minAmount)) query.set('minAmount', String(params.minAmount));
+    if (params?.maxAmount !== undefined && !isNaN(params.maxAmount)) query.set('maxAmount', String(params.maxAmount));
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    const qs = query.toString();
+    return request<AdminWithdrawalsListResponse>(`/api/admin/withdrawals${qs ? `?${qs}` : ''}`);
+  },
+  getAdminWithdrawalById: (withdrawalId: string) =>
+    request<AdminWithdrawalDetailResponse>(`/api/admin/withdrawals/${withdrawalId}`),
+  verifyAdminWithdrawalPayout: (withdrawalId: string, payload: { txHash: string }) =>
+    request<PayoutVerificationResponse>(`/api/admin/withdrawals/${withdrawalId}/verify-payout`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateWithdrawalAction: (
+    withdrawalId: string,
+    payload: { action: string; txHash?: string; adminNotes?: string; reason?: string }
+  ) =>
     request<{ success: boolean; withdrawal: WithdrawalItem }>(`/api/admin/withdrawals/${withdrawalId}/action`, {
       method: 'POST',
       body: JSON.stringify(payload),

@@ -35,7 +35,7 @@ import {
   getUserLevel2ReferralsPaginatedAsync,
   validateReferralCodeAsync,
 } from './services/referralService';
-import { getFraudSignals, resolveFraudSignal } from './services/fraudService';
+import { getFraudSignals, resolveFraudSignal, checkWalletDuplication, checkRapidWithdrawalCycle } from './services/fraudService';
 import { getReferralsByReferrerId, getReferralRewardsByReferrerId } from './repositories/referrals';
 import { generateWithdrawalOtp } from './services/otpService';
 import { getOperationalFundSummaryAsync, adjustOperationalFundAsync } from './services/operationalFundService';
@@ -43,7 +43,7 @@ import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync, getAdminL
 import { getUserTransactionsAsync } from './services/transactionService';
 import { applyDailyPerformanceAsync } from './services/performanceService';
 import { getSignedDepositProofUrl } from './storage';
-import { verifyBEP20Deposit, isValidBEP20Address, isValidTxHash } from './blockchain';
+import { verifyBEP20Deposit, verifyBEP20PayoutTx, isValidBEP20Address, isValidTxHash } from './blockchain';
 import { runAutomatedTestSuite } from './tests';
 import { getMarketPrices } from './market';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
@@ -1788,11 +1788,279 @@ app.post(['/api/admin/deposits/:id/verify', '/admin/deposits/:id/verify'], authM
   }
 });
 
-// Admin Withdrawals
+// Admin Withdrawals List with Search, Multi-Filter, Pagination, and User Batch Resolution
 app.get(['/api/admin/withdrawals', '/admin/withdrawals'], authMiddleware, adminMiddleware(), async (req, res, next) => {
   try {
-    const { withdrawals } = await getAllWithdrawals({ limit: 500 });
-    res.json({ withdrawals });
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const status = req.query.status as string | undefined;
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const walletAddress = req.query.walletAddress ? String(req.query.walletAddress).trim() : undefined;
+    const txHash = req.query.txHash ? String(req.query.txHash).trim() : undefined;
+    const minAmount = req.query.minAmount !== undefined && req.query.minAmount !== '' ? Number(req.query.minAmount) : undefined;
+    const maxAmount = req.query.maxAmount !== undefined && req.query.maxAmount !== '' ? Number(req.query.maxAmount) : undefined;
+    const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+    const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+
+    const supabase = getServerSupabase();
+
+    // If search text is provided, find matching user IDs
+    let matchedUserIds: string[] | undefined = undefined;
+    if (search) {
+      const cleanTerm = search.replace(/[%_]/g, '');
+      const { data: matchedUsers } = await supabase
+        .from('users')
+        .select('id')
+        .or(`full_name.ilike.%${cleanTerm}%,email.ilike.%${cleanTerm}%`)
+        .limit(100);
+
+      if (matchedUsers && matchedUsers.length > 0) {
+        matchedUserIds = matchedUsers.map(u => String(u.id));
+      }
+    }
+
+    const { withdrawals, total } = await getAllWithdrawals({
+      page,
+      limit,
+      status: status && status !== 'all' ? status : undefined,
+      search: search && (!matchedUserIds || matchedUserIds.length === 0) ? search : undefined,
+      userIds: matchedUserIds && matchedUserIds.length > 0 ? matchedUserIds : undefined,
+      walletAddress,
+      txHash,
+      minAmount,
+      maxAmount,
+      startDate,
+      endDate,
+    });
+
+    // Batch resolve user profiles to prevent N+1 query overhead
+    const userIds = Array.from(new Set(withdrawals.map(w => w.userId).filter(Boolean)));
+    const userMap: Record<string, { fullName: string; email: string; isTestUser: boolean }> = {};
+
+    if (userIds.length > 0) {
+      const numericIds = userIds.filter(id => !isNaN(Number(id))).map(id => Number(id));
+      const stringIds = userIds.filter(id => isNaN(Number(id)));
+
+      let usersQuery = supabase.from('users').select('id, full_name, email, is_test_user');
+      if (numericIds.length > 0 && stringIds.length > 0) {
+        usersQuery = usersQuery.or(`id.in.(${numericIds.join(',')}),id.in.(${stringIds.map(s => `"${s}"`).join(',')})`);
+      } else if (numericIds.length > 0) {
+        usersQuery = usersQuery.in('id', numericIds);
+      } else {
+        usersQuery = usersQuery.in('id', stringIds);
+      }
+
+      const { data: userData } = await usersQuery;
+      if (userData) {
+        for (const u of userData) {
+          userMap[String(u.id)] = {
+            fullName: u.full_name || 'User #' + u.id,
+            email: u.email || '',
+            isTestUser: Boolean(u.is_test_user),
+          };
+        }
+      }
+    }
+
+    const enrichedWithdrawals = withdrawals.map(w => ({
+      ...w,
+      userFullName: userMap[w.userId]?.fullName || 'User #' + w.userId,
+      userEmail: userMap[w.userId]?.email || '',
+      isTestUser: Boolean(userMap[w.userId]?.isTestUser),
+    }));
+
+    res.json({
+      withdrawals: enrichedWithdrawals,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Withdrawal Details
+app.get(['/api/admin/withdrawals/:id', '/admin/withdrawals/:id'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const withdrawal = await getWithdrawalById(id);
+    if (!withdrawal) {
+      throw Errors.notFound('WITHDRAWAL_NOT_FOUND', 'Withdrawal record not found.');
+    }
+
+    const supabase = getServerSupabase();
+
+    // Fetch user without sensitive credentials (no password, salt, 2fa secret)
+    const user = await getProfileById(withdrawal.userId);
+    const sanitizedUser = user ? {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      isTestUser: Boolean(user.isTestUser),
+      createdAt: user.createdAt,
+      referralCode: user.referralCode,
+      walletAddress: user.walletAddress,
+    } : null;
+
+    // Financial fund composition analysis
+    let financialImpact: any = null;
+    try {
+      financialImpact = await checkWithdrawalImpactAsync(withdrawal.userId, withdrawal.requestedAmount);
+    } catch (e: any) {
+      console.warn('[Withdrawal Detail Impact Warning]:', e?.message);
+    }
+
+    // Fraud review checks
+    let fraudSignals: any[] = [];
+    let walletDuplication: any = { isReused: false, matchingUserIds: [] };
+    let rapidCycle: any = { isRapidCycle: false };
+
+    try {
+      const [fsRes, wdCheck, rcCheck] = await Promise.all([
+        supabase.from('fraud_signals').select('*').eq('user_id', withdrawal.userId).order('created_at', { ascending: false }).limit(10),
+        checkWalletDuplication(withdrawal.destinationAddress, withdrawal.userId, 'withdrawal'),
+        checkRapidWithdrawalCycle(withdrawal.userId, withdrawal.requestedAmount),
+      ]);
+      fraudSignals = fsRes.data || [];
+      walletDuplication = wdCheck;
+      rapidCycle = rcCheck;
+    } catch (fraudErr: any) {
+      console.warn('[Withdrawal Detail Fraud Warning]:', fraudErr?.message);
+    }
+
+    // Ledger history for this withdrawal
+    let ledgerHistory: any[] = [];
+    try {
+      const { data: ledgers } = await supabase
+        .from('ledger_entries')
+        .select('*')
+        .or(`reference_id.eq.${withdrawal.id},reference_id.eq.${withdrawal.reference},user_id.eq.${withdrawal.userId}`)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      ledgerHistory = ledgers || [];
+    } catch (lErr: any) {
+      console.warn('[Withdrawal Detail Ledger Warning]:', lErr?.message);
+    }
+
+    // Audit logs
+    let auditLogs: any[] = [];
+    try {
+      const { data: logs } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .or(`target_user_id.eq.${withdrawal.userId},reference_id.eq.${withdrawal.id},reference_id.eq.${withdrawal.reference}`)
+        .order('created_at', { ascending: false })
+        .limit(25);
+      auditLogs = logs || [];
+    } catch (aErr: any) {
+      console.warn('[Withdrawal Detail Audit Warning]:', aErr?.message);
+    }
+
+    res.json({
+      withdrawal: {
+        ...withdrawal,
+        userFullName: sanitizedUser?.fullName || 'User #' + withdrawal.userId,
+        userEmail: sanitizedUser?.email || '',
+        isTestUser: Boolean(sanitizedUser?.isTestUser),
+      },
+      user: sanitizedUser,
+      financialImpact,
+      fraudReview: {
+        fraudSignals,
+        walletDuplication,
+        rapidCycle,
+      },
+      ledgerHistory,
+      auditLogs,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Pre-verify BSC Payout Transaction
+app.post(['/api/admin/withdrawals/:id/verify-payout', '/admin/withdrawals/:id/verify-payout'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { txHash } = req.body;
+
+    if (!txHash || typeof txHash !== 'string' || !txHash.trim()) {
+      throw Errors.validation('Transaction hash is required for on-chain verification.');
+    }
+
+    const withdrawal = await getWithdrawalById(id);
+    if (!withdrawal) {
+      throw Errors.notFound('WITHDRAWAL_NOT_FOUND', 'Withdrawal record not found.');
+    }
+
+    const cleanHash = txHash.trim();
+    if (!isValidTxHash(cleanHash)) {
+      throw Errors.validation('Invalid transaction hash format. Must be a 66-character hex string starting with 0x.');
+    }
+
+    // Anti-Replay duplicate checks across withdrawals
+    const supabase = getServerSupabase();
+    const { data: dupWds } = await supabase
+      .from('withdrawals')
+      .select('id, reference')
+      .neq('id', withdrawal.id)
+      .or(`tx_hash.ilike.${cleanHash},payout_tx_hash.ilike.${cleanHash}`)
+      .limit(1);
+
+    if (dupWds && dupWds.length > 0) {
+      return res.json({
+        isValid: false,
+        status: 'invalid',
+        errorCode: 'DUPLICATE_TX_HASH',
+        errorMessage: `Transaction hash ${cleanHash} has already been assigned to withdrawal ${dupWds[0].reference || dupWds[0].id}.`,
+      });
+    }
+
+    // Anti-Replay duplicate checks across deposits
+    const { data: dupDeps } = await supabase
+      .from('deposits')
+      .select('id, reference')
+      .ilike('tx_hash', cleanHash)
+      .limit(1);
+
+    if (dupDeps && dupDeps.length > 0) {
+      return res.json({
+        isValid: false,
+        status: 'invalid',
+        errorCode: 'DUPLICATE_TX_HASH',
+        errorMessage: `Transaction hash ${cleanHash} has already been used for deposit ${dupDeps[0].reference || dupDeps[0].id}.`,
+      });
+    }
+
+    const targetUser = await getProfileById(withdrawal.userId);
+    const isTestUser = targetUser?.isTestUser === true;
+
+    if (isTestUser) {
+      return res.json({
+        isValid: true,
+        status: 'confirmed',
+        amount: withdrawal.netAmount,
+        expectedAmount: withdrawal.netAmount,
+        confirmations: 12,
+        requiredConfirmations: 12,
+        txHash: cleanHash,
+        isTestAccount: true,
+        message: 'Simulated test account: Real blockchain payout is not required.',
+      });
+    }
+
+    const verification = await verifyBEP20PayoutTx(
+      cleanHash,
+      withdrawal.destinationAddress,
+      withdrawal.netAmount,
+      { currentWithdrawalId: withdrawal.id }
+    );
+
+    res.json(verification);
   } catch (err) {
     next(err);
   }
@@ -1803,22 +2071,28 @@ app.post(['/api/admin/withdrawals/:id/action', '/admin/withdrawals/:id/action'],
   try {
     const admin: User = (req as any).user;
     const { id } = req.params;
-    const { action, txHash, adminNotes } = req.body;
+    const { action, txHash, adminNotes, reason } = req.body;
 
     const normalizedAction = (action === 'approve' || action === 'approved') ? 'approved' :
       (action === 'reject' || action === 'rejected') ? 'rejected' :
       (action === 'pay' || action === 'paid' || action === 'completed') ? 'paid' :
+      (action === 'process' || action === 'processing') ? 'processing' :
       action;
 
     if (!['approved', 'rejected', 'paid', 'processing'].includes(normalizedAction)) {
-      throw Errors.validation('Invalid withdrawal action. Must be paid, approved, or rejected.');
+      throw Errors.validation('Invalid withdrawal action. Must be paid, approved, processing, or rejected.');
+    }
+
+    const note = adminNotes || reason;
+    if (normalizedAction === 'rejected' && (!note || !note.trim())) {
+      throw Errors.validation('A valid rejection reason is required to reject a withdrawal.');
     }
 
     if (normalizedAction === 'paid' && (!txHash || typeof txHash !== 'string' || !txHash.trim())) {
       throw Errors.validation('BNB Smart Chain Payout Transaction Hash (TxID) is required to complete payout.');
     }
 
-    const result = await updateWithdrawalStatusAsync(admin.id, id, normalizedAction, txHash ? txHash.trim() : undefined, adminNotes);
+    const result = await updateWithdrawalStatusAsync(admin.id, id, normalizedAction, txHash ? txHash.trim() : undefined, note);
     if (!result.success) {
       throw Errors.validation(result.error || 'Failed to update withdrawal.');
     }

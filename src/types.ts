@@ -222,6 +222,9 @@ export interface WithdrawalItem {
   id: string;
   reference: string;
   userId: string;
+  userFullName?: string;
+  userEmail?: string;
+  isTestUser?: boolean;
   requestedAmount: number;
   feePercentage: number;
   feeAmount: number;
@@ -231,10 +234,77 @@ export interface WithdrawalItem {
   status: 'pending' | 'under_review' | 'approved' | 'processing' | 'paid' | 'rejected' | 'cancelled';
   createdAt: string;
   reviewedAt?: string;
+  reviewedBy?: string;
   paidAt?: string;
   txHash?: string;
+  payoutTxHash?: string;
   adminNotes?: string;
   userNotes?: string;
+}
+
+export interface AdminWithdrawalsListResponse {
+  withdrawals: WithdrawalItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface AdminWithdrawalDetailResponse {
+  withdrawal: WithdrawalItem;
+  user: {
+    id: string;
+    fullName: string;
+    email: string;
+    role: string;
+    status: string;
+    isTestUser: boolean;
+    createdAt: string;
+    referralCode?: string;
+    walletAddress?: string;
+  } | null;
+  financialImpact: {
+    availableBalance: number;
+    referralEarnings: number;
+    activeCompoundingPrincipal: number;
+    depositLockedPrincipal: number;
+    touchesProtectedFund: boolean;
+    isReferralOnly: boolean;
+    isFundLocked: boolean;
+    is30DaysOld: boolean;
+    remainingPrincipal: number;
+    eligiblePrincipalBalance: number;
+  } | null;
+  fraudReview: {
+    fraudSignals: any[];
+    walletDuplication: {
+      isReused: boolean;
+      matchingUserIds: string[];
+    };
+    rapidCycle: {
+      isRapidCycle: boolean;
+    };
+  };
+  ledgerHistory: any[];
+  auditLogs: any[];
+}
+
+export interface PayoutVerificationResponse {
+  isValid: boolean;
+  status: 'confirmed' | 'pending' | 'invalid';
+  amount?: number;
+  expectedAmount?: number;
+  fromAddress?: string;
+  toAddress?: string;
+  tokenContract?: string;
+  confirmations?: number;
+  requiredConfirmations?: number;
+  txHash?: string;
+  blockNumber?: number;
+  errorMessage?: string;
+  errorCode?: string;
+  isPendingConfirmations?: boolean;
+  isTestAccount?: boolean;
 }
 
 export interface DailyPerformance {

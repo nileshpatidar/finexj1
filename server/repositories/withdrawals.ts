@@ -207,20 +207,83 @@ export async function updateWithdrawal(id: string, updates: Partial<Withdrawal>)
   return mapDbWithdrawalToWithdrawal(data);
 }
 
-export async function getAllWithdrawals(options?: {
+export interface GetAllWithdrawalsOptions {
   page?: number;
   limit?: number;
   status?: string;
-}): Promise<{ withdrawals: Withdrawal[]; total: number }> {
+  search?: string;
+  userId?: string;
+  userIds?: string[];
+  walletAddress?: string;
+  txHash?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  startDate?: string;
+  endDate?: string;
+}
+
+export async function getAllWithdrawals(options?: GetAllWithdrawalsOptions): Promise<{ withdrawals: Withdrawal[]; total: number }> {
   const supabase = getServerSupabase();
-  const page = options?.page || 1;
-  const limit = options?.limit || 500;
+  const page = Math.max(1, Number(options?.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(options?.limit) || 20));
   const offset = (page - 1) * limit;
 
   let query = supabase.from('withdrawals').select('*', { count: 'exact' });
 
   if (options?.status && options.status !== 'all') {
-    query = query.eq('status', options.status);
+    if (options.status === 'paid') {
+      query = query.or('status.eq.paid,status.eq.completed');
+    } else {
+      query = query.eq('status', options.status);
+    }
+  }
+
+  if (options?.userId) {
+    if (!isNaN(Number(options.userId))) {
+      query = query.or(`user_id.eq.${options.userId},user_id.eq.${Number(options.userId)}`);
+    } else {
+      query = query.eq('user_id', options.userId);
+    }
+  }
+
+  if (options?.userIds && options.userIds.length > 0) {
+    query = query.in('user_id', options.userIds);
+  }
+
+  if (options?.walletAddress && options.walletAddress.trim()) {
+    query = query.ilike('destination_address', `%${options.walletAddress.trim()}%`);
+  }
+
+  if (options?.txHash && options.txHash.trim()) {
+    const cleanHash = options.txHash.trim();
+    query = query.or(`tx_hash.ilike.%${cleanHash}%,payout_tx_hash.ilike.%${cleanHash}%`);
+  }
+
+  if (options?.minAmount !== undefined && !isNaN(Number(options.minAmount))) {
+    query = query.gte('requested_amount', Number(options.minAmount));
+  }
+
+  if (options?.maxAmount !== undefined && !isNaN(Number(options.maxAmount))) {
+    query = query.lte('requested_amount', Number(options.maxAmount));
+  }
+
+  if (options?.startDate) {
+    query = query.gte('created_at', options.startDate);
+  }
+
+  if (options?.endDate) {
+    query = query.lte('created_at', options.endDate);
+  }
+
+  if (options?.search && options.search.trim()) {
+    const term = options.search.trim().replace(/[%_]/g, '');
+    if (term) {
+      if (!isNaN(Number(term))) {
+        query = query.or(`reference.ilike.%${term}%,destination_address.ilike.%${term}%,tx_hash.ilike.%${term}%,id.eq.${Number(term)},user_id.eq.${Number(term)}`);
+      } else {
+        query = query.or(`reference.ilike.%${term}%,destination_address.ilike.%${term}%,tx_hash.ilike.%${term}%,payout_tx_hash.ilike.%${term}%`);
+      }
+    }
   }
 
   const { data, count, error } = await query
@@ -233,6 +296,6 @@ export async function getAllWithdrawals(options?: {
   }
 
   const withdrawals = (data || []).map(mapDbWithdrawalToWithdrawal);
-  return { withdrawals, total: count || withdrawals.length };
+  return { withdrawals, total: count !== null && count !== undefined ? count : withdrawals.length };
 }
 
