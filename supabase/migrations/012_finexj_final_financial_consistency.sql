@@ -82,7 +82,6 @@ CREATE OR REPLACE FUNCTION confirm_deposit_atomic(
 RETURNS JSONB
 LANGUAGE plpgsql
 AS $$
-DECLARATION_BLOCK:
 DECLARE
   v_dep deposits%ROWTYPE;
   v_user users%ROWTYPE;
