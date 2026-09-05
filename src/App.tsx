@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { SettingsProvider } from './context/SettingsContext';
+import { MarketTickerProvider } from './context/MarketTickerContext';
 import { api } from './services/api';
 import { DashboardResponse } from './types';
 import { Header } from './components/Header';
@@ -173,7 +174,9 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <SettingsProvider>
-          <AppContent />
+          <MarketTickerProvider>
+            <AppContent />
+          </MarketTickerProvider>
         </SettingsProvider>
       </AuthProvider>
     </ThemeProvider>

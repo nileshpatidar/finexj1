@@ -9,6 +9,7 @@ import {
   EarningItem,
   LedgerItem,
   MarketPrice,
+  MarketTickerResponse,
   AppSettings,
   TestSuiteResponse,
   UserProfile,
@@ -186,6 +187,9 @@ export const api = {
   getSettings: () => request<AppSettings>('/api/settings'),
 
   getMarketPrices: () => request<MarketPrice>('/api/market/prices'),
+
+  getMarketTicker: (refresh?: boolean) =>
+    request<MarketTickerResponse>(`/api/market/ticker${refresh ? '?refresh=true' : ''}`),
 
   verifyUserDeposit: (depositId: string) =>
     request<{ success: boolean; deposit?: DepositItem; balance: any; isPendingConfirmations?: boolean; confirmations?: number; requiredConfirmations?: number; message?: string; error?: string }>(

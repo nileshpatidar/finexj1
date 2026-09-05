@@ -3,6 +3,7 @@ import { DashboardResponse, UserReferralSummary, WithdrawalItem } from '../types
 import { InvestmentPlanSection } from './InvestmentPlanSection';
 import { InvestmentPlanModal } from './InvestmentPlanModal';
 import { FundLockModal } from './FundLockModal';
+import { useMarketTicker } from '../context/MarketTickerContext';
 import { api } from '../services/api';
 import {
   TrendingUp,
@@ -44,6 +45,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isFundLockModalOpen, setIsFundLockModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const {
+    ticker,
+    isLoading: isTickerLoading,
+    formatBtcPrice,
+    formatGoldPrice,
+    format24hChange,
+  } = useMarketTicker();
 
   // Fallback state if referralSummary or activePendingWithdrawal not embedded in data
   const [localReferralSummary, setLocalReferralSummary] = useState<UserReferralSummary | null>(null);
@@ -706,34 +714,52 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* Live Market Reference Cards */}
-      {market && (
-        <div id="market-reference-cards" className="grid grid-cols-2 gap-3">
-          <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
-            <div>
+      {/* Dynamic Live Market Reference Cards (Informational Display Only) */}
+      <div id="market-reference-cards" className="grid grid-cols-2 gap-3">
+        {/* Bitcoin Reference */}
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
+          <div>
+            <div className="flex items-center space-x-1.5">
               <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Bitcoin Reference</p>
-              <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-0.5">
-                ${market.btcUsd ? market.btcUsd.toLocaleString() : 'Price unavailable'}
-              </p>
+              {ticker?.btc?.change24h !== null && ticker?.btc?.change24h !== undefined && (
+                <span className={`text-[10px] ${format24hChange(ticker.btc.change24h).className}`}>
+                  {format24hChange(ticker.btc.change24h).text}
+                </span>
+              )}
             </div>
-            <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-blue-400 border border-blue-100 dark:border-slate-700">
-              BTC/USD
-            </span>
+            <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-0.5">
+              {isTickerLoading && !ticker
+                ? '——'
+                : formatBtcPrice(ticker?.btc?.price ?? market?.btcUsd)}
+            </p>
           </div>
-
-          <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
-            <div>
-              <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Gold Reference</p>
-              <p className="text-sm sm:text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-                ${market.goldUsd ? market.goldUsd.toLocaleString() : 'Price unavailable'}
-              </p>
-            </div>
-            <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-50 dark:bg-slate-800 text-amber-700 dark:text-amber-400 border border-amber-100 dark:border-slate-700">
-              XAU/USD
-            </span>
-          </div>
+          <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-blue-400 border border-blue-100 dark:border-slate-700">
+            BTC/USD
+          </span>
         </div>
-      )}
+
+        {/* Gold Reference */}
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
+          <div>
+            <div className="flex items-center space-x-1.5">
+              <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Gold Reference</p>
+              {ticker?.gold?.change24h !== null && ticker?.gold?.change24h !== undefined && (
+                <span className={`text-[10px] ${format24hChange(ticker.gold.change24h).className}`}>
+                  {format24hChange(ticker.gold.change24h).text}
+                </span>
+              )}
+            </div>
+            <p className="text-sm sm:text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5">
+              {isTickerLoading && !ticker
+                ? '——'
+                : formatGoldPrice(ticker?.gold?.price ?? market?.goldUsd)}
+            </p>
+          </div>
+          <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-50 dark:bg-slate-800 text-amber-700 dark:text-amber-400 border border-amber-100 dark:border-slate-700">
+            XAU/USD
+          </span>
+        </div>
+      </div>
 
       {/* Managed Fund & Earning Plan Presentation */}
       <InvestmentPlanSection onOpenDetailedModal={() => setIsPlanModalOpen(true)} />

@@ -209,6 +209,32 @@ export interface MarketPrice {
   isAvailable: boolean;
 }
 
+export interface MarketAssetTicker {
+  price: number | null;
+  change24h: number | null;
+  currency: string;
+  unit?: string;
+  isAvailable?: boolean;
+}
+
+export interface MarketTickerResponse {
+  btc: {
+    price: number | null;
+    change24h: number | null;
+    currency: string;
+    isAvailable?: boolean;
+  };
+  gold: {
+    price: number | null;
+    change24h: number | null;
+    currency: string;
+    unit: string;
+    isAvailable?: boolean;
+  };
+  updatedAt: string;
+  isStale?: boolean;
+}
+
 export interface Referral {
   id: string;
   referrerId: string;

@@ -45,7 +45,7 @@ import { applyDailyPerformanceAsync } from './services/performanceService';
 import { getSignedDepositProofUrl } from './storage';
 import { verifyBEP20Deposit, verifyBEP20PayoutTx, isValidBEP20Address, isValidTxHash } from './blockchain';
 import { runAutomatedTestSuite } from './tests';
-import { getMarketPrices } from './market';
+import { getMarketPrices, marketDataService } from './market';
 import { DecimalSafe } from './utils/decimalSafe';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
 import { UserRole, User } from './types';
@@ -273,7 +273,18 @@ app.get(['/api/settings', '/settings'], async (req, res, next) => {
   }
 });
 
-// Live market prices
+// Live market ticker (BTC & Gold real-time data)
+app.get(['/api/market/ticker', '/market/ticker'], async (req, res, next) => {
+  try {
+    const forceRefresh = req.query.refresh === 'true';
+    const ticker = await marketDataService.getMarketTicker(forceRefresh);
+    res.json(ticker);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Live market prices (legacy compatibility)
 app.get(['/api/market/prices', '/market/prices'], async (req, res) => {
   const prices = await getMarketPrices();
   res.json(prices);

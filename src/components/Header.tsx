@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useMarketTicker } from '../context/MarketTickerContext';
 import { MarketPrice } from '../types';
 import {
   Sun,
@@ -30,6 +31,16 @@ export const Header: React.FC<HeaderProps> = ({
   const { user, isOffline, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
+  const {
+    ticker,
+    isLoading,
+    isError,
+    isStale,
+    lastUpdated,
+    formatBtcPrice,
+    formatGoldPrice,
+    format24hChange,
+  } = useMarketTicker();
 
   const isAdmin = user?.role === 'super_admin' || user?.role === 'finance_admin' || user?.role === 'support_admin';
 
@@ -63,25 +74,106 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Market Tickers (Desktop / Tablet) */}
-          {marketPrices && marketPrices.isAvailable && (
-            <div className="hidden md:flex items-center space-x-4 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs">
-              <div className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-                <span className="text-slate-500 dark:text-slate-400 font-medium">BTC:</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  ${marketPrices.btcUsd.toLocaleString()}
-                </span>
-              </div>
-              <div className="h-3 w-px bg-slate-300 dark:bg-slate-700"></div>
-              <div className="flex items-center space-x-2">
-                <span className="text-slate-500 dark:text-slate-400 font-medium">GOLD:</span>
-                <span className="font-semibold text-amber-500">
-                  ${marketPrices.goldUsd.toLocaleString()}/oz
-                </span>
-              </div>
-            </div>
-          )}
+          {/* Real-time Dynamic Market Ticker */}
+          <div
+            id="header-market-ticker"
+            title={
+              lastUpdated
+                ? `Market rates updated at ${lastUpdated.toLocaleTimeString()}${
+                    isStale ? ' (Stale data)' : ''
+                  }`
+                : 'Live institutional market reference'
+            }
+            className="hidden md:flex items-center space-x-3.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs select-none"
+          >
+            {isLoading && !ticker ? (
+              // Loading Skeleton State (Requirement 7)
+              <>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" />
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">BTC:</span>
+                  <span className="font-mono text-slate-400 dark:text-slate-500">——</span>
+                </div>
+                <div className="h-3 w-px bg-slate-300 dark:bg-slate-700" />
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">GOLD:</span>
+                  <span className="font-mono text-slate-400 dark:text-slate-500">——</span>
+                </div>
+              </>
+            ) : isError && !ticker ? (
+              // Provider Error / Offline State (Requirement 8)
+              <>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">BTC:</span>
+                  <span className="font-medium text-slate-400 dark:text-slate-500">Unavailable</span>
+                </div>
+                <div className="h-3 w-px bg-slate-300 dark:bg-slate-700" />
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">GOLD:</span>
+                  <span className="font-medium text-slate-400 dark:text-slate-500">Unavailable</span>
+                </div>
+              </>
+            ) : (
+              // Dynamic Live Market Data (Requirements 1, 2, 6, 10, 11, 12)
+              <>
+                {/* BTC Ticker */}
+                <div className="flex items-center space-x-1.5">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      isStale
+                        ? 'bg-amber-400'
+                        : ticker?.btc?.isAvailable
+                        ? 'bg-blue-500 animate-pulse'
+                        : 'bg-slate-400'
+                    }`}
+                  />
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">BTC:</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    {formatBtcPrice(ticker?.btc?.price)}
+                  </span>
+                  {ticker?.btc?.change24h !== null && ticker?.btc?.change24h !== undefined && (
+                    <span
+                      className={`text-[11px] ${
+                        format24hChange(ticker.btc.change24h).className
+                      }`}
+                    >
+                      {format24hChange(ticker.btc.change24h).text}
+                    </span>
+                  )}
+                </div>
+
+                <div className="h-3 w-px bg-slate-300 dark:bg-slate-700" />
+
+                {/* GOLD Ticker */}
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">GOLD:</span>
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    {formatGoldPrice(ticker?.gold?.price)}
+                  </span>
+                  {ticker?.gold?.change24h !== null && ticker?.gold?.change24h !== undefined && (
+                    <span
+                      className={`text-[11px] ${
+                        format24hChange(ticker.gold.change24h).className
+                      }`}
+                    >
+                      {format24hChange(ticker.gold.change24h).text}
+                    </span>
+                  )}
+                </div>
+
+                {/* Stale Warning Indicator (Requirement 10) */}
+                {isStale && (
+                  <span
+                    title="Market rates older than 3 minutes"
+                    className="px-1.5 py-0.2 text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded"
+                  >
+                    Stale
+                  </span>
+                )}
+              </>
+            )}
+          </div>
 
           {/* Quick Controls & Account */}
           <div className="flex items-center space-x-2">

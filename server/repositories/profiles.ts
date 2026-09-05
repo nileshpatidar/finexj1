@@ -33,16 +33,6 @@ export async function resolveUserIdForDb(userId: string | number | undefined): P
     } catch {
       // Ignore type mismatch if id is integer in DB
     }
-
-    // 3. Fallback to first active user in DB if any foreign key is strictly required
-    try {
-      const { data: firstUser } = await supabase.from('users').select('id').limit(1).maybeSingle();
-      if (firstUser && firstUser.id !== undefined && firstUser.id !== null) {
-        return firstUser.id;
-      }
-    } catch {
-      // Ignore
-    }
   } catch (err: any) {
     console.warn('[resolveUserIdForDb warn]:', err?.message);
   }
