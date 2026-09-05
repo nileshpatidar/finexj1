@@ -23,6 +23,7 @@ import {
   getReferralsCountByReferrerId,
   getRewardsSumForReferredUser,
   getReferralRewardsByReferrerId,
+  creditReferralRewardAtomic,
 } from '../repositories/referrals';
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
@@ -214,35 +215,26 @@ export async function processReferralRewardForDepositAsync(
       const l1RewardAmount = Number(((depositAmount * l1Percentage) / 100.0).toFixed(4));
 
       if (l1RewardAmount > 0) {
-        // Idempotency check: Ensure L1 reward not already generated for this deposit
-        const existingL1 = await getReferralRewardByDepositAndLevel(depositId, 1);
-        if (!existingL1) {
-          const l1Reference = `REF-L1-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
+        const l1Reference = `REF-L1-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
 
-          let l1Reward: ReferralReward | null = null;
-          try {
-            l1Reward = await createReferralReward({
-              referrerId: l1Referrer.id,
-              referredId: user.id,
-              depositId: String(depositId),
-              amount: l1RewardAmount,
-              percentage: l1Percentage,
-              reference: l1Reference,
-              status: 'credited',
-              rewardLevel: 1,
-              notes: `Level 1 (${l1Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
-            });
-          } catch (createErr: any) {
-            if (createErr instanceof DuplicateReferralRewardError || createErr.name === 'DuplicateReferralRewardError') {
-              logger.info('REFERRAL_L1_DUPLICATE_IGNORED', `L1 reward already processed for deposit #${depositId}`);
-            } else {
-              throw createErr;
-            }
-          }
+        // STEP 14C: Atomic PostgreSQL Credit (succeeds or fails together: reward + ledger + audit)
+        const l1Result = await creditReferralRewardAtomic({
+          depositId,
+          rewardLevel: 1,
+          referrerId: l1Referrer.id,
+          referredId: user.id,
+          amount: l1RewardAmount,
+          percentage: l1Percentage,
+          reference: l1Reference,
+          notes: `Level 1 (${l1Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
+          performedBy: 'referral_engine',
+        });
 
-          if (l1Reward) {
-            // Atomic Ledger Credit + Audit Log with rollback on failure
-            try {
+        if (l1Result.success) {
+          if (l1Result.isDuplicate) {
+            logger.info('REFERRAL_L1_DUPLICATE_IDEMPOTENT', `L1 reward already processed for deposit #${depositId}`);
+          } else if (l1Result.reward) {
+            if (!l1Result.ledgerCreatedInDb) {
               const l1Balance = await calculateUserBalanceAsync(l1Referrer.id);
               const balanceAfter = Number((l1Balance.availableBalance + l1RewardAmount).toFixed(4));
 
@@ -251,7 +243,7 @@ export async function processReferralRewardForDepositAsync(
                 type: 'referral_reward_l1',
                 amount: l1RewardAmount,
                 balanceAfter,
-                referenceId: l1Reward.id,
+                referenceId: l1Result.reward.id,
                 description: `Level 1 referral reward from investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l1Percentage}%)`,
                 performedBy: 'referral_engine',
               });
@@ -266,95 +258,82 @@ export async function processReferralRewardForDepositAsync(
                 afterValue: { rewardAmount: l1RewardAmount, reference: l1Reference, newBalance: balanceAfter },
                 referenceId: l1Reference,
               });
-
-              rewardsCreated.push(l1Reward);
-            } catch (ledgerOrAuditErr: any) {
-              // Rollback partial failure: delete reward to maintain absolute atomicity
-              console.error('[CRITICAL] L1 referral ledger/audit failure, rolling back reward:', ledgerOrAuditErr);
-              await deleteReferralReward(l1Reward.id);
-              throw new Error(`Failed to atomically credit Level 1 referral reward: ${ledgerOrAuditErr.message}`);
             }
+
+            rewardsCreated.push(l1Result.reward);
           }
+        } else {
+          logger.warn('REFERRAL_L1_CREDIT_UNSUCCESSFUL', `Could not credit L1 referral reward for deposit #${depositId}: ${l1Result.error}`);
         }
       }
+    }
 
-      // =========================================================================
-      // LEVEL 2: Indirect Referrer (Parent of L1 Referrer, e.g. 2%)
-      // =========================================================================
-      if (
-        !isNaN(l2Percentage) &&
-        l2Percentage > 0 &&
-        l1Referrer.referrerId &&
-        String(l1Referrer.referrerId) !== String(user.id) &&
-        String(l1Referrer.referrerId) !== String(l1Referrer.id)
-      ) {
-        const l2Referrer = await getProfileById(l1Referrer.referrerId);
+    // =========================================================================
+    // LEVEL 2: Indirect Referrer (Parent of L1 Referrer, e.g. 2%)
+    // =========================================================================
+    if (
+      !isNaN(l2Percentage) &&
+      l2Percentage > 0 &&
+      l1Referrer &&
+      l1Referrer.referrerId &&
+      String(l1Referrer.referrerId) !== String(user.id) &&
+      String(l1Referrer.referrerId) !== String(l1Referrer.id)
+    ) {
+      const l2Referrer = await getProfileById(l1Referrer.referrerId);
 
-        if (l2Referrer && l2Referrer.status === 'active') {
-          const l2RewardAmount = Number(((depositAmount * l2Percentage) / 100.0).toFixed(4));
+      if (l2Referrer && l2Referrer.status === 'active') {
+        const l2RewardAmount = Number(((depositAmount * l2Percentage) / 100.0).toFixed(4));
 
-          if (l2RewardAmount > 0) {
-            const existingL2 = await getReferralRewardByDepositAndLevel(depositId, 2);
-            if (!existingL2) {
-              const l2Reference = `REF-L2-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
+        if (l2RewardAmount > 0) {
+          const l2Reference = `REF-L2-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
 
-              let l2Reward: ReferralReward | null = null;
-              try {
-                l2Reward = await createReferralReward({
-                  referrerId: l2Referrer.id,
-                  referredId: user.id,
-                  depositId: String(depositId),
+          // STEP 14C: Atomic PostgreSQL Credit (succeeds or fails together: reward + ledger + audit)
+          const l2Result = await creditReferralRewardAtomic({
+            depositId,
+            rewardLevel: 2,
+            referrerId: l2Referrer.id,
+            referredId: user.id,
+            amount: l2RewardAmount,
+            percentage: l2Percentage,
+            reference: l2Reference,
+            notes: `Level 2 (${l2Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
+            performedBy: 'referral_engine',
+          });
+
+          if (l2Result.success) {
+            if (l2Result.isDuplicate) {
+              logger.info('REFERRAL_L2_DUPLICATE_IDEMPOTENT', `L2 reward already processed for deposit #${depositId}`);
+            } else if (l2Result.reward) {
+              if (!l2Result.ledgerCreatedInDb) {
+                const l2Balance = await calculateUserBalanceAsync(l2Referrer.id);
+                const balanceAfter = Number((l2Balance.availableBalance + l2RewardAmount).toFixed(4));
+
+                await createLedgerEntry({
+                  userId: l2Referrer.id,
+                  type: 'referral_reward_l2',
                   amount: l2RewardAmount,
-                  percentage: l2Percentage,
-                  reference: l2Reference,
-                  status: 'credited',
-                  rewardLevel: 2,
-                  notes: `Level 2 (${l2Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
+                  balanceAfter,
+                  referenceId: l2Result.reward.id,
+                  description: `Level 2 referral reward from 2nd-tier investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l2Percentage}%)`,
+                  performedBy: 'referral_engine',
                 });
-              } catch (createErr: any) {
-                if (createErr instanceof DuplicateReferralRewardError || createErr.name === 'DuplicateReferralRewardError') {
-                  logger.info('REFERRAL_L2_DUPLICATE_IGNORED', `L2 reward already processed for deposit #${depositId}`);
-                } else {
-                  throw createErr;
-                }
+
+                await createAuditLog({
+                  action: 'REFERRAL_REWARD_L2_CREDITED',
+                  actorId: 'system',
+                  actorRole: 'system',
+                  targetUserId: l2Referrer.id,
+                  reason: `Credited ${l2RewardAmount} USDT Level 2 referral reward from deposit #${depositId}`,
+                  beforeValue: { availableBalance: l2Balance.availableBalance },
+                  afterValue: { rewardAmount: l2RewardAmount, reference: l2Reference, newBalance: balanceAfter },
+                  referenceId: l2Reference,
+                });
               }
 
-              if (l2Reward) {
-                // Atomic Ledger Credit + Audit Log with rollback on failure
-                try {
-                  const l2Balance = await calculateUserBalanceAsync(l2Referrer.id);
-                  const balanceAfter = Number((l2Balance.availableBalance + l2RewardAmount).toFixed(4));
-
-                  await createLedgerEntry({
-                    userId: l2Referrer.id,
-                    type: 'referral_reward_l2',
-                    amount: l2RewardAmount,
-                    balanceAfter,
-                    referenceId: l2Reward.id,
-                    description: `Level 2 referral reward from 2nd-tier investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l2Percentage}%)`,
-                    performedBy: 'referral_engine',
-                  });
-
-                  await createAuditLog({
-                    action: 'REFERRAL_REWARD_L2_CREDITED',
-                    actorId: 'system',
-                    actorRole: 'system',
-                    targetUserId: l2Referrer.id,
-                    reason: `Credited ${l2RewardAmount} USDT Level 2 referral reward from deposit #${depositId}`,
-                    beforeValue: { availableBalance: l2Balance.availableBalance },
-                    afterValue: { rewardAmount: l2RewardAmount, reference: l2Reference, newBalance: balanceAfter },
-                    referenceId: l2Reference,
-                  });
-
-                  rewardsCreated.push(l2Reward);
-                } catch (ledgerOrAuditErr: any) {
-                  // Rollback partial failure: delete reward to maintain absolute atomicity
-                  console.error('[CRITICAL] L2 referral ledger/audit failure, rolling back reward:', ledgerOrAuditErr);
-                  await deleteReferralReward(l2Reward.id);
-                  throw new Error(`Failed to atomically credit Level 2 referral reward: ${ledgerOrAuditErr.message}`);
-                }
-              }
+              rewardsCreated.push(l2Result.reward);
             }
+          } else {
+            logger.warn('REFERRAL_L2_CREDIT_UNSUCCESSFUL', `Could not credit L2 referral reward for deposit #${depositId}: ${l2Result.error}`);
           }
         }
       }

@@ -97,7 +97,7 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
   // Cross-check withdrawals table: ensure payout hash is not reused as deposit hash
   try {
     const { getAllWithdrawals } = await import('../repositories/withdrawals');
-    const { withdrawals: allWds } = await getAllWithdrawals({ limit: 1000 });
+    const { withdrawals: allWds } = await getAllWithdrawals();
     const collidingWithdrawal = allWds.find(
       w => w.txHash?.toLowerCase() === rawTxHash || (w as any).payoutTxHash?.toLowerCase() === rawTxHash
     );

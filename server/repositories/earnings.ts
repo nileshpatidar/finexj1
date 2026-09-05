@@ -168,7 +168,7 @@ export async function getAllEarnings(): Promise<EarningEntry[]> {
   }
 
   try {
-    const { users } = await getAllProfiles({ limit: 1000, status: 'active', role: 'user' });
+    const { users } = await getAllProfiles({ status: 'active', role: 'user' });
     const allEarnings: EarningEntry[] = [];
     for (const u of users) {
       const uEarnings = await getEarningsByUserId(u.id);

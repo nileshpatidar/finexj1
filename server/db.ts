@@ -28,7 +28,7 @@ export { hashPassword, generateSalt, verifyPassword };
 class Database {
   // Users
   public async getUsers(): Promise<User[]> {
-    const { users } = await getAllProfiles({ limit: 1000 });
+    const { users } = await getAllProfiles();
     return users;
   }
 
@@ -61,7 +61,7 @@ class Database {
     if (userId) {
       return getDepositsByUserId(userId);
     }
-    const { deposits } = await getAllDeposits({ limit: 1000 });
+    const { deposits } = await getAllDeposits();
     return deposits;
   }
 
@@ -86,7 +86,7 @@ class Database {
     if (userId) {
       return getWithdrawalsByUserId(userId);
     }
-    const { withdrawals } = await getAllWithdrawals({ limit: 1000 });
+    const { withdrawals } = await getAllWithdrawals();
     return withdrawals;
   }
 

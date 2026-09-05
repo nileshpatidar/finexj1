@@ -46,6 +46,7 @@ import { getSignedDepositProofUrl } from './storage';
 import { verifyBEP20Deposit, verifyBEP20PayoutTx, isValidBEP20Address, isValidTxHash } from './blockchain';
 import { runAutomatedTestSuite } from './tests';
 import { getMarketPrices } from './market';
+import { DecimalSafe } from './utils/decimalSafe';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
 import { UserRole, User } from './types';
 import { generateRequestId, logger } from './logger';
@@ -76,6 +77,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
     const isVercelDomain = origin.endsWith('.vercel.app');
     const isAppDomain = origin.endsWith('.run.app') || (host && origin.includes(host)) || (forwardedHost && origin.includes(forwardedHost));
+    const isGoogleStudio = origin.endsWith('.google.com') || origin.endsWith('.google') || origin.includes('ai.studio');
     const allowedEnvOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
 
     const isAllowed =
@@ -83,6 +85,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       isLocalhost ||
       isVercelDomain ||
       isAppDomain ||
+      isGoogleStudio ||
       allowedEnvOrigins.includes(origin);
 
     if (isAllowed) {
@@ -95,8 +98,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
 
   // Production HTTP Security Headers
+  // Note: X-Frame-Options is omitted so the applet can render seamlessly inside Google AI Studio's preview iframe
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
@@ -1171,51 +1174,105 @@ app.post(['/api/user/messages/:id/read', '/user/messages/:id/read'], authMiddlew
 // Admin overview stats
 app.get(['/api/admin/dashboard', '/admin/dashboard'], authMiddleware, adminMiddleware(), async (req, res, next) => {
   try {
-    const [{ users }, { deposits }, { withdrawals }, earnings, performances, settings] = await Promise.all([
-      getAllProfiles({ limit: 1000 }),
-      getAllDeposits({ limit: 1000 }),
-      getAllWithdrawals({ limit: 1000 }),
-      getAllEarnings(),
+    const supabase = getServerSupabase();
+    const [performances, settings] = await Promise.all([
       getDailyPerformances(),
       getSettings(),
+    ]);
+
+    // 1. Attempt PostgreSQL aggregation RPC (zero pagination limits)
+    try {
+      const { data: rpcStats, error: rpcErr } = await supabase.rpc('get_admin_dashboard_stats_aggregate');
+      if (!rpcErr && rpcStats) {
+        return res.json({
+          stats: {
+            totalUsers: Number(rpcStats.total_users || 0),
+            activeUsers: Number(rpcStats.active_users || 0),
+            totalConfirmedDeposits: DecimalSafe.from(rpcStats.total_confirmed_deposits).toNumber(2),
+            totalConfirmedDepositsCount: Number(rpcStats.total_confirmed_deposits_count || 0),
+            totalPaidWithdrawals: DecimalSafe.from(rpcStats.total_paid_withdrawals).toNumber(2),
+            totalPaidWithdrawalsNet: DecimalSafe.from(rpcStats.total_paid_withdrawals_net).toNumber(2),
+            totalPaidWithdrawalsCount: Number(rpcStats.total_paid_withdrawals_count || 0),
+            totalWithdrawalFees: DecimalSafe.from(rpcStats.total_withdrawal_fees).toNumber(2),
+            pendingWithdrawalsCount: Number(rpcStats.pending_withdrawals_count || 0),
+            totalPendingWithdrawalsAmount: DecimalSafe.from(rpcStats.total_pending_withdrawals_amount).toNumber(2),
+            pendingDepositsCount: Number(rpcStats.pending_deposits_count || 0),
+            totalPendingDepositsAmount: DecimalSafe.from(rpcStats.total_pending_deposits_amount).toNumber(2),
+            totalEarningsAllocated: DecimalSafe.from(rpcStats.total_earnings_allocated).toNumber(2),
+            vaultRetainedLiquidity: DecimalSafe.from(rpcStats.vault_retained_liquidity).toNumber(2),
+          },
+          latestPerformance: performances[0] || null,
+          settings,
+        });
+      }
+    } catch {
+      // Fall through to repository aggregation
+    }
+
+    // 2. Un-truncated repository fallback using DecimalSafe arithmetic
+    const [{ users }, { deposits }, { withdrawals }, earnings] = await Promise.all([
+      getAllProfiles(),
+      getAllDeposits(),
+      getAllWithdrawals(),
+      getAllEarnings(),
     ]);
 
     const standardUsers = users.filter(u => u.role === 'user');
     const activeUsers = standardUsers.filter(u => u.status === 'active').length;
 
     const confirmedDeposits = deposits.filter(d => d.status === 'confirmed');
-    const totalConfirmedDeposits = confirmedDeposits.reduce((acc, d) => acc + d.amount, 0);
+    let totalConfirmedDepositsDec = DecimalSafe.zero();
+    for (const d of confirmedDeposits) {
+      totalConfirmedDepositsDec = totalConfirmedDepositsDec.add(d.actualAmount || d.amount);
+    }
 
     const pendingDeposits = deposits.filter(d => d.status === 'pending' || d.status === 'confirming');
-    const totalPendingDepositsAmount = pendingDeposits.reduce((acc, d) => acc + d.amount, 0);
+    let totalPendingDepositsDec = DecimalSafe.zero();
+    for (const d of pendingDeposits) {
+      totalPendingDepositsDec = totalPendingDepositsDec.add(d.actualAmount || d.amount);
+    }
 
-    const paidWithdrawals = withdrawals.filter(w => w.status === 'paid');
-    const totalPaidWithdrawals = paidWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
-    const totalPaidWithdrawalsNet = paidWithdrawals.reduce((acc, w) => acc + w.netAmount, 0);
-    const totalWithdrawalFees = paidWithdrawals.reduce((acc, w) => acc + w.feeAmount, 0);
+    const paidWithdrawals = withdrawals.filter(w => w.status === 'paid' || (w.status as string) === 'completed');
+    let totalPaidWithdrawalsDec = DecimalSafe.zero();
+    let totalPaidWithdrawalsNetDec = DecimalSafe.zero();
+    let totalWithdrawalFeesDec = DecimalSafe.zero();
+    for (const w of paidWithdrawals) {
+      totalPaidWithdrawalsDec = totalPaidWithdrawalsDec.add(w.requestedAmount);
+      totalPaidWithdrawalsNetDec = totalPaidWithdrawalsNetDec.add(w.netAmount);
+      totalWithdrawalFeesDec = totalWithdrawalFeesDec.add(w.feeAmount);
+    }
 
     const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending' || w.status === 'under_review');
-    const totalPendingWithdrawalsAmount = pendingWithdrawals.reduce((acc, w) => acc + w.requestedAmount, 0);
+    let totalPendingWdDec = DecimalSafe.zero();
+    for (const w of pendingWithdrawals) {
+      totalPendingWdDec = totalPendingWdDec.add(w.requestedAmount);
+    }
 
-    const totalEarningsAllocated = earnings.reduce((acc, e) => acc + e.earningsAmount, 0);
-    const vaultRetainedLiquidity = Number((totalConfirmedDeposits + totalEarningsAllocated - totalPaidWithdrawals).toFixed(2));
+    let totalEarningsDec = DecimalSafe.zero();
+    for (const e of earnings) {
+      if (e.status === 'credited') {
+        totalEarningsDec = totalEarningsDec.add(e.earningsAmount);
+      }
+    }
+
+    const vaultRetainedLiquidityDec = totalConfirmedDepositsDec.add(totalEarningsDec).sub(totalPaidWithdrawalsDec);
 
     res.json({
       stats: {
         totalUsers: standardUsers.length,
         activeUsers,
-        totalConfirmedDeposits,
+        totalConfirmedDeposits: totalConfirmedDepositsDec.toNumber(2),
         totalConfirmedDepositsCount: confirmedDeposits.length,
-        totalPaidWithdrawals,
-        totalPaidWithdrawalsNet,
+        totalPaidWithdrawals: totalPaidWithdrawalsDec.toNumber(2),
+        totalPaidWithdrawalsNet: totalPaidWithdrawalsNetDec.toNumber(2),
         totalPaidWithdrawalsCount: paidWithdrawals.length,
-        totalWithdrawalFees,
+        totalWithdrawalFees: totalWithdrawalFeesDec.toNumber(2),
         pendingWithdrawalsCount: pendingWithdrawals.length,
-        totalPendingWithdrawalsAmount,
+        totalPendingWithdrawalsAmount: totalPendingWdDec.toNumber(2),
         pendingDepositsCount: pendingDeposits.length,
-        totalPendingDepositsAmount,
-        totalEarningsAllocated,
-        vaultRetainedLiquidity,
+        totalPendingDepositsAmount: totalPendingDepositsDec.toNumber(2),
+        totalEarningsAllocated: totalEarningsDec.toNumber(2),
+        vaultRetainedLiquidity: vaultRetainedLiquidityDec.toNumber(2),
       },
       latestPerformance: performances[0] || null,
       settings,

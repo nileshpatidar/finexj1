@@ -164,8 +164,8 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
 
     // 4. Fetch all confirmed deposits and paid withdrawals across platform to establish authoritative pool
     const [{ deposits: allDeposits }, { withdrawals: allWithdrawals }] = await Promise.all([
-      getAllDeposits({ limit: 5000 }),
-      getAllWithdrawals({ limit: 5000 }),
+      getAllDeposits(),
+      getAllWithdrawals(),
     ]);
     const confirmedDepositsList = (allDeposits || []).filter(d => d.status === 'confirmed');
     const paidWithdrawalsList = (allWithdrawals || []).filter(w => w.status === 'paid');

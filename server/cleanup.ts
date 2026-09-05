@@ -99,7 +99,7 @@ class CleanupManager {
     // 2. Storage & Proof Analysis
     let deposits: any[] = [];
     try {
-      const depRes = await getAllDeposits({ limit: 5000 });
+      const depRes = await getAllDeposits();
       deposits = depRes.deposits || [];
     } catch {
       deposits = [];

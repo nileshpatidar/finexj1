@@ -2,18 +2,54 @@ import { getServerSupabase } from '../supabase';
 import { FinexjOperationalEntry, FinexjOperationalSummary } from '../types';
 import { createAuditLog } from '../repositories/auditLogs';
 import { logger } from '../logger';
+import { DecimalSafe } from '../utils/decimalSafe';
 
 export async function getOperationalFundSummaryAsync(): Promise<FinexjOperationalSummary> {
   const supabase = getServerSupabase();
 
   try {
-    // 1. Fetch complete operational ledger rows for complete accounting aggregation
+    // 1. Attempt database-side aggregate RPC
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_operational_fund_summary_aggregate');
+      if (!rpcError && rpcData) {
+        // Fetch only recent entries for the display stream (max 100)
+        const { data: recentRows } = await supabase
+          .from('finexj_operational_ledger')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        const recentEntries: FinexjOperationalEntry[] = (recentRows || []).map((row: any) => ({
+          id: row.id,
+          amount: DecimalSafe.from(row.amount).toNumber(4),
+          direction: row.direction,
+          reason: row.reason,
+          adminId: row.admin_id,
+          reference: row.reference,
+          beforeBalance: DecimalSafe.from(row.before_balance).toNumber(4),
+          afterBalance: DecimalSafe.from(row.after_balance).toNumber(4),
+          createdAt: row.created_at,
+        }));
+
+        return {
+          currentBalance: DecimalSafe.from(rpcData.current_balance).toNumber(4),
+          totalInflow: DecimalSafe.from(rpcData.total_inflow).toNumber(4),
+          totalOutflow: DecimalSafe.from(rpcData.total_outflow).toNumber(4),
+          totalFeeIncome: DecimalSafe.from(rpcData.total_fee_income).toNumber(4),
+          recentEntries,
+        };
+      }
+    } catch {
+      // Fall through to repository aggregation
+    }
+
+    // 2. Database-level aggregation query fallback with DecimalSafe exact arithmetic
     const { data: allRows, error } = await supabase
       .from('finexj_operational_ledger')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error || !allRows) {
+    if (error || !allRows || allRows.length === 0) {
       return {
         currentBalance: 0,
         totalInflow: 0,
@@ -25,13 +61,13 @@ export async function getOperationalFundSummaryAsync(): Promise<FinexjOperationa
 
     const allEntries: FinexjOperationalEntry[] = allRows.map((row: any) => ({
       id: row.id,
-      amount: Number(row.amount),
+      amount: DecimalSafe.from(row.amount).toNumber(4),
       direction: row.direction,
       reason: row.reason,
       adminId: row.admin_id,
       reference: row.reference,
-      beforeBalance: Number(row.before_balance),
-      afterBalance: Number(row.after_balance),
+      beforeBalance: DecimalSafe.from(row.before_balance).toNumber(4),
+      afterBalance: DecimalSafe.from(row.after_balance).toNumber(4),
       createdAt: row.created_at,
     }));
 
@@ -39,26 +75,27 @@ export async function getOperationalFundSummaryAsync(): Promise<FinexjOperationa
     const latest = allEntries[0];
     const currentBalance = latest ? latest.afterBalance : 0;
 
-    let totalInflow = 0;
-    let totalOutflow = 0;
-    let totalFeeIncome = 0;
+    let totalInflow = DecimalSafe.zero();
+    let totalOutflow = DecimalSafe.zero();
+    let totalFeeIncome = DecimalSafe.zero();
 
     for (const entry of allEntries) {
+      const amt = DecimalSafe.from(entry.amount);
       if (entry.direction === 'inflow') {
-        totalInflow += entry.amount;
+        totalInflow = totalInflow.add(amt);
         if (entry.reason.toLowerCase().includes('fee') || (entry.reference && entry.reference.startsWith('FEE-'))) {
-          totalFeeIncome += entry.amount;
+          totalFeeIncome = totalFeeIncome.add(amt);
         }
       } else {
-        totalOutflow += entry.amount;
+        totalOutflow = totalOutflow.add(amt);
       }
     }
 
     return {
-      currentBalance: Number(currentBalance.toFixed(4)),
-      totalInflow: Number(totalInflow.toFixed(4)),
-      totalOutflow: Number(totalOutflow.toFixed(4)),
-      totalFeeIncome: Number(totalFeeIncome.toFixed(4)),
+      currentBalance: DecimalSafe.from(currentBalance).toNumber(4),
+      totalInflow: totalInflow.toNumber(4),
+      totalOutflow: totalOutflow.toNumber(4),
+      totalFeeIncome: totalFeeIncome.toNumber(4),
       recentEntries: allEntries.slice(0, 100),
     };
   } catch (err: any) {
