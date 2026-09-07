@@ -1,6 +1,7 @@
 import { getProfileById, updateProfile } from '../repositories/profiles';
 import {
   createWithdrawal,
+  createWithdrawalAtomic,
   getWithdrawalById,
   getWithdrawalByIdempotencyKey,
   getWithdrawalsByUserId,
@@ -9,6 +10,7 @@ import {
   mapDbWithdrawalToWithdrawal,
   processWithdrawalStatusAtomic,
 } from '../repositories/withdrawals';
+import { getDepositByTxHash } from '../repositories/deposits';
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getSettings } from '../repositories/settings';
@@ -18,6 +20,29 @@ import { verifyWithdrawalOtp } from './otpService';
 import { checkWalletDuplication, checkRapidWithdrawalCycle } from './fraudService';
 import { Withdrawal, WithdrawalStatus } from '../types';
 import { getServerSupabase } from '../supabase';
+
+const userWithdrawalLocks = new Map<string, Promise<void>>();
+
+async function withUserWithdrawalLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  while (userWithdrawalLocks.has(userId)) {
+    try {
+      await userWithdrawalLocks.get(userId);
+    } catch {
+      // Ignore intermediate errors in pending locks
+    }
+  }
+  let resolveLock!: () => void;
+  const lockPromise = new Promise<void>((resolve) => {
+    resolveLock = resolve;
+  });
+  userWithdrawalLocks.set(userId, lockPromise);
+  try {
+    return await fn();
+  } finally {
+    userWithdrawalLocks.delete(userId);
+    resolveLock();
+  }
+}
 
 export interface RequestWithdrawalInput {
   userId: string;
@@ -39,10 +64,11 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
   warningType?: 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
   error?: string;
 }> {
-  const user = await getProfileById(input.userId);
-  if (!user) {
-    return { success: false, error: 'User account not found.' };
-  }
+  return withUserWithdrawalLock(input.userId, async () => {
+    const user = await getProfileById(input.userId);
+    if (!user) {
+      return { success: false, error: 'User account not found.' };
+    }
 
   if (user.status !== 'active') {
     return { success: false, error: `Account is currently ${user.status}. Withdrawals are disabled.` };
@@ -142,35 +168,37 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
   // Requirement 7: Do NOT automatically create a new 30-day lock merely because a withdrawal is made.
   const lockDays = 0;
 
-  // 3. Attempt Atomic PostgreSQL RPC Execution (Gold Standard for Atomicity & Financial Consistency)
-  try {
-    const supabase = getServerSupabase();
-    const { data: rpcData, error: rpcError } = await supabase.rpc('create_withdrawal_atomic', {
-      p_user_id: parseInt(user.id, 10) || 1,
-      p_requested_amount: requestedAmount,
-      p_destination_address: destination,
-      p_reference: reference,
-      p_idempotency_key: cleanIdempotencyKey || null,
-      p_user_notes: input.userNotes || null,
-      p_fee_percentage: feePct,
-      p_fee_amount: feeAmount,
-      p_net_amount: netAmount,
-      p_fund_lock_days: lockDays,
-      p_confirm_lock_break: Boolean(input.confirmLockBreak),
-      p_confirm_minimum_break: Boolean(input.confirmMinimumBreak),
-    });
+  // 3. Attempt Atomic PostgreSQL RPC Execution via createWithdrawalAtomic
+  const atomicResult = await createWithdrawalAtomic({
+    userId: user.id,
+    requestedAmount,
+    destinationAddress: destination,
+    reference,
+    idempotencyKey: cleanIdempotencyKey,
+    userNotes: input.userNotes,
+    feePercentage: feePct,
+    feeAmount,
+    netAmount,
+    fundLockDays: lockDays,
+    confirmLockBreak: Boolean(input.confirmLockBreak),
+    confirmMinimumBreak: Boolean(input.confirmMinimumBreak),
+  });
 
-    if (!rpcError && rpcData) {
-      if (rpcData.success === false) {
-        return { success: false, error: rpcData.error || 'Withdrawal rejected by database financial policy.' };
-      }
-      const rawWd = rpcData.withdrawal;
-      if (rawWd) {
-        return { success: true, withdrawal: mapDbWithdrawalToWithdrawal(rawWd) };
-      }
-    }
-  } catch (rpcErr: any) {
-    console.warn('[Withdrawal Atomic RPC Notice]: RPC call fell back to direct transaction handler:', rpcErr?.message);
+  if (atomicResult.success && atomicResult.withdrawal) {
+    return { success: true, withdrawal: atomicResult.withdrawal };
+  }
+
+  if (atomicResult.requiresConfirmation) {
+    return {
+      success: false,
+      requiresConfirmation: true,
+      warningType: atomicResult.warningType,
+      error: atomicResult.error,
+    };
+  }
+
+  if (atomicResult.error && !atomicResult.error.includes('function create_withdrawal_atomic') && !atomicResult.error.includes('does not exist')) {
+    return { success: false, error: atomicResult.error };
   }
 
   // 4. ACID-Compliant Repository Fallback
@@ -316,6 +344,14 @@ export async function updateWithdrawalStatusAsync(
       }
 
       // Anti-Replay: Check if hash was registered for any deposit
+      const existingDeposit = await getDepositByTxHash(normalizedTxHash);
+      if (existingDeposit) {
+        return {
+          success: false,
+          error: `Transaction hash ${normalizedTxHash} has already been used for deposit ${existingDeposit.reference || existingDeposit.id}.`,
+        };
+      }
+
       const { data: duplicateDeps } = await supabase
         .from('deposits')
         .select('id, reference')
@@ -387,7 +423,7 @@ export async function updateWithdrawalStatusAsync(
           userId: withdrawal.userId,
           type: 'withdrawal_rejected',
           amount: withdrawal.requestedAmount,
-          balanceAfter: currentBalance.availableBalance + withdrawal.requestedAmount,
+          balanceAfter: currentBalance.availableBalance,
           referenceId: withdrawal.id,
           description: `Withdrawal request rejected by admin. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || 'Verification failed'}`,
           createdAt: now.toISOString(),

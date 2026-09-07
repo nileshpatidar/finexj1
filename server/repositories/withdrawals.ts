@@ -326,10 +326,22 @@ export async function createWithdrawalAtomic(input: CreateWithdrawalAtomicInput)
 }> {
   try {
     const supabase = getServerSupabase();
-    const numericUserId = Number(input.userId);
+    let numericUserId: number | null = null;
+    if (!isNaN(Number(input.userId)) && Number(input.userId) > 0) {
+      numericUserId = Number(input.userId);
+    } else {
+      const resolved = await resolveUserIdForDb(input.userId);
+      if (typeof resolved === 'number' && resolved > 0) {
+        numericUserId = resolved;
+      }
+    }
+
+    if (!numericUserId) {
+      return { success: false, error: `User account (${input.userId}) not found or invalid.` };
+    }
 
     const { data, error } = await supabase.rpc('create_withdrawal_atomic', {
-      p_user_id: !isNaN(numericUserId) ? numericUserId : input.userId,
+      p_user_id: numericUserId,
       p_requested_amount: input.requestedAmount,
       p_destination_address: input.destinationAddress.trim(),
       p_reference: input.reference,
@@ -386,12 +398,24 @@ export async function processWithdrawalStatusAtomic(input: ProcessWithdrawalStat
 }> {
   try {
     const supabase = getServerSupabase();
-    const numericId = Number(input.withdrawalId);
+    let numericId: number | null = null;
+    if (!isNaN(Number(input.withdrawalId)) && Number(input.withdrawalId) > 0) {
+      numericId = Number(input.withdrawalId);
+    } else {
+      const existing = await getWithdrawalById(String(input.withdrawalId));
+      if (existing && !isNaN(Number(existing.id)) && Number(existing.id) > 0) {
+        numericId = Number(existing.id);
+      }
+    }
+
+    if (!numericId) {
+      return { success: false, error: `Withdrawal record (${input.withdrawalId}) not found in database.` };
+    }
 
     const { data, error } = await supabase.rpc('process_withdrawal_status_atomic', {
       p_admin_id: input.adminId,
       p_admin_role: input.adminRole || 'admin',
-      p_withdrawal_id: !isNaN(numericId) ? numericId : input.withdrawalId,
+      p_withdrawal_id: numericId,
       p_new_status: input.newStatus,
       p_tx_hash: input.txHash ? input.txHash.trim().toLowerCase() : null,
       p_admin_notes: input.adminNotes || null,

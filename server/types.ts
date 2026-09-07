@@ -69,7 +69,7 @@ export interface Withdrawal {
   reference: string;
   userId: string;
   requestedAmount: number;
-  feePercentage: number; // Configurable / Default 6%
+  feePercentage: number; // Configurable / Authoritative Default 9%
   feeAmount: number;
   netAmount: number;
   destinationAddress: string;
