@@ -44,8 +44,23 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     };
   }
 
-  const settings = await getSettings();
-  const minDeposit = Number(settings.minimumDepositAmount || 300);
+  let settings: any;
+  try {
+    settings = await getSettings();
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'Financial configuration is temporarily unavailable. Please try again later.',
+    };
+  }
+
+  const minDeposit = Number(settings.minimumDepositAmount);
+  if (isNaN(minDeposit) || minDeposit <= 0) {
+    return {
+      success: false,
+      error: 'Financial configuration error: minimumDepositAmount is invalid or missing in system settings.',
+    };
+  }
   const claimedAmount = input.amount !== undefined && !isNaN(Number(input.amount)) ? Number(input.amount) : undefined;
 
   if (claimedAmount !== undefined) {

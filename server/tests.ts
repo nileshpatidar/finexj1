@@ -18,6 +18,7 @@ import { DecimalSafe } from './utils/decimalSafe';
 import { isServerSupabaseReady, getServerSupabase } from './supabase';
 import { marketDataService, MarketDataService } from './services/marketDataService';
 import { User, Deposit } from './types';
+import { validateSystemSettings, ConfigurationError } from './repositories/settings';
 
 export interface TestResult {
   name: string;
@@ -3449,6 +3450,127 @@ export async function runAutomatedTestSuite(): Promise<{
       'Real-Time Market Ticker',
       false,
       `Financial isolation test failed: ${(err as Error).message}`
+    );
+  }
+
+  // --- STEP 16: CONFIGURATION AUTHORITY HARDENING & FAIL-CLOSED VALIDATION ---
+  // 1. validateSystemSettings accepts valid institutional settings
+  try {
+    const validSettings = {
+      minimumDepositAmount: 300,
+      withdrawalFeePercentage: 6.0,
+      referralRewardL1Percentage: 5.0,
+      referralRewardL2Percentage: 2.0,
+      companyReferralCode: 'FINEXJ',
+      accountAgeRequirementDays: 30,
+      depositLockPeriodDays: 30,
+      requiredConfirmations: 12,
+      bep20DepositAddress: '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
+      usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
+    };
+    const validRes = validateSystemSettings(validSettings);
+    assert(
+      'STEP 16: Configuration Authority - Valid Settings Pass Validation',
+      'Configuration Authority',
+      validRes.valid === true && validRes.errors.length === 0,
+      'Valid system_settings pass all range, format, and type validations.'
+    );
+  } catch (err: any) {
+    assert(
+      'STEP 16: Configuration Authority - Valid Settings Pass Validation',
+      'Configuration Authority',
+      false,
+      `Valid settings rejected: ${err.message}`
+    );
+  }
+
+  // 2. validateSystemSettings rejects out-of-range withdrawal fee
+  try {
+    const invalidFeeSettings = {
+      minimumDepositAmount: 300,
+      withdrawalFeePercentage: 105, // Invalid >= 100%
+      referralRewardL1Percentage: 5.0,
+      referralRewardL2Percentage: 2.0,
+      companyReferralCode: 'FINEXJ',
+      accountAgeRequirementDays: 30,
+      depositLockPeriodDays: 30,
+      requiredConfirmations: 12,
+      bep20DepositAddress: '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
+      usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
+    };
+    const feeRes = validateSystemSettings(invalidFeeSettings);
+    assert(
+      'STEP 16: Configuration Authority - Reject Out-of-Range Fee Percentage',
+      'Configuration Authority',
+      feeRes.valid === false && feeRes.errors.some(e => e.includes('withdrawalFeePercentage')),
+      `Correctly identified invalid fee percentage: ${feeRes.errors.join('; ')}`
+    );
+  } catch (err: any) {
+    assert(
+      'STEP 16: Configuration Authority - Reject Out-of-Range Fee Percentage',
+      'Configuration Authority',
+      false,
+      `Unexpected error: ${err.message}`
+    );
+  }
+
+  // 3. validateSystemSettings rejects invalid BEP-20 deposit address
+  try {
+    const invalidAddressSettings = {
+      minimumDepositAmount: 300,
+      withdrawalFeePercentage: 6.0,
+      referralRewardL1Percentage: 5.0,
+      referralRewardL2Percentage: 2.0,
+      companyReferralCode: 'FINEXJ',
+      accountAgeRequirementDays: 30,
+      depositLockPeriodDays: 30,
+      requiredConfirmations: 12,
+      bep20DepositAddress: '0xInvalidBscAddress123',
+      usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
+    };
+    const addrRes = validateSystemSettings(invalidAddressSettings);
+    assert(
+      'STEP 16: Configuration Authority - Reject Invalid Deposit Address',
+      'Configuration Authority',
+      addrRes.valid === false && addrRes.errors.some(e => e.includes('bep20DepositAddress')),
+      `Correctly identified invalid deposit address: ${addrRes.errors.join('; ')}`
+    );
+  } catch (err: any) {
+    assert(
+      'STEP 16: Configuration Authority - Reject Invalid Deposit Address',
+      'Configuration Authority',
+      false,
+      `Unexpected error: ${err.message}`
+    );
+  }
+
+  // 4. validateSystemSettings rejects invalid minimum deposit amount
+  try {
+    const invalidMinDeposit = {
+      minimumDepositAmount: 0,
+      withdrawalFeePercentage: 6.0,
+      referralRewardL1Percentage: 5.0,
+      referralRewardL2Percentage: 2.0,
+      companyReferralCode: 'FINEXJ',
+      accountAgeRequirementDays: 30,
+      depositLockPeriodDays: 30,
+      requiredConfirmations: 12,
+      bep20DepositAddress: '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
+      usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
+    };
+    const depRes = validateSystemSettings(invalidMinDeposit);
+    assert(
+      'STEP 16: Configuration Authority - Reject Non-Positive Minimum Deposit',
+      'Configuration Authority',
+      depRes.valid === false && depRes.errors.some(e => e.includes('minimumDepositAmount')),
+      `Correctly identified invalid minimum deposit: ${depRes.errors.join('; ')}`
+    );
+  } catch (err: any) {
+    assert(
+      'STEP 16: Configuration Authority - Reject Non-Positive Minimum Deposit',
+      'Configuration Authority',
+      false,
+      `Unexpected error: ${err.message}`
     );
   }
 

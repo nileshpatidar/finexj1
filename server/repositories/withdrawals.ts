@@ -13,23 +13,22 @@ export function mapDbWithdrawalToWithdrawal(w: any): Withdrawal {
 
   let reqAmount = Number(w.requested_amount || w.amount || w.requestedAmount || 0);
 
+  let feePct = 0;
+  if (w.fee_percentage !== undefined && w.fee_percentage !== null && !isNaN(Number(w.fee_percentage))) {
+    feePct = Number(w.fee_percentage);
+  } else if (reqAmount > 0 && feeAmt > 0) {
+    feePct = Math.round(((feeAmt / reqAmount) * 100) * 100) / 100;
+  }
+
   if (reqAmount <= 0 && (netAmt > 0 || feeAmt > 0)) {
     reqAmount = Number((netAmt + feeAmt).toFixed(4));
   } else if (reqAmount > 0 && netAmt <= 0 && feeAmt <= 0) {
-    const defaultFeePct = w.fee_percentage !== undefined && w.fee_percentage !== null ? Number(w.fee_percentage) : 6;
-    feeAmt = Number((reqAmount * (defaultFeePct / 100)).toFixed(4));
+    feeAmt = Number((reqAmount * (feePct / 100)).toFixed(4));
     netAmt = Number((reqAmount - feeAmt).toFixed(4));
   } else if (reqAmount > 0 && netAmt > 0 && feeAmt <= 0) {
     feeAmt = Math.max(0, Number((reqAmount - netAmt).toFixed(4)));
   } else if (reqAmount > 0 && feeAmt > 0 && netAmt <= 0) {
     netAmt = Math.max(0, Number((reqAmount - feeAmt).toFixed(4)));
-  }
-
-  let feePct = 6;
-  if (w.fee_percentage !== undefined && w.fee_percentage !== null && Number(w.fee_percentage) > 0) {
-    feePct = Number(w.fee_percentage);
-  } else if (reqAmount > 0 && feeAmt > 0) {
-    feePct = Math.round(((feeAmt / reqAmount) * 100) * 100) / 100;
   }
 
   const appStatus = (w.status === 'completed' ? 'paid' : (w.status || 'pending')) as WithdrawalStatus;
@@ -113,7 +112,10 @@ export async function getWithdrawalByIdempotencyKey(key: string): Promise<Withdr
 export async function createWithdrawal(wd: Partial<Withdrawal>): Promise<Withdrawal> {
   const destination = (wd.destinationAddress || '').trim();
   const amount = Number(wd.requestedAmount || 0);
-  const feePct = wd.feePercentage !== undefined ? Number(wd.feePercentage) : 6;
+  if (wd.feePercentage === undefined || isNaN(Number(wd.feePercentage))) {
+    throw new Error('Authoritative feePercentage is required to create a withdrawal.');
+  }
+  const feePct = Number(wd.feePercentage);
   const feeAmount = wd.feeAmount !== undefined ? Number(wd.feeAmount) : Number((amount * (feePct / 100)).toFixed(4));
   const netAmount = wd.netAmount !== undefined ? Number(wd.netAmount) : Number((amount - feeAmount).toFixed(4));
 

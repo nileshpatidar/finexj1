@@ -2,6 +2,7 @@ import { getServerSupabase } from '../supabase';
 import { Deposit, DepositStatus } from '../types';
 import { resolveUserIdForDb } from './profiles';
 import { getPublicDepositProofUrl } from '../storage';
+import { getSettings } from './settings';
 
 export function mapDbDepositToDeposit(d: any): Deposit {
   const rawProof = d.proof_url || d.proof_photo_url;
@@ -16,7 +17,7 @@ export function mapDbDepositToDeposit(d: any): Deposit {
     network: 'BEP-20',
     txHash: d.tx_hash,
     fromAddress: d.from_address || undefined,
-    toAddress: d.to_address || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
+    toAddress: d.to_address || '',
     tokenContract: d.token_contract || undefined,
     blockNumber: d.block_number ? Number(d.block_number) : undefined,
     status: (d.status || 'pending') as DepositStatus,
@@ -91,7 +92,17 @@ export async function getDepositByTxHash(txHash: string): Promise<Deposit | null
 }
 
 export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
-  const toAddress = dep.toAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9';
+  let settings: any = null;
+  try {
+    settings = await getSettings();
+  } catch (err) {
+    // fallback if testing without db
+  }
+
+  const toAddress = dep.toAddress || settings?.bep20DepositAddress;
+  if (!toAddress) {
+    throw new Error('Deposit destination address is not configured in system settings.');
+  }
   const txHash = dep.txHash ? dep.txHash.trim() : '';
 
   if (!txHash) {
@@ -100,6 +111,7 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
 
   const supabase = getServerSupabase();
   const userIdNum = await resolveUserIdForDb(dep.userId);
+  const lockDays = Number(settings?.depositLockPeriodDays || 30);
 
   const payload: any = {
     user_id: userIdNum,
@@ -111,8 +123,8 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
     tx_hash: txHash,
     status: dep.status || 'pending',
     confirmations: dep.confirmations !== undefined ? dep.confirmations : 0,
-    required_confirmations: dep.requiredConfirmations || 12,
-    lock_expires_at: dep.depositLockEndDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    required_confirmations: dep.requiredConfirmations || settings?.requiredConfirmations || 12,
+    lock_expires_at: dep.depositLockEndDate || new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000).toISOString(),
     created_at: dep.createdAt || new Date().toISOString(),
   };
 

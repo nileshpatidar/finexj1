@@ -63,7 +63,10 @@ export async function calculateUserBalanceAsync(userId: string): Promise<UserBal
   const activeCompoundingPrincipal = Math.max(0, Number((totalDeposited - totalWithdrawn).toFixed(4)));
 
   // 6. Deposit Principal Lock (30 days from confirmed deposit)
-  const depositLockMs = (settings.depositLockPeriodDays || 30) * 24 * 60 * 60 * 1000;
+  const lockDays = typeof settings.depositLockPeriodDays === 'number' && !isNaN(settings.depositLockPeriodDays)
+    ? settings.depositLockPeriodDays
+    : 30;
+  const depositLockMs = lockDays * 24 * 60 * 60 * 1000;
   let depositLockedAmount = 0;
 
   for (const dep of confirmedDeposits) {
@@ -96,7 +99,10 @@ export async function calculateUserBalanceAsync(userId: string): Promise<UserBal
   // 8. Check 30-day account age rule
   const createdAtTime = new Date(user.createdAt).getTime();
   const accountAgeMs = now.getTime() - createdAtTime;
-  const requiredAgeMs = (settings.accountAgeRequirementDays || 30) * 24 * 60 * 60 * 1000;
+  const ageDays = typeof settings.accountAgeRequirementDays === 'number' && !isNaN(settings.accountAgeRequirementDays)
+    ? settings.accountAgeRequirementDays
+    : 30;
+  const requiredAgeMs = ageDays * 24 * 60 * 60 * 1000;
   const is30DaysOld = accountAgeMs >= requiredAgeMs;
   const accountAgeDays = Number((accountAgeMs / (24 * 60 * 60 * 1000)).toFixed(2));
   const withdrawalEligibleDate = new Date(createdAtTime + requiredAgeMs).toISOString();
@@ -190,7 +196,30 @@ export async function checkWithdrawalImpactAsync(
   requestedAmount: number
 ): Promise<WithdrawalImpactResult> {
   const balance = await calculateUserBalanceAsync(userId);
-  const settings = await getSettings();
+  let settings: any;
+  try {
+    settings = await getSettings();
+  } catch (err: any) {
+    return {
+      canWithdraw: false,
+      error: 'Financial configuration is temporarily unavailable. Please try again later.',
+      availableBalance: balance.availableBalance,
+      referralEarnings: balance.referralEarnings,
+      activeCompoundingPrincipal: balance.activeCompoundingPrincipal,
+      depositLockedPrincipal: balance.depositLockedPrincipal,
+      isFundLocked: balance.isFundLocked,
+      is30DaysOld: balance.is30DaysOld,
+      requestedAmount,
+      feePercentage: 0,
+      feeAmount: 0,
+      netAmount: 0,
+      isReferralOnly: false,
+      touchesProtectedFund: false,
+      requiresLockBreakConfirmation: false,
+      requiresMinimumBreakConfirmation: false,
+      projectedRemainingPrincipal: balance.activeCompoundingPrincipal,
+    };
+  }
 
   // STRICT CONFIGURATION SAFETY: Fail safely if financial settings are missing or invalid
   const rawFee = Number(settings.withdrawalFeePercentage);

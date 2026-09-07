@@ -80,7 +80,7 @@ export const MarketTickerProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // Number Formatting: BTC (USD, comma separators, 2 decimal places)
   const formatBtcPrice = useCallback((price: number | null | undefined): string => {
     if (price === null || price === undefined || !isFinite(price) || price <= 0) {
-      return 'Unavailable';
+      return 'Market data temporarily unavailable';
     }
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -93,7 +93,7 @@ export const MarketTickerProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // Number Formatting: Gold (USD per troy ounce, comma separators, 2 decimal places, /oz suffix)
   const formatGoldPrice = useCallback((price: number | null | undefined): string => {
     if (price === null || price === undefined || !isFinite(price) || price <= 0) {
-      return 'Unavailable';
+      return 'Market data temporarily unavailable';
     }
     const formatted = new Intl.NumberFormat('en-US', {
       style: 'currency',

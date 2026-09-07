@@ -47,7 +47,7 @@ export async function bindReferralAsync(
 
   const cleanCode = rawReferralCode.trim().toUpperCase();
   const settings = await getSettings();
-  const companyCode = (settings.companyReferralCode || 'FINEXJ').toUpperCase();
+  const companyCode = settings.companyReferralCode.toUpperCase();
 
   // 1. Strict Self-Referral Prevention (Immediate Match against user's own code)
   if (referredUser.referralCode && referredUser.referralCode.toUpperCase() === cleanCode) {
@@ -389,7 +389,7 @@ export async function getReferralSummaryAsync(userId: string): Promise<{
 
   const referralCode = user.referralCode || '';
   const settings = await getSettings();
-  const minDeposit = Number(settings.minimumDepositAmount) || 300.0;
+  const minDeposit = Number(settings.minimumDepositAmount);
 
   // 1. Direct Referrals (Level 1)
   const l1Referrals = await getReferralsByReferrerId(userId);
@@ -587,7 +587,7 @@ export async function getUserLevel1ReferralsPaginatedAsync(
   const safeLimit = Math.max(1, Math.min(limit, 100));
   const { referrals, total } = await getReferralsByReferrerIdPaginated(userId, safePage, safeLimit);
   const settings = await getSettings();
-  const minDeposit = Number(settings.minimumDepositAmount) || 300.0;
+  const minDeposit = Number(settings.minimumDepositAmount);
 
   const items: Level1ReferralItem[] = [];
 
@@ -646,7 +646,7 @@ export async function getUserLevel2ReferralsPaginatedAsync(
   limit: number = 10
 ): Promise<PaginatedLevel2ReferralsResponse> {
   const settings = await getSettings();
-  const minDeposit = Number(settings.minimumDepositAmount) || 300.0;
+  const minDeposit = Number(settings.minimumDepositAmount);
   const safePage = Math.max(1, page);
   const safeLimit = Math.max(1, Math.min(limit, 100));
 
@@ -795,7 +795,7 @@ export async function validateReferralCodeAsync(code: string): Promise<{ valid: 
   }
   const cleanCode = code.trim().toUpperCase();
   const settings = await getSettings();
-  const companyCode = (settings.companyReferralCode || 'FINEXJ').toUpperCase();
+  const companyCode = settings.companyReferralCode.toUpperCase();
 
   if (cleanCode === companyCode) {
     return { valid: true, referrerName: 'FINEXJ Official' };

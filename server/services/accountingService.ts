@@ -107,9 +107,9 @@ export async function getAccountingSummaryAsync(options?: {
   startDate?: string;
   endDate?: string;
 }): Promise<AdminAccountingSummary> {
-  const settings = await getSettings().catch(() => ({ withdrawalFeePercentage: 9.0, minimumDepositAmount: 300 } as any));
-  const feePct = settings.withdrawalFeePercentage || 9.0;
-  const minDeposit = settings.minimumDepositAmount || 300;
+  const settings = await getSettings();
+  const feePct = Number(settings.withdrawalFeePercentage);
+  const minDeposit = Number(settings.minimumDepositAmount);
 
   const now = new Date();
   const todayStart = new Date(now);
@@ -452,8 +452,8 @@ export async function getAccountingSummaryAsync(options?: {
  */
 export async function getReferralAccountingSummaryAsync(): Promise<ReferralAccountingSummary> {
   const supabase = getServerSupabase();
-  const settings = await getSettings().catch(() => ({ minimumDepositAmount: 300 } as any));
-  const minDeposit = settings.minimumDepositAmount || 300;
+  const settings = await getSettings();
+  const minDeposit = Number(settings.minimumDepositAmount);
 
   const now = new Date();
   const todayStart = new Date(now);

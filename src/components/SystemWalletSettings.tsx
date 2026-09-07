@@ -29,10 +29,10 @@ export const SystemWalletSettings: React.FC<SystemWalletSettingsProps> = ({
 }) => {
   const [bep20DepositAddress, setBep20DepositAddress] = useState('');
   const [usdtContractAddress, setUsdtContractAddress] = useState('');
-  const [minimumDepositAmount, setMinimumDepositAmount] = useState('300');
-  const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState('6');
-  const [accountAgeRequirementDays, setAccountAgeRequirementDays] = useState('30');
-  const [depositLockPeriodDays, setDepositLockPeriodDays] = useState('30');
+  const [minimumDepositAmount, setMinimumDepositAmount] = useState('');
+  const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState('');
+  const [accountAgeRequirementDays, setAccountAgeRequirementDays] = useState('');
+  const [depositLockPeriodDays, setDepositLockPeriodDays] = useState('');
   const [telegramSupportUrl, setTelegramSupportUrl] = useState('');
   const [operationalWalletAddress, setOperationalWalletAddress] = useState('');
   
@@ -46,10 +46,10 @@ export const SystemWalletSettings: React.FC<SystemWalletSettingsProps> = ({
     if (appSettings) {
       setBep20DepositAddress(appSettings.bep20DepositAddress || '');
       setUsdtContractAddress(appSettings.usdtContractAddress || '');
-      setMinimumDepositAmount(String(appSettings.minimumDepositAmount ?? 300));
-      setWithdrawalFeePercentage(String(appSettings.withdrawalFeePercentage ?? 6));
-      setAccountAgeRequirementDays(String(appSettings.accountAgeRequirementDays ?? 30));
-      setDepositLockPeriodDays(String(appSettings.depositLockPeriodDays ?? 30));
+      setMinimumDepositAmount(appSettings.minimumDepositAmount !== undefined ? String(appSettings.minimumDepositAmount) : '');
+      setWithdrawalFeePercentage(appSettings.withdrawalFeePercentage !== undefined ? String(appSettings.withdrawalFeePercentage) : '');
+      setAccountAgeRequirementDays(appSettings.accountAgeRequirementDays !== undefined ? String(appSettings.accountAgeRequirementDays) : '');
+      setDepositLockPeriodDays(appSettings.depositLockPeriodDays !== undefined ? String(appSettings.depositLockPeriodDays) : '');
       setTelegramSupportUrl(appSettings.telegramSupportUrl || '');
       setOperationalWalletAddress(appSettings.operationalWalletAddress || '');
     }
@@ -70,10 +70,10 @@ export const SystemWalletSettings: React.FC<SystemWalletSettingsProps> = ({
       const freshSettings = await api.getSettings();
       setBep20DepositAddress(freshSettings.bep20DepositAddress || '');
       setUsdtContractAddress(freshSettings.usdtContractAddress || '');
-      setMinimumDepositAmount(String(freshSettings.minimumDepositAmount ?? 300));
-      setWithdrawalFeePercentage(String(freshSettings.withdrawalFeePercentage ?? 9));
-      setAccountAgeRequirementDays(String(freshSettings.accountAgeRequirementDays ?? 30));
-      setDepositLockPeriodDays(String(freshSettings.depositLockPeriodDays ?? 30));
+      setMinimumDepositAmount(freshSettings.minimumDepositAmount !== undefined ? String(freshSettings.minimumDepositAmount) : '');
+      setWithdrawalFeePercentage(freshSettings.withdrawalFeePercentage !== undefined ? String(freshSettings.withdrawalFeePercentage) : '');
+      setAccountAgeRequirementDays(freshSettings.accountAgeRequirementDays !== undefined ? String(freshSettings.accountAgeRequirementDays) : '');
+      setDepositLockPeriodDays(freshSettings.depositLockPeriodDays !== undefined ? String(freshSettings.depositLockPeriodDays) : '');
       setTelegramSupportUrl(freshSettings.telegramSupportUrl || '');
       setOperationalWalletAddress(freshSettings.operationalWalletAddress || '');
       setSuccessMessage('Successfully refreshed latest settings from Supabase database.');

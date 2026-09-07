@@ -19,63 +19,43 @@ interface SettingsContextType {
   usdtContractAddress: string;
 }
 
-const defaultSettings: AppSettings = {
-  bep20DepositAddress: '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
-  usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
-  requiredConfirmations: 12,
-  minimumDepositAmount: 300,
-  withdrawalFeePercentage: 6,
-  accountAgeRequirementDays: 30,
-  depositLockPeriodDays: 30,
-  telegramSupportUrl: 'https://t.me/FINEXJ_OfficialSupport',
-  loginEnabled: true,
-  registrationEnabled: true,
-  maintenanceMode: false,
-};
-
 const SettingsContext = createContext<SettingsContextType>({
-  settings: defaultSettings,
-  isLoading: false,
+  settings: null,
+  isLoading: true,
   error: null,
   refreshSettings: async () => {},
-  withdrawalFeePercentage: 6,
+  withdrawalFeePercentage: 0,
   accountAgeRequirementDays: 30,
   depositLockPeriodDays: 30,
-  minimumDepositAmount: 300,
+  minimumDepositAmount: 0,
   loginEnabled: true,
   registrationEnabled: true,
   maintenanceMode: false,
   telegramSupportUrl: 'https://t.me/FINEXJ_OfficialSupport',
-  bep20DepositAddress: '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
-  usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
+  bep20DepositAddress: '',
+  usdtContractAddress: '',
 });
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [settings, setSettings] = useState<AppSettings | null>(defaultSettings);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const refreshSettings = useCallback(async () => {
     try {
       const data = await api.getSettings();
-      if (data) {
-        setSettings(prev => ({
-          ...defaultSettings,
-          ...prev,
-          ...data,
-          withdrawalFeePercentage: Number(data.withdrawalFeePercentage) || 6,
-          accountAgeRequirementDays: Number(data.accountAgeRequirementDays) || 30,
-          depositLockPeriodDays: Number(data.depositLockPeriodDays) || 30,
-          minimumDepositAmount: Number(data.minimumDepositAmount) || 300,
-          loginEnabled: data.loginEnabled !== false,
-          registrationEnabled: data.registrationEnabled !== false,
-          maintenanceMode: Boolean(data.maintenanceMode),
-        }));
+      if (data && typeof data.withdrawalFeePercentage === 'number' && !isNaN(data.withdrawalFeePercentage)) {
+        setSettings(data);
+        setError(null);
+      } else if (data) {
+        setSettings(data);
+        setError(null);
+      } else {
+        setError('Financial configuration is temporarily unavailable.');
       }
-      setError(null);
     } catch (err: any) {
-      console.warn('Failed to load dynamic system settings:', err);
-      setError(err?.message || 'Could not fetch settings');
+      console.warn('Failed to load authoritative system settings from backend:', err);
+      setError(err?.message || 'Financial configuration is temporarily unavailable. Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -88,16 +68,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => clearInterval(interval);
   }, [refreshSettings]);
 
-  const withdrawalFeePercentage = settings?.withdrawalFeePercentage ?? 6;
+  const withdrawalFeePercentage = settings?.withdrawalFeePercentage ?? 0;
   const accountAgeRequirementDays = settings?.accountAgeRequirementDays ?? 30;
   const depositLockPeriodDays = settings?.depositLockPeriodDays ?? 30;
-  const minimumDepositAmount = settings?.minimumDepositAmount ?? 300;
-  const loginEnabled = settings?.loginEnabled !== false;
-  const registrationEnabled = settings?.registrationEnabled !== false;
+  const minimumDepositAmount = settings?.minimumDepositAmount ?? 0;
+  const loginEnabled = settings ? settings.loginEnabled !== false : true;
+  const registrationEnabled = settings ? settings.registrationEnabled !== false : true;
   const maintenanceMode = Boolean(settings?.maintenanceMode);
   const telegramSupportUrl = settings?.telegramSupportUrl || 'https://t.me/FINEXJ_OfficialSupport';
-  const bep20DepositAddress = settings?.bep20DepositAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9';
-  const usdtContractAddress = settings?.usdtContractAddress || '0x55d398326f99059fF775485246999027B3197955';
+  const bep20DepositAddress = settings?.bep20DepositAddress || '';
+  const usdtContractAddress = settings?.usdtContractAddress || '';
 
   return (
     <SettingsContext.Provider
@@ -124,3 +104,4 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 };
 
 export const useSettings = () => useContext(SettingsContext);
+

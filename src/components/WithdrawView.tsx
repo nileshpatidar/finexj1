@@ -247,7 +247,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         const reqAmt = Number(res.withdrawal.requestedAmount || 0);
         const netAmt = Number(res.withdrawal.netAmount || 0);
         const feeAmt = Number(res.withdrawal.feeAmount || 0);
-        const feePct = res.withdrawal.feePercentage ?? previewImpact?.feePercentage ?? 9;
+        const feePct = res.withdrawal.feePercentage ?? previewImpact?.feePercentage ?? withdrawalFeePercentage;
 
         setSuccessMessage(
           `Withdrawal request for $${reqAmt.toFixed(2)} USDT submitted successfully! Net payout to receive: $${netAmt.toFixed(2)} USDT (Fee: $${feeAmt.toFixed(2)} at ${feePct}%). Awaiting compliance review.`
@@ -278,7 +278,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
   };
 
   // Authoritative or fallback calculation for UI display
-  const authoritativeFeePct = previewImpact?.feePercentage ?? withdrawalFeePercentage ?? 9.0;
+  const authoritativeFeePct = previewImpact?.feePercentage ?? withdrawalFeePercentage;
   const authoritativeFeeAmt = previewImpact?.feeAmount ?? Number((numAmount * (authoritativeFeePct / 100)).toFixed(4));
   const authoritativeNetAmt = previewImpact?.netAmount ?? Math.max(0, Number((numAmount - authoritativeFeeAmt).toFixed(4)));
 

@@ -294,18 +294,21 @@ app.get(['/api/market/prices', '/market/prices'], async (req, res) => {
 app.get(['/api/blockchain/status', '/blockchain/status'], async (req, res) => {
   try {
     const settings = await getSettings();
+    if (!settings.usdtContractAddress || !settings.bep20DepositAddress) {
+      return res.status(500).json({ error: 'Deposit configuration is incomplete in system settings.' });
+    }
     res.json({
       network: 'BNB Smart Chain (BSC Mainnet)',
       chainId: 56,
       currency: 'USDT',
       tokenStandard: 'BEP-20',
-      tokenContract: settings.usdtContractAddress || '0x55d398326f99059fF775485246999027B3197955',
-      depositWallet: settings.bep20DepositAddress || '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
-      requiredConfirmations: settings.requiredConfirmations || 12,
-      minimumDeposit: settings.minimumDepositAmount || 300,
+      tokenContract: settings.usdtContractAddress,
+      depositWallet: settings.bep20DepositAddress,
+      requiredConfirmations: settings.requiredConfirmations,
+      minimumDeposit: settings.minimumDepositAmount,
     });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to query blockchain settings.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to query blockchain settings.' });
   }
 });
 

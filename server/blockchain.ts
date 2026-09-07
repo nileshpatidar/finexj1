@@ -1,5 +1,6 @@
 import { getSettings } from './repositories/settings';
 import { getDepositByTxHash } from './repositories/deposits';
+import { logger } from './logger';
 
 export interface VerificationResult {
   isValid: boolean;
@@ -249,20 +250,23 @@ export async function verifyBEP20Deposit(
   overrideToAddress?: string,
   overrideContract?: string
 ): Promise<VerificationResult> {
-  let settings: any = {};
+  const normalizedHash = txHash ? txHash.trim().toLowerCase() : '';
+
+  let settings: any;
   try {
     settings = await getSettings();
-  } catch (err) {
-    // Fallback if settings repository is in-memory or DB offline
-    settings = {
-      requiredConfirmations: DEFAULT_REQUIRED_CONFIRMATIONS,
-      minimumDepositAmount: 300,
-      bep20DepositAddress: DEFAULT_BSC_DEPOSIT_WALLET,
-      usdtContractAddress: CANONICAL_BSC_USDT_CONTRACT,
+  } catch (err: any) {
+    logger.error('BLOCKCHAIN_CONFIG_ERROR', 'Failed to retrieve authoritative blockchain settings. Blocking verification.', { metadata: { error: err?.message } });
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations: 0,
+      status: 'invalid',
+      errorCode: 'CONFIG_ERROR',
+      errorMessage: 'Blockchain configuration is temporarily unavailable. Verification blocked.',
     };
   }
-
-  const normalizedHash = txHash ? txHash.trim().toLowerCase() : '';
 
   // 1. Transaction Hash Syntax Validation
   if (!isValidTxHash(normalizedHash)) {
@@ -270,7 +274,7 @@ export async function verifyBEP20Deposit(
       isValid: false,
       txHash: normalizedHash,
       confirmations: 0,
-      requiredConfirmations: settings.requiredConfirmations || DEFAULT_REQUIRED_CONFIRMATIONS,
+      requiredConfirmations: Number(settings.requiredConfirmations) || 0,
       status: 'invalid',
       errorCode: 'INVALID_TX_HASH_FORMAT',
       errorMessage: 'Invalid transaction hash format. Must be a 66-character hexadecimal string starting with 0x.',
@@ -295,28 +299,31 @@ export async function verifyBEP20Deposit(
     // Continue with verification if repository is unreachable
   }
 
-  // 3. Resolve Configured Blockchain Parameters
+  // 3. Resolve Configured Blockchain Parameters (Strict Authority)
   const configuredContract = (
     overrideContract ||
-    process.env.BSC_USDT_CONTRACT_ADDRESS ||
-    settings.usdtContractAddress ||
-    CANONICAL_BSC_USDT_CONTRACT
-  ).trim();
+    settings.usdtContractAddress
+  )?.trim();
 
   const configuredDepositWallet = (
     overrideToAddress ||
-    process.env.BSC_DEPOSIT_WALLET_ADDRESS ||
-    settings.bep20DepositAddress ||
-    DEFAULT_BSC_DEPOSIT_WALLET
-  ).trim();
+    settings.bep20DepositAddress
+  )?.trim();
 
-  const requiredConfirmations = Number(
-    process.env.BSC_REQUIRED_CONFIRMATIONS ||
-    settings.requiredConfirmations ||
-    DEFAULT_REQUIRED_CONFIRMATIONS
-  );
+  const requiredConfirmations = Number(settings.requiredConfirmations);
+  const minDeposit = Number(settings.minimumDepositAmount);
 
-  const minDeposit = Number(settings.minimumDepositAmount || 300);
+  if (!configuredContract || !configuredDepositWallet || isNaN(requiredConfirmations) || isNaN(minDeposit)) {
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations: 0,
+      status: 'invalid',
+      errorCode: 'CONFIG_ERROR',
+      errorMessage: 'Blockchain configuration is invalid or missing required parameters. Verification blocked.',
+    };
+  }
 
   // 4. Query Real BSC Node via JSON-RPC
   let txData: any = null;
@@ -532,21 +539,28 @@ export async function verifyBEP20PayoutTx(
     currentWithdrawalId?: string;
   }
 ): Promise<PayoutVerificationResult> {
-  let settings: any = {};
+  const normalizedHash = txHash ? txHash.trim().toLowerCase() : '';
+  const normalizedRecipient = normalizeAddress(expectedRecipientAddress);
+
+  let settings: any;
   try {
     settings = await getSettings();
-  } catch (err) {
-    settings = {
-      requiredConfirmations: DEFAULT_REQUIRED_CONFIRMATIONS,
-      usdtContractAddress: CANONICAL_BSC_USDT_CONTRACT,
+  } catch (err: any) {
+    logger.error('BLOCKCHAIN_CONFIG_ERROR', 'Failed to retrieve authoritative blockchain settings. Blocking payout verification.', { metadata: { error: err?.message } });
+    return {
+      isValid: false,
+      txHash: normalizedHash,
+      confirmations: 0,
+      requiredConfirmations: 0,
+      status: 'invalid',
+      errorCode: 'CONFIG_ERROR',
+      errorMessage: 'Blockchain configuration is temporarily unavailable. Payout verification blocked.',
     };
   }
 
-  const normalizedHash = txHash ? txHash.trim().toLowerCase() : '';
-  const normalizedRecipient = normalizeAddress(expectedRecipientAddress);
   const requiredConfirmations = options?.minConfirmations !== undefined
     ? options.minConfirmations
-    : Math.min(1, Number(settings.requiredConfirmations || 1));
+    : Number(settings.requiredConfirmations);
 
   // 1. Transaction Hash Syntax Validation
   if (!isValidTxHash(normalizedHash)) {

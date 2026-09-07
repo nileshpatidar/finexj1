@@ -208,6 +208,9 @@ export const AdminAccountingView: React.FC = () => {
     );
   }
 
+  const configuredFeePct = accounting?.withdrawalFeePercentage !== undefined ? accounting.withdrawalFeePercentage : null;
+  const demoFeeRate = configuredFeePct ?? 0;
+
   return (
     <div className="space-y-8 pb-12">
       {/* 1. SECTION HEADER */}
@@ -342,7 +345,7 @@ export const AdminAccountingView: React.FC = () => {
               <br />
               <strong className="text-slate-900 dark:text-white">FINEXJ Money:</strong> The platform earns income strictly through{' '}
               <span className="font-semibold text-blue-600 dark:text-blue-400">
-                100% of configured withdrawal fees ({accounting?.withdrawalFeePercentage || 9}%)
+                100% of configured withdrawal fees ({configuredFeePct !== null ? `${configuredFeePct}%` : '—'})
               </span>{' '}
               and dedicated Operational Fund capital injections. Referral rewards are funded separately and are <em>never</em> deducted from withdrawal fees.
             </p>
@@ -433,7 +436,7 @@ export const AdminAccountingView: React.FC = () => {
             ${accounting?.totalFeesCollected.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Configured Rate: {accounting?.withdrawalFeePercentage || 9}% per withdrawal
+            Configured Rate: {configuredFeePct !== null ? `${configuredFeePct}%` : '—'} per withdrawal
           </div>
         </div>
 
@@ -580,11 +583,11 @@ export const AdminAccountingView: React.FC = () => {
               <span>FINEXJ Earnings Today & Withdrawal Fee Accounting</span>
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Primary platform income model: {accounting?.withdrawalFeePercentage || 9}% retained withdrawal fees
+              Primary platform income model: {configuredFeePct !== null ? `${configuredFeePct}%` : '—'} retained withdrawal fees
             </p>
           </div>
           <div className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-semibold">
-            Fee Setting: {accounting?.withdrawalFeePercentage || 9.0}%
+            Fee Setting: {configuredFeePct !== null ? `${configuredFeePct.toFixed(1)}%` : '—'}
           </div>
         </div>
 
@@ -599,12 +602,12 @@ export const AdminAccountingView: React.FC = () => {
                 <span className="font-bold text-slate-900 dark:text-white">$1,000.00 USDT</span>
               </div>
               <div className="flex justify-between text-amber-600 dark:text-amber-400">
-                <span>Fee Deducted ({accounting?.withdrawalFeePercentage || 9}%):</span>
-                <span className="font-bold">-${((1000 * (accounting?.withdrawalFeePercentage || 9)) / 100).toFixed(2)} USDT</span>
+                <span>Fee Deducted ({configuredFeePct !== null ? `${configuredFeePct}%` : '—'}):</span>
+                <span className="font-bold">-${((1000 * demoFeeRate) / 100).toFixed(2)} USDT</span>
               </div>
               <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
                 <span>FINEXJ Retained Fee Income:</span>
-                <span className="font-bold">+${((1000 * (accounting?.withdrawalFeePercentage || 9)) / 100).toFixed(2)} USDT</span>
+                <span className="font-bold">+${((1000 * demoFeeRate) / 100).toFixed(2)} USDT</span>
               </div>
               <div className="flex justify-between text-slate-400">
                 <span>Referral Distribution from Fee:</span>
@@ -612,7 +615,7 @@ export const AdminAccountingView: React.FC = () => {
               </div>
               <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 flex justify-between font-bold text-slate-900 dark:text-white">
                 <span>Net Payout Sent to User Wallet:</span>
-                <span>${(1000 - (1000 * (accounting?.withdrawalFeePercentage || 9)) / 100).toFixed(2)} USDT</span>
+                <span>${(1000 - (1000 * demoFeeRate) / 100).toFixed(2)} USDT</span>
               </div>
             </div>
           </div>
