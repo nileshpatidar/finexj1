@@ -117,7 +117,20 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  getEarnings: () => request<{ earnings: EarningItem[]; totalEarnings: number }>('/api/user/earnings'),
+  getEarnings: (params?: { page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.page !== undefined) query.set('page', String(params.page));
+    if (params?.pageSize !== undefined) query.set('pageSize', String(params.pageSize));
+    const qs = query.toString();
+    return request<{
+      earnings: EarningItem[];
+      totalEarnings: number;
+      page: number;
+      pageSize: number;
+      hasMore: boolean;
+      totalCount?: number;
+    }>(`/api/user/earnings${qs ? `?${qs}` : ''}`);
+  },
 
   getWithdrawals: () => request<{ withdrawals: WithdrawalItem[]; balance: UserBalanceSummary }>('/api/user/withdrawals'),
 

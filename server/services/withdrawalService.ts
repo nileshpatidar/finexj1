@@ -349,7 +349,7 @@ export async function updateWithdrawalStatusAsync(
       if (existingDeposit) {
         return {
           success: false,
-          error: `Transaction hash ${normalizedTxHash} has already been used for deposit ${existingDeposit.reference || existingDeposit.id}.`,
+          error: `Transaction hash ${normalizedTxHash} has already been used for deposit #${existingDeposit.id}.`,
         };
       }
 

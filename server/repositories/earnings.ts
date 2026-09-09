@@ -20,7 +20,23 @@ export function mapDbEarningToEarning(e: any): EarningEntry {
   };
 }
 
-export async function getEarningsByUserId(userId: string): Promise<EarningEntry[]> {
+export interface GetEarningsOptions {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PaginatedEarningsResult {
+  earnings: EarningEntry[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  totalCount: number;
+}
+
+export async function getEarningsByUserId(
+  userId: string,
+  options?: GetEarningsOptions
+): Promise<EarningEntry[]> {
   const supabase = getServerSupabase();
   let query = supabase.from('earnings').select('*');
   if (!isNaN(Number(userId))) {
@@ -29,18 +45,116 @@ export async function getEarningsByUserId(userId: string): Promise<EarningEntry[
     query = query.eq('user_id', userId);
   }
 
-  // Financial ledger must display the newest performance date first.
-  // created_at is used only as a deterministic tie-breaker when dates match.
-  const { data, error } = await query
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false });
+  // Authoritative Database-Level Ordering: latest performance_date first
+  query = query.order('performance_date', { ascending: false });
+
+  if (options && options.pageSize !== undefined) {
+    const page = Math.max(0, options.page ?? 0);
+    const pageSize = Math.max(1, options.pageSize);
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+    query = query.range(from, to);
+  }
+
+  let { data, error } = await query;
+
+  if (error && error.message?.includes('column')) {
+    // Isolated fallback: only if performance_date is missing from legacy schema
+    let fallbackQuery = supabase.from('earnings').select('*');
+    if (!isNaN(Number(userId))) {
+      fallbackQuery = fallbackQuery.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      fallbackQuery = fallbackQuery.eq('user_id', userId);
+    }
+    fallbackQuery = fallbackQuery.order('date', { ascending: false });
+    if (options && options.pageSize !== undefined) {
+      const page = Math.max(0, options.page ?? 0);
+      const pageSize = Math.max(1, options.pageSize);
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      fallbackQuery = fallbackQuery.range(from, to);
+    }
+    const fallbackRes = await fallbackQuery;
+    data = fallbackRes.data;
+    error = fallbackRes.error;
+  }
 
   if (error) {
     console.error(`[Supabase Error] getEarningsByUserId(${userId}):`, error.message);
     return [];
   }
 
-  return (data || []).map(mapDbEarningToEarning);
+  // Return mapped database records directly with ZERO redundant client-side sorting
+  const mapped = (data || []).map(mapDbEarningToEarning);
+  return mapped;
+}
+
+export async function getPaginatedEarningsByUserId(
+  userId: string,
+  options?: GetEarningsOptions
+): Promise<PaginatedEarningsResult> {
+  const page = Math.max(0, options?.page ?? 0);
+  const pageSize = Math.max(1, options?.pageSize ?? 30);
+  const from = page * pageSize;
+  const to = from + pageSize - 1;
+
+  const supabase = getServerSupabase();
+  let query = supabase
+    .from('earnings')
+    .select('*', { count: 'exact' });
+
+  if (!isNaN(Number(userId))) {
+    query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+  } else {
+    query = query.eq('user_id', userId);
+  }
+
+  let { data, error, count } = await query
+    .order('performance_date', { ascending: false })
+    .range(from, to);
+
+  if (error && error.message?.includes('column')) {
+    // Isolated fallback: only if performance_date is missing from legacy schema
+    let fallbackQuery = supabase
+      .from('earnings')
+      .select('*', { count: 'exact' });
+
+    if (!isNaN(Number(userId))) {
+      fallbackQuery = fallbackQuery.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      fallbackQuery = fallbackQuery.eq('user_id', userId);
+    }
+
+    const fallbackRes = await fallbackQuery
+      .order('date', { ascending: false })
+      .range(from, to);
+
+    data = fallbackRes.data;
+    error = fallbackRes.error;
+    count = fallbackRes.count;
+  }
+
+  if (error && error.message?.includes('Requested range not satisfiable')) {
+    return { earnings: [], page, pageSize, hasMore: false, totalCount: count ?? 0 };
+  }
+
+  if (error) {
+    console.error(`[Supabase Error] getPaginatedEarningsByUserId(${userId}):`, error.message);
+    return { earnings: [], page, pageSize, hasMore: false, totalCount: 0 };
+  }
+
+  // Map database response directly without client-side array re-sorting
+  const mapped = (data || []).map(mapDbEarningToEarning);
+  const totalCount = count ?? 0;
+  const hasMore = (from + mapped.length) < totalCount;
+
+  return {
+    earnings: mapped,
+    page,
+    pageSize,
+    hasMore,
+    totalCount,
+  };
 }
 
 export async function createEarning(entry: Partial<EarningEntry>): Promise<EarningEntry> {
@@ -155,14 +269,42 @@ export async function createEarningsBatch(entries: Partial<EarningEntry>[]): Pro
   return results;
 }
 
-export async function getAllEarnings(): Promise<EarningEntry[]> {
+export async function getAllEarnings(options?: GetEarningsOptions): Promise<EarningEntry[]> {
   try {
     const supabase = getServerSupabase();
-    const { data, error } = await supabase
+    let query = supabase
       .from('earnings')
       .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
+      .order('performance_date', { ascending: false });
+
+    if (options && options.pageSize !== undefined) {
+      const page = Math.max(0, options.page ?? 0);
+      const pageSize = Math.max(1, options.pageSize);
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+    }
+
+    let { data, error } = await query;
+
+    if (error && error.message?.includes('column')) {
+      let fallbackQuery = supabase
+        .from('earnings')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (options && options.pageSize !== undefined) {
+        const page = Math.max(0, options.page ?? 0);
+        const pageSize = Math.max(1, options.pageSize);
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        fallbackQuery = fallbackQuery.range(from, to);
+      }
+
+      const fallback = await fallbackQuery;
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (!error && data && data.length > 0) {
       return data.map(mapDbEarningToEarning);
@@ -175,12 +317,12 @@ export async function getAllEarnings(): Promise<EarningEntry[]> {
     const { users } = await getAllProfiles({ status: 'active', role: 'user' });
     const allEarnings: EarningEntry[] = [];
     for (const u of users) {
-      const uEarnings = await getEarningsByUserId(u.id);
+      const uEarnings = await getEarningsByUserId(u.id, options);
       allEarnings.push(...uEarnings);
     }
-    allEarnings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     return allEarnings;
   } catch (err: any) {
     return [];
   }
 }
+

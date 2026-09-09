@@ -17,7 +17,7 @@ import {
 import { getProfileById, getProfileByEmail, createProfile, updateProfile, getAllProfiles } from './repositories/profiles';
 import { getDepositsByUserId, getAllDeposits, getDepositById } from './repositories/deposits';
 import { getWithdrawalsByUserId, getAllWithdrawals, getWithdrawalById } from './repositories/withdrawals';
-import { getEarningsByUserId, getAllEarnings } from './repositories/earnings';
+import { getEarningsByUserId, getAllEarnings, getPaginatedEarningsByUserId } from './repositories/earnings';
 import { getDailyPerformances, isValidDateString } from './repositories/performances';
 import { getLedgerByUserId, getAllLedger, createLedgerEntry } from './repositories/ledger';
 import { getSettings, updateSettings } from './repositories/settings';
@@ -967,9 +967,20 @@ app.post(['/api/tests/run', '/tests/run'], (req, res, next) => {
 app.get(['/api/user/earnings', '/user/earnings'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const earnings = await getEarningsByUserId(user.id);
+    const page = Math.max(0, parseInt(req.query.page as string, 10) || 0);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string, 10) || 30));
+
+    const result = await getPaginatedEarningsByUserId(user.id, { page, pageSize });
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ earnings, totalEarnings: balance.totalEarnings });
+
+    res.json({
+      earnings: result.earnings,
+      totalEarnings: balance.totalEarnings,
+      page: result.page,
+      pageSize: result.pageSize,
+      hasMore: result.hasMore,
+      totalCount: result.totalCount,
+    });
   } catch (err) {
     next(err);
   }

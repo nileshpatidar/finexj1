@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../services/api';
 import { EarningItem } from '../types';
 import { InvestmentPlanSection } from './InvestmentPlanSection';
@@ -7,28 +7,112 @@ import {
   TrendingUp,
   ShieldCheck,
   HelpCircle,
+  Loader2,
 } from 'lucide-react';
 
 export const EarningsView: React.FC = () => {
   const [earnings, setEarnings] = useState<EarningItem[]>([]);
   const [totalEarnings, setTotalEarnings] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [page, setPage] = useState<number>(0);
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
 
+  // Sentinel reference for infinite scroll
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Refs to prevent duplicate fetches or stale state in IntersectionObserver
+  const isLoadingRef = useRef(isLoading);
+  const isLoadingMoreRef = useRef(isLoadingMore);
+  const hasMoreRef = useRef(hasMore);
+  const pageRef = useRef(page);
+
+  isLoadingRef.current = isLoading;
+  isLoadingMoreRef.current = isLoadingMore;
+  hasMoreRef.current = hasMore;
+  pageRef.current = page;
+
+  // Initial load: 30 latest records
   useEffect(() => {
-    const loadEarnings = async () => {
+    let isMounted = true;
+    const loadInitial = async () => {
       try {
-        const res = await api.getEarnings();
-        setEarnings(res.earnings || []);
-        setTotalEarnings(res.totalEarnings || 0);
+        setIsLoading(true);
+        const res = await api.getEarnings({ page: 0, pageSize: 30 });
+        if (isMounted) {
+          setEarnings(res.earnings || []);
+          setTotalEarnings(res.totalEarnings || 0);
+          setTotalCount(res.totalCount ?? res.earnings?.length ?? 0);
+          setPage(0);
+          setHasMore(Boolean(res.hasMore));
+        }
       } catch (err) {
         console.warn('Failed to load earnings:', err);
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
-    loadEarnings();
+    loadInitial();
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  // Progressive loading of older records (page + 1)
+  const loadMore = useCallback(async () => {
+    if (isLoadingRef.current || isLoadingMoreRef.current || !hasMoreRef.current) {
+      return;
+    }
+    const nextPage = pageRef.current + 1;
+    setIsLoadingMore(true);
+    try {
+      const res = await api.getEarnings({ page: nextPage, pageSize: 30 });
+      const newItems = res.earnings || [];
+      if (newItems.length > 0) {
+        // Append older records after existing records with ZERO re-sorting
+        // (API already returns latest -> oldest chronologically)
+        setEarnings(prev => {
+          const seen = new Set(prev.map(e => e.id));
+          const fresh = newItems.filter(e => !seen.has(e.id));
+          return [...prev, ...fresh];
+        });
+        setPage(nextPage);
+      }
+      setHasMore(Boolean(res.hasMore));
+      if (res.totalCount !== undefined) {
+        setTotalCount(res.totalCount);
+      }
+    } catch (err) {
+      console.warn('Failed to load older earnings:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, []);
+
+  // IntersectionObserver to auto-request older records when scrolling near the bottom
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        const [entry] = entries;
+        if (entry.isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: '250px' }
+    );
+
+    observer.observe(sentinel);
+    return () => {
+      observer.disconnect();
+    };
+  }, [loadMore]);
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-24">
@@ -85,7 +169,7 @@ export const EarningsView: React.FC = () => {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-            Earnings Ledger ({earnings.length} records)
+            Earnings Ledger ({earnings.length}{totalCount && totalCount > earnings.length ? ` of ${totalCount}` : ''} records)
           </h2>
         </div>
 
@@ -208,6 +292,36 @@ export const EarningsView: React.FC = () => {
               );
             })}
           </div>
+        )}
+
+        {/* Infinite scroll sentinel */}
+        <div ref={sentinelRef} className="h-1 w-full" />
+
+        {/* Loading more indicator */}
+        {isLoadingMore && (
+          <div className="py-4 flex items-center justify-center space-x-2 text-xs text-slate-500 dark:text-slate-400">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+            <span>Loading older earnings records...</span>
+          </div>
+        )}
+
+        {/* Manual load more button as progressive fallback */}
+        {hasMore && !isLoadingMore && (
+          <div className="text-center pt-2">
+            <button
+              onClick={loadMore}
+              className="px-4 py-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-xl border border-blue-200 dark:border-blue-800/60 transition cursor-pointer"
+            >
+              Load Older Records
+            </button>
+          </div>
+        )}
+
+        {/* End of ledger notice */}
+        {!hasMore && !isLoading && earnings.length > 0 && (
+          <p className="text-center text-[11px] text-slate-400 dark:text-slate-500 py-3">
+            All {earnings.length} performance records loaded.
+          </p>
         )}
       </div>
 
