@@ -431,6 +431,7 @@ export interface LedgerItem extends Omit<Partial<UserTransaction>, 'type'> {
     | 'withdrawal_fee'
     | 'withdrawal_paid'
     | 'withdrawal_rejected'
+    | 'withdrawal_cancelled'
     | 'admin_adjustment'
     | 'reversal';
   amount: number;

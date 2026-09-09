@@ -26,7 +26,7 @@ import { getSystemLogs } from './repositories/systemLogs';
 import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
 import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync, checkWithdrawalImpactAsync } from './services/balanceService';
 import { processDepositAsync, updateDepositStatusAsync, verifyDepositOnChainAsync } from './services/depositService';
-import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync } from './services/withdrawalService';
+import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync, cancelWithdrawalAsync } from './services/withdrawalService';
 import {
   bindReferralAsync,
   getReferralSummaryAsync,
@@ -1133,6 +1133,31 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
   }
 });
 
+// User Cancel Pending Withdrawal Request
+app.post(['/api/user/withdrawals/:id/cancel', '/user/withdrawals/:id/cancel'], authMiddleware, financialRateLimiter, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const result = await cancelWithdrawalAsync(
+      user.id,
+      id,
+      typeof reason === 'string' ? reason.trim() : undefined,
+      false
+    );
+
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to cancel withdrawal request.');
+    }
+
+    const balance = await calculateUserBalanceAsync(user.id);
+    res.json({ success: true, withdrawal: result.withdrawal, balance });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // User Voluntary Fund Lock
 app.post(['/api/user/lock-funds', '/user/lock-funds'], authMiddleware, financialRateLimiter, async (req, res, next) => {
   try {
@@ -2176,10 +2201,11 @@ app.post(['/api/admin/withdrawals/:id/action', '/admin/withdrawals/:id/action'],
       (action === 'reject' || action === 'rejected') ? 'rejected' :
       (action === 'pay' || action === 'paid' || action === 'completed') ? 'paid' :
       (action === 'process' || action === 'processing') ? 'processing' :
+      (action === 'cancel' || action === 'cancelled') ? 'cancelled' :
       action;
 
-    if (!['approved', 'rejected', 'paid', 'processing'].includes(normalizedAction)) {
-      throw Errors.validation('Invalid withdrawal action. Must be paid, approved, processing, or rejected.');
+    if (!['approved', 'rejected', 'paid', 'processing', 'cancelled'].includes(normalizedAction)) {
+      throw Errors.validation('Invalid withdrawal action. Must be paid, approved, processing, rejected, or cancelled.');
     }
 
     const note = adminNotes || reason;

@@ -767,9 +767,9 @@ async function getSettings() {
   if (cachedSettings && now < cacheExpiryTimestamp) {
     return cachedSettings;
   }
-  const isDevFallbackAllowed = !config.isProduction && (process.env.NODE_ENV === "test" || process.env.ALLOW_DEV_CONFIG_FALLBACK === "true");
+  const isOfflineTestFallbackAllowed = !isServerSupabaseReady() && !config.isProduction && (process.env.NODE_ENV === "test" || process.env.ALLOW_DEV_CONFIG_FALLBACK === "true");
   if (!isServerSupabaseReady()) {
-    if (isDevFallbackAllowed) {
+    if (isOfflineTestFallbackAllowed) {
       logger.warn("DEV_CONFIG_FALLBACK", "Supabase not ready in test/dev environment, using development default settings.");
       return { ...developmentDefaultSettings };
     }
@@ -781,16 +781,10 @@ async function getSettings() {
     const { data, error } = await supabase.from("system_settings").select("*");
     if (error) {
       logger.error("CONFIG_AUTHORITY_QUERY_ERROR", `Failed to query system_settings: ${error.message}`);
-      if (isDevFallbackAllowed) {
-        return { ...developmentDefaultSettings };
-      }
       throw new ConfigurationError(`Database error loading system settings: ${error.message}`);
     }
     if (!data || data.length === 0) {
       logger.error("CONFIG_AUTHORITY_EMPTY", "system_settings table is empty in Supabase.");
-      if (isDevFallbackAllowed) {
-        return { ...developmentDefaultSettings };
-      }
       throw new ConfigurationError("System settings table is empty. Authoritative configuration is missing.");
     }
     const rawMap = {};
@@ -807,10 +801,6 @@ async function getSettings() {
       logger.error("CONFIG_AUTHORITY_VALIDATION_FAILURE", `System settings failed validation: ${errorSummary}`, {
         metadata: { errors: validation.errors }
       });
-      if (isDevFallbackAllowed) {
-        logger.warn("DEV_CONFIG_FALLBACK", `Validation failed (${errorSummary}), using development defaults in test mode.`);
-        return { ...developmentDefaultSettings };
-      }
       throw new ConfigurationError(`System configuration validation failed: ${errorSummary}`);
     }
     const authoritative = validation.validatedSettings;
@@ -822,9 +812,6 @@ async function getSettings() {
       throw err;
     }
     logger.error("CONFIG_AUTHORITY_EXCEPTION", `Unexpected error in getSettings: ${err?.message || err}`);
-    if (isDevFallbackAllowed) {
-      return { ...developmentDefaultSettings };
-    }
     throw new ConfigurationError("Financial configuration is temporarily unavailable. Please try again later.");
   }
 }
@@ -1271,6 +1258,22 @@ async function confirmDepositAtomic(input) {
   } catch (rpcErr) {
     console.warn("[Deposit Atomic RPC Notice]: RPC call fell back to direct transaction handler:", rpcErr?.message);
   }
+  let settings;
+  try {
+    settings = await getSettings();
+  } catch (err) {
+    return {
+      success: false,
+      error: "Financial configuration error: system settings unavailable. Deposit confirmation aborted."
+    };
+  }
+  const minDeposit = Number(settings.minimumDepositAmount);
+  if (isNaN(minDeposit) || minDeposit <= 0) {
+    return {
+      success: false,
+      error: "Financial configuration error: minimumDepositAmount is invalid or missing in system settings. Deposit confirmation aborted."
+    };
+  }
   const existing = await getDepositById(String(numericDepId));
   if (!existing) {
     return { success: false, error: `Deposit record #${numericDepId} not found in database.` };
@@ -1663,29 +1666,7 @@ function mapDbEarningToEarning(e) {
     note: e.note || void 0
   };
 }
-function sortEarningsLatestFirst(entries) {
-  return [...entries].sort((a, b) => {
-    const dateA = (a.performanceDate || "").substring(0, 10);
-    const dateB = (b.performanceDate || "").substring(0, 10);
-    if (dateA && dateB && dateA !== dateB) {
-      return dateB.localeCompare(dateA);
-    }
-    if (dateA && !dateB) return -1;
-    if (!dateA && dateB) return 1;
-    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    if (!isNaN(timeA) && !isNaN(timeB) && timeA !== timeB) {
-      return timeB - timeA;
-    }
-    const idA = Number(a.id);
-    const idB = Number(b.id);
-    if (!isNaN(idA) && !isNaN(idB) && idA !== idB) {
-      return idB - idA;
-    }
-    return 0;
-  });
-}
-async function getEarningsByUserId(userId) {
+async function getEarningsByUserId(userId, options) {
   const supabase = getServerSupabase();
   let query = supabase.from("earnings").select("*");
   if (!isNaN(Number(userId))) {
@@ -1693,11 +1674,31 @@ async function getEarningsByUserId(userId) {
   } else {
     query = query.eq("user_id", userId);
   }
-  let { data, error } = await query.order("date", { ascending: false }).order("created_at", { ascending: false });
+  query = query.order("performance_date", { ascending: false });
+  if (options && options.pageSize !== void 0) {
+    const page = Math.max(0, options.page ?? 0);
+    const pageSize = Math.max(1, options.pageSize);
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+    query = query.range(from, to);
+  }
+  let { data, error } = await query;
   if (error && error.message?.includes("column")) {
-    const fallbackQuery = supabase.from("earnings").select("*");
-    const filteredQuery = !isNaN(Number(userId)) ? fallbackQuery.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`) : fallbackQuery.eq("user_id", userId);
-    const fallbackRes = await filteredQuery.order("performance_date", { ascending: false }).order("created_at", { ascending: false });
+    let fallbackQuery = supabase.from("earnings").select("*");
+    if (!isNaN(Number(userId))) {
+      fallbackQuery = fallbackQuery.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      fallbackQuery = fallbackQuery.eq("user_id", userId);
+    }
+    fallbackQuery = fallbackQuery.order("date", { ascending: false });
+    if (options && options.pageSize !== void 0) {
+      const page = Math.max(0, options.page ?? 0);
+      const pageSize = Math.max(1, options.pageSize);
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      fallbackQuery = fallbackQuery.range(from, to);
+    }
+    const fallbackRes = await fallbackQuery;
     data = fallbackRes.data;
     error = fallbackRes.error;
   }
@@ -1706,7 +1707,50 @@ async function getEarningsByUserId(userId) {
     return [];
   }
   const mapped = (data || []).map(mapDbEarningToEarning);
-  return sortEarningsLatestFirst(mapped);
+  return mapped;
+}
+async function getPaginatedEarningsByUserId(userId, options) {
+  const page = Math.max(0, options?.page ?? 0);
+  const pageSize = Math.max(1, options?.pageSize ?? 30);
+  const from = page * pageSize;
+  const to = from + pageSize - 1;
+  const supabase = getServerSupabase();
+  let query = supabase.from("earnings").select("*", { count: "exact" });
+  if (!isNaN(Number(userId))) {
+    query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+  } else {
+    query = query.eq("user_id", userId);
+  }
+  let { data, error, count } = await query.order("performance_date", { ascending: false }).range(from, to);
+  if (error && error.message?.includes("column")) {
+    let fallbackQuery = supabase.from("earnings").select("*", { count: "exact" });
+    if (!isNaN(Number(userId))) {
+      fallbackQuery = fallbackQuery.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      fallbackQuery = fallbackQuery.eq("user_id", userId);
+    }
+    const fallbackRes = await fallbackQuery.order("date", { ascending: false }).range(from, to);
+    data = fallbackRes.data;
+    error = fallbackRes.error;
+    count = fallbackRes.count;
+  }
+  if (error && error.message?.includes("Requested range not satisfiable")) {
+    return { earnings: [], page, pageSize, hasMore: false, totalCount: count ?? 0 };
+  }
+  if (error) {
+    console.error(`[Supabase Error] getPaginatedEarningsByUserId(${userId}):`, error.message);
+    return { earnings: [], page, pageSize, hasMore: false, totalCount: 0 };
+  }
+  const mapped = (data || []).map(mapDbEarningToEarning);
+  const totalCount = count ?? 0;
+  const hasMore = from + mapped.length < totalCount;
+  return {
+    earnings: mapped,
+    page,
+    pageSize,
+    hasMore,
+    totalCount
+  };
 }
 async function createEarning(entry) {
   const targetDate = entry.performanceDate || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
@@ -1784,17 +1828,33 @@ async function createEarningsBatch(entries) {
   }
   return results;
 }
-async function getAllEarnings() {
+async function getAllEarnings(options) {
   try {
     const supabase = getServerSupabase();
-    let { data, error } = await supabase.from("earnings").select("*").order("date", { ascending: false }).order("created_at", { ascending: false }).limit(500);
+    let query = supabase.from("earnings").select("*").order("performance_date", { ascending: false });
+    if (options && options.pageSize !== void 0) {
+      const page = Math.max(0, options.page ?? 0);
+      const pageSize = Math.max(1, options.pageSize);
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+    }
+    let { data, error } = await query;
     if (error && error.message?.includes("column")) {
-      const fallback = await supabase.from("earnings").select("*").order("performance_date", { ascending: false }).order("created_at", { ascending: false }).limit(500);
+      let fallbackQuery = supabase.from("earnings").select("*").order("date", { ascending: false });
+      if (options && options.pageSize !== void 0) {
+        const page = Math.max(0, options.page ?? 0);
+        const pageSize = Math.max(1, options.pageSize);
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        fallbackQuery = fallbackQuery.range(from, to);
+      }
+      const fallback = await fallbackQuery;
       data = fallback.data;
       error = fallback.error;
     }
     if (!error && data && data.length > 0) {
-      return sortEarningsLatestFirst(data.map(mapDbEarningToEarning));
+      return data.map(mapDbEarningToEarning);
     }
   } catch (err) {
   }
@@ -1802,10 +1862,10 @@ async function getAllEarnings() {
     const { users } = await getAllProfiles({ status: "active", role: "user" });
     const allEarnings = [];
     for (const u of users) {
-      const uEarnings = await getEarningsByUserId(u.id);
+      const uEarnings = await getEarningsByUserId(u.id, options);
       allEarnings.push(...uEarnings);
     }
-    return sortEarningsLatestFirst(allEarnings);
+    return allEarnings;
   } catch (err) {
     return [];
   }
@@ -1818,6 +1878,14 @@ var init_earnings = __esm({
 });
 
 // server/repositories/ledger.ts
+var ledger_exports = {};
+__export(ledger_exports, {
+  createLedgerEntry: () => createLedgerEntry,
+  deleteLedgerByReferenceAndTypes: () => deleteLedgerByReferenceAndTypes,
+  getAllLedger: () => getAllLedger,
+  getLedgerByUserId: () => getLedgerByUserId,
+  mapDbLedgerToLedger: () => mapDbLedgerToLedger
+});
 function mapDbLedgerToLedger(l) {
   return {
     id: String(l.id),
@@ -2338,6 +2406,12 @@ var init_referrals = __esm({
 });
 
 // server/services/balanceService.ts
+var balanceService_exports = {};
+__export(balanceService_exports, {
+  adjustUserBalanceAtomicAsync: () => adjustUserBalanceAtomicAsync,
+  calculateUserBalanceAsync: () => calculateUserBalanceAsync,
+  checkWithdrawalImpactAsync: () => checkWithdrawalImpactAsync
+});
 import crypto3 from "crypto";
 async function calculateUserBalanceAsync(userId) {
   const user = await getProfileById(userId);
@@ -2374,14 +2448,13 @@ async function calculateUserBalanceAsync(userId) {
   const depositLockMs = lockDays * 24 * 60 * 60 * 1e3;
   let depositLockedAmount = 0;
   for (const dep of confirmedDeposits) {
-    if (dep.confirmedAt) {
-      const confirmedDate = new Date(dep.confirmedAt).getTime();
-      const lockExpiry = confirmedDate + depositLockMs;
-      if (now.getTime() < lockExpiry) {
-        depositLockedAmount += dep.amount;
-      }
+    const depositDate = dep.confirmedAt ? new Date(dep.confirmedAt).getTime() : new Date(dep.createdAt).getTime();
+    const lockExpiry = dep.depositLockEndDate ? new Date(dep.depositLockEndDate).getTime() : depositDate + depositLockMs;
+    if (now.getTime() < lockExpiry) {
+      depositLockedAmount += dep.amount;
     }
   }
+  const depositLockedPrincipal = Math.max(0, Math.min(activeCompoundingPrincipal, depositLockedAmount));
   let isFundLocked = false;
   let fundLockRemainingDays = 0;
   let fundLockRemainingHours = 0;
@@ -2403,7 +2476,7 @@ async function calculateUserBalanceAsync(userId) {
   const is30DaysOld = accountAgeMs >= requiredAgeMs;
   const accountAgeDays = Number((accountAgeMs / (24 * 60 * 60 * 1e3)).toFixed(2));
   const withdrawalEligibleDate = new Date(createdAtTime + requiredAgeMs).toISOString();
-  let lockedBalance = depositLockedAmount;
+  let lockedBalance = depositLockedPrincipal;
   let eligibleForWithdrawal = 0;
   let canWithdraw = true;
   let withdrawalRestrictionReason = void 0;
@@ -2413,20 +2486,29 @@ async function calculateUserBalanceAsync(userId) {
   } else if (availableBalance <= 0) {
     canWithdraw = false;
     withdrawalRestrictionReason = "Insufficient available balance.";
-  } else {
-    const nonReferralBalance = Math.max(0, availableBalance - referralEarnings);
-    const nonReferralLocked = Math.min(nonReferralBalance, depositLockedAmount);
-    eligibleForWithdrawal = Math.max(0, Number((availableBalance - nonReferralLocked).toFixed(4)));
-    if (!is30DaysOld && eligibleForWithdrawal <= 0 && referralEarnings <= 0) {
+  } else if (!is30DaysOld) {
+    lockedBalance = Math.min(availableBalance, Math.max(depositLockedPrincipal, availableBalance - referralEarnings));
+    eligibleForWithdrawal = Math.max(0, Number((availableBalance - lockedBalance).toFixed(4)));
+    if (eligibleForWithdrawal <= 0) {
       canWithdraw = false;
       const remainingMs = Math.max(0, requiredAgeMs - accountAgeMs);
       const remDays = Math.floor(remainingMs / (24 * 60 * 60 * 1e3));
       const remHours = Math.floor(remainingMs % (24 * 60 * 60 * 1e3) / (60 * 60 * 1e3));
-      withdrawalRestrictionReason = `Account must complete 30 full days before principal withdrawal. Remaining: ${remDays}d ${remHours}h.`;
-    } else if (isFundLocked && eligibleForWithdrawal <= 0 && referralEarnings <= 0) {
+      withdrawalRestrictionReason = `Account must complete ${ageDays} full days before principal withdrawal. Remaining: ${remDays}d ${remHours}h.`;
+    }
+  } else if (isFundLocked) {
+    lockedBalance = Math.max(0, availableBalance - referralEarnings);
+    eligibleForWithdrawal = Math.max(0, Number((availableBalance - lockedBalance).toFixed(4)));
+    if (eligibleForWithdrawal <= 0) {
       canWithdraw = false;
-      lockedBalance = availableBalance;
       withdrawalRestrictionReason = `30-Day Fund Lock active. Unlocks on ${new Date(user.fundLockUntil).toLocaleDateString()} (${fundLockRemainingDays}d ${fundLockRemainingHours}h remaining).`;
+    }
+  } else {
+    lockedBalance = Math.min(availableBalance, depositLockedPrincipal);
+    eligibleForWithdrawal = Math.max(0, Number((availableBalance - lockedBalance).toFixed(4)));
+    if (eligibleForWithdrawal <= 0) {
+      canWithdraw = false;
+      withdrawalRestrictionReason = "Your deposited funds are currently locked. Withdrawals are available only after the applicable deposit lock period has ended.";
     }
   }
   return {
@@ -2435,7 +2517,7 @@ async function calculateUserBalanceAsync(userId) {
     totalEarnings: Number(totalEarnings.toFixed(4)),
     referralEarnings: Number(referralEarnings.toFixed(4)),
     activeCompoundingPrincipal,
-    depositLockedPrincipal: Number(depositLockedAmount.toFixed(2)),
+    depositLockedPrincipal: Number(depositLockedPrincipal.toFixed(2)),
     totalWithdrawn: Number(totalWithdrawn.toFixed(2)),
     totalFeesPaid: Number(totalFeesPaid.toFixed(2)),
     totalPendingWithdrawals: Number(totalPendingWithdrawals.toFixed(2)),
@@ -2568,29 +2650,55 @@ async function checkWithdrawalImpactAsync(userId, requestedAmount) {
       projectedRemainingPrincipal: balance.activeCompoundingPrincipal
     };
   }
+  if (requestedAmount > balance.eligibleForWithdrawal) {
+    let lockError = "Your deposited funds are currently locked. Withdrawals are available only after the applicable deposit lock period has ended.";
+    if (!balance.is30DaysOld && requestedAmount > balance.referralEarnings) {
+      lockError = balance.withdrawalRestrictionReason || "Account must complete 30 full days before principal withdrawal.";
+    } else if (balance.isFundLocked && requestedAmount > balance.referralEarnings) {
+      lockError = balance.withdrawalRestrictionReason || "Your funds are currently locked under an active 30-day fund lock.";
+    }
+    return {
+      canWithdraw: false,
+      error: lockError,
+      availableBalance: balance.availableBalance,
+      referralEarnings: balance.referralEarnings,
+      activeCompoundingPrincipal: balance.activeCompoundingPrincipal,
+      depositLockedPrincipal: balance.depositLockedPrincipal,
+      isFundLocked: balance.isFundLocked,
+      is30DaysOld: balance.is30DaysOld,
+      requestedAmount,
+      feePercentage,
+      feeAmount: 0,
+      netAmount: 0,
+      isReferralOnly: false,
+      touchesProtectedFund: false,
+      requiresLockBreakConfirmation: false,
+      requiresMinimumBreakConfirmation: false,
+      projectedRemainingPrincipal: balance.activeCompoundingPrincipal
+    };
+  }
   const feeAmount = Number((requestedAmount * (feePercentage / 100)).toFixed(4));
   const netAmount = Number((requestedAmount - feeAmount).toFixed(4));
   const isReferralOnly = requestedAmount <= balance.referralEarnings;
   let touchesProtectedFund = false;
-  let requiresLockBreakConfirmation = false;
-  let lockBreakWarning = void 0;
+  let requiresCompoundingNotice = false;
+  let compoundingNoticeTitle = void 0;
+  let compoundingNoticeText = void 0;
   let requiresMinimumBreakConfirmation = false;
   let minimumBreakWarning = void 0;
   let amountFromProtected = 0;
   if (!isReferralOnly) {
     touchesProtectedFund = true;
     amountFromProtected = requestedAmount - balance.referralEarnings;
+    requiresCompoundingNotice = true;
+    compoundingNoticeTitle = "Withdrawal Notice";
+    compoundingNoticeText = "Your requested withdrawal will reduce your active compounding principal. If you withdraw funds, the withdrawn amount will no longer participate in future compounding/earning calculations according to the platform rules. Your current compounding/earning cycle may be reduced or stopped depending on the amount withdrawn.";
   }
   const projectedRemainingPrincipal = Math.max(0, Number((balance.activeCompoundingPrincipal - amountFromProtected).toFixed(4)));
   if (touchesProtectedFund) {
-    const isLockedPeriod = balance.depositLockedPrincipal > 0 || !balance.is30DaysOld || balance.isFundLocked;
-    if (isLockedPeriod) {
-      requiresLockBreakConfirmation = true;
-      lockBreakWarning = "Your principal and earnings are currently locked for the 30-day period. If you continue with this withdrawal, your current compounding/earning cycle will be broken and daily earnings will stop according to the withdrawal rules.";
-    }
     if (projectedRemainingPrincipal < minDeposit && balance.activeCompoundingPrincipal >= minDeposit) {
       requiresMinimumBreakConfirmation = true;
-      minimumBreakWarning = "Your withdrawal will reduce your eligible fund below the minimum required amount. If you continue, daily earnings/compounding will stop.";
+      minimumBreakWarning = `Your withdrawal will reduce your eligible fund below the minimum required amount ($${minDeposit} USDT). If you continue, daily earnings/compounding will stop.`;
     }
   }
   return {
@@ -2607,8 +2715,11 @@ async function checkWithdrawalImpactAsync(userId, requestedAmount) {
     netAmount,
     isReferralOnly,
     touchesProtectedFund,
-    requiresLockBreakConfirmation,
-    lockBreakWarning,
+    requiresCompoundingNotice,
+    compoundingNoticeTitle,
+    compoundingNoticeText,
+    requiresLockBreakConfirmation: false,
+    lockBreakWarning: compoundingNoticeText,
     requiresMinimumBreakConfirmation,
     minimumBreakWarning,
     projectedRemainingPrincipal,
@@ -3818,7 +3929,7 @@ async function getUserReferralSummaryAsync(userId) {
   if (!user) {
     throw new Error("User not found");
   }
-  const referralCode = user.referralCode || `FXJ-${user.id.substring(0, 6).toUpperCase()}`;
+  const referralCode = user.referralCode || "";
   const l1Referrals = await getReferralsByReferrerId(userId);
   const level1Referrals = l1Referrals.length;
   const l1UserIds = l1Referrals.map((r) => r.referredId);
@@ -4083,6 +4194,25 @@ async function processDepositAsync(input) {
       error: "Financial configuration error: minimumDepositAmount is invalid or missing in system settings."
     };
   }
+  const reqConfirmations = Number(settings.requiredConfirmations);
+  if (isNaN(reqConfirmations) || reqConfirmations < 1) {
+    return {
+      success: false,
+      error: "Financial configuration error: requiredConfirmations is invalid or missing in system settings."
+    };
+  }
+  if (!settings.bep20DepositAddress || !isValidBEP20Address(settings.bep20DepositAddress)) {
+    return {
+      success: false,
+      error: "Financial configuration error: bep20DepositAddress is invalid or missing in system settings."
+    };
+  }
+  if (!settings.usdtContractAddress || !isValidBEP20Address(settings.usdtContractAddress)) {
+    return {
+      success: false,
+      error: "Financial configuration error: usdtContractAddress is invalid or missing in system settings."
+    };
+  }
   const claimedAmount = input.amount !== void 0 && !isNaN(Number(input.amount)) ? Number(input.amount) : void 0;
   if (claimedAmount !== void 0) {
     if (claimedAmount <= 0) {
@@ -4256,8 +4386,13 @@ async function processDepositAsync(input) {
         reason: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations} confirmations.`,
         timestamp: now.toISOString()
       });
-      processReferralRewardForDepositAsync(newDeposit.id, authoritativeAmount, user.id).catch(() => {
-      });
+    }
+    if (!confirmResult.rewardsCreated || Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0) {
+      try {
+        await processReferralRewardForDepositAsync(newDeposit.id, authoritativeAmount, user.id);
+      } catch (refErr) {
+        console.warn(`[Referral Reward Warning] Failed to process referral reward for deposit #${newDeposit.id}:`, refErr?.message || refErr);
+      }
     }
     return {
       success: true,
@@ -4311,8 +4446,16 @@ async function verifyDepositOnChainAsync(depositId, actorId = "system") {
       };
     }
   } else {
-    const settings = await getSettings();
-    const reqConf = deposit.requiredConfirmations || settings.requiredConfirmations || 12;
+    let settings;
+    try {
+      settings = await getSettings();
+    } catch (err) {
+      return {
+        success: false,
+        error: "Financial configuration is temporarily unavailable. Please try again later."
+      };
+    }
+    const reqConf = deposit.requiredConfirmations || Number(settings.requiredConfirmations) || 12;
     verification = {
       isValid: true,
       amount: deposit.amount,
@@ -4361,8 +4504,13 @@ async function verifyDepositOnChainAsync(depositId, actorId = "system") {
         reason: `Re-verification confirmed ${verifiedAmount} USDT on BSC with ${verification.confirmations} confirmations.`,
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       });
-      processReferralRewardForDepositAsync(deposit.id, verifiedAmount, deposit.userId).catch(() => {
-      });
+    }
+    if (!confirmResult.rewardsCreated || Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0) {
+      try {
+        await processReferralRewardForDepositAsync(deposit.id, verifiedAmount, deposit.userId);
+      } catch (refErr) {
+        console.warn(`[Referral Reward Warning] Failed to process referral reward for deposit #${deposit.id}:`, refErr?.message || refErr);
+      }
     }
     return {
       success: true,
@@ -4434,8 +4582,13 @@ async function updateDepositStatusAsync(adminId, depositId, status, adminNotes, 
         beforeValue: { status: deposit.status },
         afterValue: { status: "confirmed", amount: deposit.amount }
       });
-      processReferralRewardForDepositAsync(deposit.id, deposit.amount, deposit.userId).catch(() => {
-      });
+    }
+    if (!confirmResult.rewardsCreated || Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0) {
+      try {
+        await processReferralRewardForDepositAsync(deposit.id, deposit.actualAmount || deposit.amount, deposit.userId);
+      } catch (refErr) {
+        console.warn(`[Referral Reward Warning] Failed to process referral reward for deposit #${deposit.id}:`, refErr?.message || refErr);
+      }
     }
     return { success: true, deposit: confirmResult.deposit };
   }
@@ -4560,6 +4713,446 @@ var init_otpService = __esm({
     otpStore = /* @__PURE__ */ new Map();
     OTP_EXPIRATION_MS = 10 * 60 * 1e3;
     MAX_ATTEMPTS = 3;
+  }
+});
+
+// server/services/withdrawalService.ts
+var withdrawalService_exports = {};
+__export(withdrawalService_exports, {
+  cancelWithdrawalAsync: () => cancelWithdrawalAsync,
+  createWithdrawalRequestAsync: () => createWithdrawalRequestAsync,
+  updateWithdrawalStatusAsync: () => updateWithdrawalStatusAsync
+});
+async function withUserWithdrawalLock(userId, fn) {
+  while (userWithdrawalLocks.has(userId)) {
+    try {
+      await userWithdrawalLocks.get(userId);
+    } catch {
+    }
+  }
+  let resolveLock;
+  const lockPromise = new Promise((resolve) => {
+    resolveLock = resolve;
+  });
+  userWithdrawalLocks.set(userId, lockPromise);
+  try {
+    return await fn();
+  } finally {
+    userWithdrawalLocks.delete(userId);
+    resolveLock();
+  }
+}
+async function createWithdrawalRequestAsync(input) {
+  return withUserWithdrawalLock(input.userId, async () => {
+    const user = await getProfileById(input.userId);
+    if (!user) {
+      return { success: false, error: "User account not found." };
+    }
+    if (user.status !== "active") {
+      return { success: false, error: `Account is currently ${user.status}. Withdrawals are disabled.` };
+    }
+    const requestedAmount = Number(input.requestedAmount);
+    if (isNaN(requestedAmount) || !isFinite(requestedAmount) || requestedAmount <= 0) {
+      return { success: false, error: "Please enter a valid withdrawal amount greater than 0 USDT." };
+    }
+    const destination = (input.destinationAddress || "").trim();
+    if (!destination || !isValidBEP20Address(destination)) {
+      return {
+        success: false,
+        error: "Invalid BEP-20 destination address format. Must be a 0x-prefixed 40-hex BNB Smart Chain address."
+      };
+    }
+    const isTestUser = user.isTestUser === true;
+    if (!input.otpCode || !input.otpCode.trim()) {
+      return {
+        success: false,
+        requiresOtp: true,
+        error: "Security verification code (OTP) is required to authorize this withdrawal."
+      };
+    }
+    const otpValidation = verifyWithdrawalOtp(user.id, input.otpCode.trim(), isTestUser);
+    if (!otpValidation.valid) {
+      return {
+        success: false,
+        requiresOtp: true,
+        error: otpValidation.error || "Invalid or expired security verification code."
+      };
+    }
+    checkWalletDuplication(destination, user.id, "withdrawal").catch(() => {
+    });
+    checkRapidWithdrawalCycle(user.id, requestedAmount).catch(() => {
+    });
+    const cleanIdempotencyKey = input.idempotencyKey?.trim();
+    if (cleanIdempotencyKey) {
+      const existingWd = await getWithdrawalByIdempotencyKey(cleanIdempotencyKey);
+      if (existingWd) {
+        if (existingWd.userId !== user.id) {
+          return { success: false, error: "Idempotency key conflict: key belongs to another account." };
+        }
+        if (Math.abs(existingWd.requestedAmount - requestedAmount) > 1e-4 || existingWd.destinationAddress.toLowerCase() !== destination.toLowerCase()) {
+          return { success: false, error: "Idempotency key reuse conflict: request parameters do not match original request." };
+        }
+        return { success: true, withdrawal: existingWd };
+      }
+    }
+    const impact = await checkWithdrawalImpactAsync(user.id, requestedAmount);
+    if (!impact.canWithdraw) {
+      return {
+        success: false,
+        error: impact.error || "Withdrawal exceeds available balance."
+      };
+    }
+    const confirmedCompounding = Boolean(input.confirmCompoundingImpact || input.confirmLockBreak);
+    if (impact.requiresCompoundingNotice && !confirmedCompounding) {
+      return {
+        success: false,
+        requiresConfirmation: true,
+        warningType: "COMPOUNDING_NOTICE",
+        error: impact.compoundingNoticeText
+      };
+    }
+    if (impact.requiresMinimumBreakConfirmation && input.confirmMinimumBreak !== true) {
+      return {
+        success: false,
+        requiresConfirmation: true,
+        warningType: "MINIMUM_FUND_WARNING",
+        error: impact.minimumBreakWarning
+      };
+    }
+    const feePct = impact.feePercentage;
+    const feeAmount = impact.feeAmount;
+    const netAmount = impact.netAmount;
+    const reference = "WD-" + Date.now().toString(36).toUpperCase();
+    const lockDays = 0;
+    const atomicResult = await createWithdrawalAtomic({
+      userId: user.id,
+      requestedAmount,
+      destinationAddress: destination,
+      reference,
+      idempotencyKey: cleanIdempotencyKey,
+      userNotes: input.userNotes,
+      feePercentage: feePct,
+      feeAmount,
+      netAmount,
+      fundLockDays: lockDays,
+      confirmLockBreak: Boolean(input.confirmLockBreak),
+      confirmMinimumBreak: Boolean(input.confirmMinimumBreak)
+    });
+    if (atomicResult.success && atomicResult.withdrawal) {
+      return { success: true, withdrawal: atomicResult.withdrawal };
+    }
+    if (atomicResult.requiresConfirmation) {
+      return {
+        success: false,
+        requiresConfirmation: true,
+        warningType: atomicResult.warningType,
+        error: atomicResult.error
+      };
+    }
+    if (atomicResult.error && !atomicResult.error.includes("function create_withdrawal_atomic") && !atomicResult.error.includes("does not exist")) {
+      return { success: false, error: atomicResult.error };
+    }
+    const now = /* @__PURE__ */ new Date();
+    const withdrawalId = "wd_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+    const newWithdrawal = await createWithdrawal({
+      id: withdrawalId,
+      reference,
+      userId: user.id,
+      requestedAmount,
+      feePercentage: feePct,
+      feeAmount,
+      netAmount,
+      destinationAddress: destination,
+      network: "BEP-20",
+      status: "pending",
+      createdAt: now.toISOString(),
+      userNotes: input.userNotes,
+      idempotencyKey: cleanIdempotencyKey
+    });
+    if (!newWithdrawal || !newWithdrawal.id) {
+      return {
+        success: false,
+        error: "Failed to record withdrawal in database. Please try again."
+      };
+    }
+    const updatedBalance = await calculateUserBalanceAsync(user.id);
+    await createLedgerEntry({
+      userId: user.id,
+      type: "withdrawal_request",
+      amount: -requestedAmount,
+      balanceAfter: updatedBalance.availableBalance,
+      referenceId: newWithdrawal.id,
+      description: `Withdrawal request submitted for ${requestedAmount} USDT (${feePct}% FINEXJ Fee: ${feeAmount} USDT, Net Payout: ${netAmount} USDT)`,
+      createdAt: now.toISOString(),
+      performedBy: user.id
+    });
+    await createAuditLog({
+      action: "WITHDRAWAL_REQUESTED",
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: user.id,
+      reason: `User requested withdrawal of ${requestedAmount} USDT to ${destination} (Fee: ${feeAmount} USDT)`,
+      timestamp: now.toISOString(),
+      referenceId: reference
+    });
+    return { success: true, withdrawal: newWithdrawal };
+  });
+}
+async function updateWithdrawalStatusAsync(adminId, withdrawalId, newStatus, txHash, adminNotes) {
+  try {
+    const normalizedTxHash = txHash?.trim() || void 0;
+    const withdrawal = await getWithdrawalById(withdrawalId);
+    if (!withdrawal) {
+      return { success: false, error: `Withdrawal record (${withdrawalId}) not found.` };
+    }
+    const currentStatus = withdrawal.status;
+    if (currentStatus === "paid" || currentStatus === "completed") {
+      return { success: false, error: "Cannot modify a withdrawal that is already paid and completed." };
+    }
+    if (currentStatus === "rejected") {
+      return { success: false, error: "Cannot modify a withdrawal that has already been rejected." };
+    }
+    if (currentStatus === "cancelled") {
+      return { success: false, error: "Cannot modify a cancelled withdrawal." };
+    }
+    if (newStatus === "rejected" && (!adminNotes || !adminNotes.trim())) {
+      return { success: false, error: "A specific rejection reason is required to reject a withdrawal request." };
+    }
+    const validNextStates = {
+      pending: ["approved", "processing", "paid", "rejected", "under_review", "cancelled"],
+      under_review: ["approved", "processing", "paid", "rejected", "cancelled"],
+      approved: ["processing", "paid", "rejected", "cancelled"],
+      processing: ["paid", "rejected", "cancelled"]
+    };
+    const allowed = validNextStates[currentStatus] || [];
+    if (!allowed.includes(newStatus)) {
+      return {
+        success: false,
+        error: `Invalid status transition from '${currentStatus}' to '${newStatus}'.`
+      };
+    }
+    const targetUser = await getProfileById(withdrawal.userId);
+    const isTestUser = targetUser?.isTestUser === true;
+    if (newStatus === "paid") {
+      if (!normalizedTxHash) {
+        return {
+          success: false,
+          error: "BNB Smart Chain Payout Transaction Hash (TxID) is required to mark withdrawal as paid."
+        };
+      }
+      if (!isValidTxHash(normalizedTxHash)) {
+        return {
+          success: false,
+          error: "Invalid BEP-20 payout transaction hash format. Must be a 64-hex char 0x-prefixed hash."
+        };
+      }
+      const supabase = getServerSupabase();
+      const { data: duplicateWds } = await supabase.from("withdrawals").select("id, reference").neq("id", withdrawal.id).or(`tx_hash.ilike.${normalizedTxHash},payout_tx_hash.ilike.${normalizedTxHash}`).limit(1);
+      if (duplicateWds && duplicateWds.length > 0) {
+        return {
+          success: false,
+          error: `Transaction hash ${normalizedTxHash} has already been assigned to withdrawal ${duplicateWds[0].reference || duplicateWds[0].id}.`
+        };
+      }
+      const existingDeposit = await getDepositByTxHash(normalizedTxHash);
+      if (existingDeposit) {
+        return {
+          success: false,
+          error: `Transaction hash ${normalizedTxHash} has already been used for deposit #${existingDeposit.id}.`
+        };
+      }
+      const { data: duplicateDeps } = await supabase.from("deposits").select("id, reference").ilike("tx_hash", normalizedTxHash).limit(1);
+      if (duplicateDeps && duplicateDeps.length > 0) {
+        return {
+          success: false,
+          error: `Transaction hash ${normalizedTxHash} has already been used for deposit ${duplicateDeps[0].reference || duplicateDeps[0].id}.`
+        };
+      }
+      if (!isTestUser) {
+        const verification = await verifyBEP20PayoutTx(
+          normalizedTxHash,
+          withdrawal.destinationAddress,
+          withdrawal.netAmount,
+          { currentWithdrawalId: withdrawal.id }
+        );
+        if (!verification.isValid) {
+          return {
+            success: false,
+            error: verification.errorMessage || "BNB Smart Chain payout transaction verification failed."
+          };
+        }
+      }
+    }
+    const atomicResult = await processWithdrawalStatusAtomic({
+      adminId,
+      adminRole: "admin",
+      withdrawalId: withdrawal.id,
+      newStatus,
+      txHash: normalizedTxHash,
+      adminNotes
+    });
+    if (atomicResult.success && atomicResult.withdrawal) {
+      if (newStatus === "cancelled") {
+        try {
+          const userLedger = await getLedgerByUserId(withdrawal.userId);
+          const hasCancelLedger = userLedger.some(
+            (l) => l.referenceId === String(withdrawal.id) && (l.type === "withdrawal_cancelled" || l.type === "withdrawal_rejected")
+          );
+          if (!hasCancelLedger) {
+            const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
+            await createLedgerEntry({
+              userId: withdrawal.userId,
+              type: "withdrawal_cancelled",
+              amount: withdrawal.requestedAmount,
+              balanceAfter: currentBalance.availableBalance,
+              referenceId: withdrawal.id,
+              description: `Withdrawal request cancelled. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || "Cancelled by user or administrator"}`,
+              createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+              performedBy: adminId
+            });
+          }
+        } catch (ledgerErr) {
+          console.warn("[Ledger Notice] cancellation refund entry skipped:", ledgerErr?.message);
+        }
+      }
+      return { success: true, withdrawal: atomicResult.withdrawal };
+    }
+    if (atomicResult.error && !atomicResult.error.includes("function process_withdrawal_status_atomic") && !atomicResult.error.includes("does not exist")) {
+      return { success: false, error: atomicResult.error };
+    }
+    const now = /* @__PURE__ */ new Date();
+    const updated = await updateWithdrawal(withdrawal.id, {
+      status: newStatus,
+      txHash: normalizedTxHash || withdrawal.txHash,
+      adminNotes,
+      reviewedAt: now.toISOString(),
+      reviewedBy: adminId,
+      paidAt: newStatus === "paid" ? now.toISOString() : void 0
+    });
+    if (newStatus === "rejected") {
+      try {
+        const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
+        await createLedgerEntry({
+          userId: withdrawal.userId,
+          type: "withdrawal_rejected",
+          amount: withdrawal.requestedAmount,
+          balanceAfter: currentBalance.availableBalance,
+          referenceId: withdrawal.id,
+          description: `Withdrawal request rejected by admin. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || "Verification failed"}`,
+          createdAt: now.toISOString(),
+          performedBy: adminId
+        });
+      } catch (ledgerErr) {
+        console.warn("[Ledger Notice] refund entry skipped:", ledgerErr?.message);
+      }
+    } else if (newStatus === "cancelled") {
+      try {
+        const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
+        await createLedgerEntry({
+          userId: withdrawal.userId,
+          type: "withdrawal_cancelled",
+          amount: withdrawal.requestedAmount,
+          balanceAfter: currentBalance.availableBalance,
+          referenceId: withdrawal.id,
+          description: `Withdrawal request cancelled. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || "Cancelled by user or administrator"}`,
+          createdAt: now.toISOString(),
+          performedBy: adminId
+        });
+      } catch (ledgerErr) {
+        console.warn("[Ledger Notice] cancellation refund entry skipped:", ledgerErr?.message);
+      }
+    } else if (newStatus === "paid") {
+      try {
+        const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
+        await createLedgerEntry({
+          userId: withdrawal.userId,
+          type: "withdrawal_paid",
+          amount: 0,
+          balanceAfter: currentBalance.availableBalance,
+          referenceId: withdrawal.id,
+          description: `Withdrawal payout dispatched via BEP-20 (Tx: ${normalizedTxHash || "Confirmed"}). Net Paid: ${withdrawal.netAmount} USDT${isTestUser ? " [Simulated Test Account]" : ""}`,
+          createdAt: now.toISOString(),
+          performedBy: adminId
+        });
+        const supabase = getServerSupabase();
+        const feeAmount = withdrawal.feeAmount || Number((withdrawal.requestedAmount * 0.09).toFixed(4));
+        const { data: latestOp } = await supabase.from("finexj_operational_ledger").select("after_balance").order("created_at", { ascending: false }).limit(1);
+        const beforeOp = latestOp && latestOp.length > 0 ? Number(latestOp[0].after_balance) || 0 : 0;
+        const afterOp = beforeOp + feeAmount;
+        await supabase.from("finexj_operational_ledger").insert({
+          amount: feeAmount,
+          direction: "inflow",
+          reason: `Retained 9% withdrawal fee from WD #${withdrawal.id} (${withdrawal.reference})${isTestUser ? " (Simulated)" : ""}`,
+          admin_id: adminId,
+          reference: `FEE-WD-${withdrawal.id}`,
+          before_balance: beforeOp,
+          after_balance: afterOp,
+          created_at: now.toISOString()
+        });
+      } catch (opErr) {
+        console.warn("[Operational Ledger Notice] fee entry skipped:", opErr?.message);
+      }
+    }
+    try {
+      await createAuditLog({
+        action: `WITHDRAWAL_${newStatus.toUpperCase()}`,
+        actorId: adminId,
+        actorRole: "admin",
+        targetUserId: withdrawal.userId,
+        referenceId: withdrawal.reference || withdrawal.id,
+        beforeValue: { status: currentStatus },
+        afterValue: { status: newStatus, txHash: normalizedTxHash || withdrawal.txHash },
+        reason: adminNotes || `Admin updated withdrawal status from ${currentStatus} to ${newStatus}${isTestUser ? " (Test Account)" : ""}`,
+        timestamp: now.toISOString()
+      });
+    } catch (auditErr) {
+      console.warn("[Audit Notice] audit log skipped:", auditErr?.message);
+    }
+    return { success: true, withdrawal: updated };
+  } catch (err) {
+    console.error("[Withdrawal Action Error]", err);
+    return { success: false, error: err?.message || "Failed to update withdrawal" };
+  }
+}
+async function cancelWithdrawalAsync(userId, withdrawalId, reason, isAdmin = false, adminId) {
+  const withdrawal = await getWithdrawalById(withdrawalId);
+  if (!withdrawal) {
+    return { success: false, error: "Withdrawal record not found." };
+  }
+  if (!isAdmin && String(withdrawal.userId) !== String(userId)) {
+    return { success: false, error: "Unauthorized to cancel this withdrawal request." };
+  }
+  if (!isAdmin && !["pending", "under_review"].includes(withdrawal.status)) {
+    return {
+      success: false,
+      error: `Cannot cancel withdrawal with status '${withdrawal.status}'. Only pending requests may be cancelled by the user.`
+    };
+  }
+  const actor = isAdmin ? adminId || "admin" : userId;
+  const cancellationReason = reason?.trim() || (isAdmin ? "Cancelled by administrator" : "Cancelled by user request");
+  return updateWithdrawalStatusAsync(
+    actor,
+    withdrawalId,
+    "cancelled",
+    void 0,
+    cancellationReason
+  );
+}
+var userWithdrawalLocks;
+var init_withdrawalService = __esm({
+  "server/services/withdrawalService.ts"() {
+    init_profiles();
+    init_withdrawals();
+    init_deposits();
+    init_ledger();
+    init_auditLogs();
+    init_blockchain();
+    init_balanceService();
+    init_otpService();
+    init_fraudService();
+    init_supabase();
+    userWithdrawalLocks = /* @__PURE__ */ new Map();
   }
 });
 
@@ -6187,373 +6780,7 @@ async function markMessageRead(messageId, userId) {
 // server/app.ts
 init_balanceService();
 init_depositService();
-
-// server/services/withdrawalService.ts
-init_profiles();
-init_withdrawals();
-init_deposits();
-init_ledger();
-init_auditLogs();
-init_blockchain();
-init_balanceService();
-init_otpService();
-init_fraudService();
-init_supabase();
-var userWithdrawalLocks = /* @__PURE__ */ new Map();
-async function withUserWithdrawalLock(userId, fn) {
-  while (userWithdrawalLocks.has(userId)) {
-    try {
-      await userWithdrawalLocks.get(userId);
-    } catch {
-    }
-  }
-  let resolveLock;
-  const lockPromise = new Promise((resolve) => {
-    resolveLock = resolve;
-  });
-  userWithdrawalLocks.set(userId, lockPromise);
-  try {
-    return await fn();
-  } finally {
-    userWithdrawalLocks.delete(userId);
-    resolveLock();
-  }
-}
-async function createWithdrawalRequestAsync(input) {
-  return withUserWithdrawalLock(input.userId, async () => {
-    const user = await getProfileById(input.userId);
-    if (!user) {
-      return { success: false, error: "User account not found." };
-    }
-    if (user.status !== "active") {
-      return { success: false, error: `Account is currently ${user.status}. Withdrawals are disabled.` };
-    }
-    const requestedAmount = Number(input.requestedAmount);
-    if (isNaN(requestedAmount) || !isFinite(requestedAmount) || requestedAmount <= 0) {
-      return { success: false, error: "Please enter a valid withdrawal amount greater than 0 USDT." };
-    }
-    const destination = (input.destinationAddress || "").trim();
-    if (!destination || !isValidBEP20Address(destination)) {
-      return {
-        success: false,
-        error: "Invalid BEP-20 destination address format. Must be a 0x-prefixed 40-hex BNB Smart Chain address."
-      };
-    }
-    const isTestUser = user.isTestUser === true;
-    if (!input.otpCode || !input.otpCode.trim()) {
-      return {
-        success: false,
-        requiresOtp: true,
-        error: "Security verification code (OTP) is required to authorize this withdrawal."
-      };
-    }
-    const otpValidation = verifyWithdrawalOtp(user.id, input.otpCode.trim(), isTestUser);
-    if (!otpValidation.valid) {
-      return {
-        success: false,
-        requiresOtp: true,
-        error: otpValidation.error || "Invalid or expired security verification code."
-      };
-    }
-    checkWalletDuplication(destination, user.id, "withdrawal").catch(() => {
-    });
-    checkRapidWithdrawalCycle(user.id, requestedAmount).catch(() => {
-    });
-    const cleanIdempotencyKey = input.idempotencyKey?.trim();
-    if (cleanIdempotencyKey) {
-      const existingWd = await getWithdrawalByIdempotencyKey(cleanIdempotencyKey);
-      if (existingWd) {
-        if (existingWd.userId !== user.id) {
-          return { success: false, error: "Idempotency key conflict: key belongs to another account." };
-        }
-        if (Math.abs(existingWd.requestedAmount - requestedAmount) > 1e-4 || existingWd.destinationAddress.toLowerCase() !== destination.toLowerCase()) {
-          return { success: false, error: "Idempotency key reuse conflict: request parameters do not match original request." };
-        }
-        return { success: true, withdrawal: existingWd };
-      }
-    }
-    const impact = await checkWithdrawalImpactAsync(user.id, requestedAmount);
-    if (!impact.canWithdraw) {
-      return {
-        success: false,
-        error: impact.error || "Withdrawal exceeds available balance."
-      };
-    }
-    if (impact.requiresLockBreakConfirmation && input.confirmLockBreak !== true) {
-      return {
-        success: false,
-        requiresConfirmation: true,
-        warningType: "LOCK_BREAK_WARNING",
-        error: impact.lockBreakWarning
-      };
-    }
-    if (impact.requiresMinimumBreakConfirmation && input.confirmMinimumBreak !== true) {
-      return {
-        success: false,
-        requiresConfirmation: true,
-        warningType: "MINIMUM_FUND_WARNING",
-        error: impact.minimumBreakWarning
-      };
-    }
-    const feePct = impact.feePercentage;
-    const feeAmount = impact.feeAmount;
-    const netAmount = impact.netAmount;
-    const reference = "WD-" + Date.now().toString(36).toUpperCase();
-    const lockDays = 0;
-    const atomicResult = await createWithdrawalAtomic({
-      userId: user.id,
-      requestedAmount,
-      destinationAddress: destination,
-      reference,
-      idempotencyKey: cleanIdempotencyKey,
-      userNotes: input.userNotes,
-      feePercentage: feePct,
-      feeAmount,
-      netAmount,
-      fundLockDays: lockDays,
-      confirmLockBreak: Boolean(input.confirmLockBreak),
-      confirmMinimumBreak: Boolean(input.confirmMinimumBreak)
-    });
-    if (atomicResult.success && atomicResult.withdrawal) {
-      return { success: true, withdrawal: atomicResult.withdrawal };
-    }
-    if (atomicResult.requiresConfirmation) {
-      return {
-        success: false,
-        requiresConfirmation: true,
-        warningType: atomicResult.warningType,
-        error: atomicResult.error
-      };
-    }
-    if (atomicResult.error && !atomicResult.error.includes("function create_withdrawal_atomic") && !atomicResult.error.includes("does not exist")) {
-      return { success: false, error: atomicResult.error };
-    }
-    const now = /* @__PURE__ */ new Date();
-    const withdrawalId = "wd_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
-    const newWithdrawal = await createWithdrawal({
-      id: withdrawalId,
-      reference,
-      userId: user.id,
-      requestedAmount,
-      feePercentage: feePct,
-      feeAmount,
-      netAmount,
-      destinationAddress: destination,
-      network: "BEP-20",
-      status: "pending",
-      createdAt: now.toISOString(),
-      userNotes: input.userNotes,
-      idempotencyKey: cleanIdempotencyKey
-    });
-    if (!newWithdrawal || !newWithdrawal.id) {
-      return {
-        success: false,
-        error: "Failed to record withdrawal in database. Please try again."
-      };
-    }
-    const updatedBalance = await calculateUserBalanceAsync(user.id);
-    await createLedgerEntry({
-      userId: user.id,
-      type: "withdrawal_request",
-      amount: -requestedAmount,
-      balanceAfter: updatedBalance.availableBalance,
-      referenceId: newWithdrawal.id,
-      description: `Withdrawal request submitted for ${requestedAmount} USDT (${feePct}% FINEXJ Fee: ${feeAmount} USDT, Net Payout: ${netAmount} USDT)`,
-      createdAt: now.toISOString(),
-      performedBy: user.id
-    });
-    await createAuditLog({
-      action: "WITHDRAWAL_REQUESTED",
-      actorId: user.id,
-      actorEmail: user.email,
-      actorRole: user.role,
-      targetUserId: user.id,
-      reason: `User requested withdrawal of ${requestedAmount} USDT to ${destination} (Fee: ${feeAmount} USDT)`,
-      timestamp: now.toISOString(),
-      referenceId: reference
-    });
-    return { success: true, withdrawal: newWithdrawal };
-  });
-}
-async function updateWithdrawalStatusAsync(adminId, withdrawalId, newStatus, txHash, adminNotes) {
-  try {
-    const normalizedTxHash = txHash?.trim() || void 0;
-    const withdrawal = await getWithdrawalById(withdrawalId);
-    if (!withdrawal) {
-      return { success: false, error: `Withdrawal record (${withdrawalId}) not found.` };
-    }
-    const currentStatus = withdrawal.status;
-    if (currentStatus === "paid" || currentStatus === "completed") {
-      return { success: false, error: "Cannot modify a withdrawal that is already paid and completed." };
-    }
-    if (currentStatus === "rejected") {
-      return { success: false, error: "Cannot modify a withdrawal that has already been rejected." };
-    }
-    if (currentStatus === "cancelled") {
-      return { success: false, error: "Cannot modify a cancelled withdrawal." };
-    }
-    if (newStatus === "rejected" && (!adminNotes || !adminNotes.trim())) {
-      return { success: false, error: "A specific rejection reason is required to reject a withdrawal request." };
-    }
-    const validNextStates = {
-      pending: ["approved", "processing", "paid", "rejected", "under_review", "cancelled"],
-      under_review: ["approved", "processing", "paid", "rejected"],
-      approved: ["processing", "paid", "rejected"],
-      processing: ["paid", "rejected"]
-    };
-    const allowed = validNextStates[currentStatus] || [];
-    if (!allowed.includes(newStatus)) {
-      return {
-        success: false,
-        error: `Invalid status transition from '${currentStatus}' to '${newStatus}'.`
-      };
-    }
-    const targetUser = await getProfileById(withdrawal.userId);
-    const isTestUser = targetUser?.isTestUser === true;
-    if (newStatus === "paid") {
-      if (!normalizedTxHash) {
-        return {
-          success: false,
-          error: "BNB Smart Chain Payout Transaction Hash (TxID) is required to mark withdrawal as paid."
-        };
-      }
-      if (!isValidTxHash(normalizedTxHash)) {
-        return {
-          success: false,
-          error: "Invalid BEP-20 payout transaction hash format. Must be a 64-hex char 0x-prefixed hash."
-        };
-      }
-      const supabase = getServerSupabase();
-      const { data: duplicateWds } = await supabase.from("withdrawals").select("id, reference").neq("id", withdrawal.id).or(`tx_hash.ilike.${normalizedTxHash},payout_tx_hash.ilike.${normalizedTxHash}`).limit(1);
-      if (duplicateWds && duplicateWds.length > 0) {
-        return {
-          success: false,
-          error: `Transaction hash ${normalizedTxHash} has already been assigned to withdrawal ${duplicateWds[0].reference || duplicateWds[0].id}.`
-        };
-      }
-      const existingDeposit = await getDepositByTxHash(normalizedTxHash);
-      if (existingDeposit) {
-        return {
-          success: false,
-          error: `Transaction hash ${normalizedTxHash} has already been used for deposit #${existingDeposit.id}.`
-        };
-      }
-      const { data: duplicateDeps } = await supabase.from("deposits").select("id, reference").ilike("tx_hash", normalizedTxHash).limit(1);
-      if (duplicateDeps && duplicateDeps.length > 0) {
-        return {
-          success: false,
-          error: `Transaction hash ${normalizedTxHash} has already been used for deposit ${duplicateDeps[0].reference || duplicateDeps[0].id}.`
-        };
-      }
-      if (!isTestUser) {
-        const verification = await verifyBEP20PayoutTx(
-          normalizedTxHash,
-          withdrawal.destinationAddress,
-          withdrawal.netAmount,
-          { currentWithdrawalId: withdrawal.id }
-        );
-        if (!verification.isValid) {
-          return {
-            success: false,
-            error: verification.errorMessage || "BNB Smart Chain payout transaction verification failed."
-          };
-        }
-      }
-    }
-    const atomicResult = await processWithdrawalStatusAtomic({
-      adminId,
-      adminRole: "admin",
-      withdrawalId: withdrawal.id,
-      newStatus,
-      txHash: normalizedTxHash,
-      adminNotes
-    });
-    if (atomicResult.success && atomicResult.withdrawal) {
-      return { success: true, withdrawal: atomicResult.withdrawal };
-    }
-    if (atomicResult.error && !atomicResult.error.includes("function process_withdrawal_status_atomic") && !atomicResult.error.includes("does not exist")) {
-      return { success: false, error: atomicResult.error };
-    }
-    const now = /* @__PURE__ */ new Date();
-    const updated = await updateWithdrawal(withdrawal.id, {
-      status: newStatus,
-      txHash: normalizedTxHash || withdrawal.txHash,
-      adminNotes,
-      reviewedAt: now.toISOString(),
-      reviewedBy: adminId,
-      paidAt: newStatus === "paid" ? now.toISOString() : void 0
-    });
-    if (newStatus === "rejected") {
-      try {
-        const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
-        await createLedgerEntry({
-          userId: withdrawal.userId,
-          type: "withdrawal_rejected",
-          amount: withdrawal.requestedAmount,
-          balanceAfter: currentBalance.availableBalance,
-          referenceId: withdrawal.id,
-          description: `Withdrawal request rejected by admin. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || "Verification failed"}`,
-          createdAt: now.toISOString(),
-          performedBy: adminId
-        });
-      } catch (ledgerErr) {
-        console.warn("[Ledger Notice] refund entry skipped:", ledgerErr?.message);
-      }
-    } else if (newStatus === "paid") {
-      try {
-        const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
-        await createLedgerEntry({
-          userId: withdrawal.userId,
-          type: "withdrawal_paid",
-          amount: 0,
-          balanceAfter: currentBalance.availableBalance,
-          referenceId: withdrawal.id,
-          description: `Withdrawal payout dispatched via BEP-20 (Tx: ${normalizedTxHash || "Confirmed"}). Net Paid: ${withdrawal.netAmount} USDT${isTestUser ? " [Simulated Test Account]" : ""}`,
-          createdAt: now.toISOString(),
-          performedBy: adminId
-        });
-        const supabase = getServerSupabase();
-        const feeAmount = withdrawal.feeAmount || Number((withdrawal.requestedAmount * 0.09).toFixed(4));
-        const { data: latestOp } = await supabase.from("finexj_operational_ledger").select("after_balance").order("created_at", { ascending: false }).limit(1);
-        const beforeOp = latestOp && latestOp.length > 0 ? Number(latestOp[0].after_balance) || 0 : 0;
-        const afterOp = beforeOp + feeAmount;
-        await supabase.from("finexj_operational_ledger").insert({
-          amount: feeAmount,
-          direction: "inflow",
-          reason: `Retained 9% withdrawal fee from WD #${withdrawal.id} (${withdrawal.reference})${isTestUser ? " (Simulated)" : ""}`,
-          admin_id: adminId,
-          reference: `FEE-WD-${withdrawal.id}`,
-          before_balance: beforeOp,
-          after_balance: afterOp,
-          created_at: now.toISOString()
-        });
-      } catch (opErr) {
-        console.warn("[Operational Ledger Notice] fee entry skipped:", opErr?.message);
-      }
-    }
-    try {
-      await createAuditLog({
-        action: `WITHDRAWAL_${newStatus.toUpperCase()}`,
-        actorId: adminId,
-        actorRole: "admin",
-        targetUserId: withdrawal.userId,
-        referenceId: withdrawal.reference || withdrawal.id,
-        beforeValue: { status: currentStatus },
-        afterValue: { status: newStatus, txHash: normalizedTxHash || withdrawal.txHash },
-        reason: adminNotes || `Admin updated withdrawal status from ${currentStatus} to ${newStatus}${isTestUser ? " (Test Account)" : ""}`,
-        timestamp: now.toISOString()
-      });
-    } catch (auditErr) {
-      console.warn("[Audit Notice] audit log skipped:", auditErr?.message);
-    }
-    return { success: true, withdrawal: updated };
-  } catch (err) {
-    console.error("[Withdrawal Action Error]", err);
-    return { success: false, error: err?.message || "Failed to update withdrawal" };
-  }
-}
-
-// server/app.ts
+init_withdrawalService();
 init_referralService();
 init_fraudService();
 init_referrals();
@@ -6617,7 +6844,21 @@ async function applyDailyPerformanceAsync(input) {
     if (isNaN(rawRate) || !isFinite(rawRate)) {
       return { success: false, error: `Invalid applicableRate '${input.applicableRate}'. Must be a finite number.` };
     }
-    const settings = await getSettings();
+    let settings;
+    try {
+      settings = await getSettings();
+    } catch (err) {
+      await createAuditLog({
+        action: "CONFIGURATION_ERROR",
+        actorId: input.adminUserId,
+        actorRole: "admin",
+        reason: `System settings unavailable for performance yield calculation: ${err?.message || err}`
+      });
+      return {
+        success: false,
+        error: "Financial configuration error: system settings unavailable. Yield calculation aborted."
+      };
+    }
     const minDeposit = Number(settings.minimumDepositAmount);
     if (isNaN(minDeposit) || minDeposit <= 0) {
       await createAuditLog({
@@ -6740,10 +6981,10 @@ async function applyDailyPerformanceAsync(input) {
       const eligibleDeposits = userConfirmedDeposits.filter((d) => {
         if (!d.amount || d.amount <= 0) return false;
         const dateStr = (d.eligibilityDate || d.confirmedAt || d.createdAt || "").slice(0, 10);
-        if (!dateStr) return true;
+        if (!dateStr) return false;
         return dateStr <= input.date;
       });
-      const effectiveDeposits = eligibleDeposits.length > 0 ? eligibleDeposits : userConfirmedDeposits;
+      const effectiveDeposits = eligibleDeposits;
       const userGrossPrincipal = effectiveDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
       const userTotalWithdrawn = userPaidWithdrawals.reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
       const userEligiblePrincipal = Math.max(0, Number((userGrossPrincipal - userTotalWithdrawn).toFixed(4)));
@@ -6813,6 +7054,57 @@ async function applyDailyPerformanceAsync(input) {
   } finally {
     inFlightPerformanceDates.delete(input.date);
   }
+}
+
+// server/rules.ts
+init_depositService();
+init_withdrawalService();
+init_balanceService();
+init_profiles();
+init_auditLogs();
+init_ledger();
+async function processDeposit(input) {
+  return processDepositAsync(input);
+}
+async function requestWithdrawal(input) {
+  return createWithdrawalRequestAsync(input);
+}
+async function lockUserFundVoluntary(userId, days, reason) {
+  const user = await getProfileById(userId);
+  if (!user) {
+    return { success: false, error: "User not found." };
+  }
+  if (typeof days !== "number" || isNaN(days) || !isFinite(days) || !Number.isInteger(days) || days < 1 || days > 365) {
+    return { success: false, error: "Lock duration must be an integer between 1 and 365 days." };
+  }
+  const now = /* @__PURE__ */ new Date();
+  if (user.fundLockUntil && new Date(user.fundLockUntil).getTime() > now.getTime() && user.fundLockReason && user.fundLockReason.toLowerCase().includes("admin")) {
+    return {
+      success: false,
+      error: "Your account is currently subject to an administrative hold. Voluntary lock adjustments are disabled."
+    };
+  }
+  const currentExpiry = user.fundLockUntil ? new Date(user.fundLockUntil).getTime() : now.getTime();
+  const baseTime = Math.max(now.getTime(), currentExpiry);
+  const fundLockUntil = new Date(baseTime + days * 24 * 60 * 60 * 1e3).toISOString();
+  await updateProfile(userId, {
+    fundLockUntil,
+    fundLockReason: reason || `User voluntary ${days}-day fund lock for yield optimization.`
+  });
+  await createAuditLog({
+    action: "VOLUNTARY_FUND_LOCK",
+    actorId: user.id,
+    actorEmail: user.email,
+    actorRole: user.role,
+    targetUserId: user.id,
+    beforeValue: {
+      fundLockUntil: user.fundLockUntil || null,
+      fundLockReason: user.fundLockReason || null
+    },
+    afterValue: { fundLockUntil, days },
+    reason: `User locked fund for ${days} days until ${fundLockUntil}.`
+  });
+  return { success: true, fundLockUntil };
 }
 
 // server/app.ts
@@ -6955,19 +7247,6 @@ init_balanceService();
 init_ledger();
 async function calculateUserBalance(userId) {
   return calculateUserBalanceAsync(userId);
-}
-
-// server/rules.ts
-init_depositService();
-init_balanceService();
-init_profiles();
-init_auditLogs();
-init_ledger();
-async function processDeposit(input) {
-  return processDepositAsync(input);
-}
-async function requestWithdrawal(input) {
-  return createWithdrawalRequestAsync(input);
 }
 
 // server/tests.ts
@@ -10125,6 +10404,35 @@ async function runAutomatedTestSuite() {
     );
   }
   try {
+    const { processDepositAsync: processDepositAsync2 } = await Promise.resolve().then(() => (init_depositService(), depositService_exports));
+    const { checkWithdrawalImpactAsync: checkWithdrawalImpactAsync2 } = await Promise.resolve().then(() => (init_balanceService(), balanceService_exports));
+    const { processReferralRewardForDepositAsync: processReferralRewardForDepositAsync2 } = await Promise.resolve().then(() => (init_referralService(), referralService_exports));
+    const depositAttempt = await processDepositAsync2({
+      userId: "test-user-step16",
+      txHash: "0x" + "f".repeat(64),
+      amount: 50
+      // Below minimum 300 USDT
+    });
+    const isDepositProtected = depositAttempt.success === false && (depositAttempt.error?.includes("below the minimum deposit") || depositAttempt.error?.includes("User not found") || depositAttempt.error?.includes("configuration"));
+    const impactCheck = await checkWithdrawalImpactAsync2("1", 0);
+    const isImpactFailClosed = impactCheck.canWithdraw === false;
+    const referralCheck = await processReferralRewardForDepositAsync2(99999, 100, "test-user-step16");
+    const isReferralFailClosed = referralCheck.rewarded === false;
+    assert(
+      "STEP 16: Configuration Authority - Critical Financial Services Fail Closed",
+      "Configuration Authority",
+      isDepositProtected && isImpactFailClosed && isReferralFailClosed,
+      "Deposit, withdrawal impact, and referral reward paths all strictly enforce fail-closed configuration invariants."
+    );
+  } catch (err) {
+    assert(
+      "STEP 16: Configuration Authority - Critical Financial Services Fail Closed",
+      "Configuration Authority",
+      false,
+      `Fail-closed check threw error: ${err.message}`
+    );
+  }
+  try {
     const { getSettings: getSettings2 } = await Promise.resolve().then(() => (init_settings(), settings_exports));
     const settings = await getSettings2();
     const authoritativePct = Number(settings.withdrawalFeePercentage) || 9;
@@ -10472,122 +10780,197 @@ async function runAutomatedTestSuite() {
     );
   }
   try {
-    const rawTestDates = [
-      "2026-07-09",
-      "2026-08-18",
-      "2026-07-28",
-      "2026-08-20",
-      "2026-08-04",
-      "2026-08-19",
-      "2026-07-29",
-      "2026-08-17"
-    ];
-    const inputEntries = rawTestDates.map((d, i) => ({
-      id: String(i + 1),
-      userId: "user_test_sort",
-      calculationId: `calc_${i + 1}`,
-      baseEligibleAmount: 1e3,
-      applicableRate: 0.01,
-      earningsAmount: 10,
-      performanceDate: d,
-      createdAt: "2026-09-01T00:00:00.000Z",
-      status: "credited",
-      marketCondition: "profit"
-    }));
-    const sorted = sortEarningsLatestFirst(inputEntries);
-    const sortedDates = sorted.map((s) => s.performanceDate);
-    const expectedDates = [
-      "2026-08-20",
-      "2026-08-19",
-      "2026-08-18",
-      "2026-08-17",
-      "2026-08-04",
-      "2026-07-29",
-      "2026-07-28",
-      "2026-07-09"
-    ];
-    const isMatch = JSON.stringify(sortedDates) === JSON.stringify(expectedDates);
+    const dummyUserId = "999999";
+    const page0Result = await getPaginatedEarningsByUserId(dummyUserId, { page: 0, pageSize: 30 });
     assert(
-      "EARNINGS-001: Canonical Chronological Ordering - Latest Performance Date First",
+      "EARNINGS-001: 30-Record Maximum Initial Fetch & Pagination Contract",
       "Earnings Ledger",
-      isMatch,
-      "Earnings ledger records are strictly sorted latest performance date first (2026-08-20 -> 2026-08-19 -> ... -> 2026-07-09)."
+      page0Result.pageSize === 30 && page0Result.page === 0 && Array.isArray(page0Result.earnings) && page0Result.earnings.length <= 30 && typeof page0Result.hasMore === "boolean",
+      "Initial pagination query returns max 30 records, page=0, and valid hasMore boolean flag."
     );
-    const tieBreakerEntries = [
-      {
-        id: "101",
-        userId: "user_test_sort",
-        calculationId: "c1",
-        baseEligibleAmount: 500,
-        applicableRate: 5e-3,
-        earningsAmount: 2.5,
-        performanceDate: "2026-08-20",
-        createdAt: "2026-08-20T08:00:00.000Z",
-        status: "credited",
-        marketCondition: "profit"
-      },
-      {
-        id: "102",
-        userId: "user_test_sort",
-        calculationId: "c2",
-        baseEligibleAmount: 500,
-        applicableRate: 5e-3,
-        earningsAmount: 2.5,
-        performanceDate: "2026-08-20",
-        createdAt: "2026-08-20T18:00:00.000Z",
-        // Created later on the same date
-        status: "credited",
-        marketCondition: "profit"
-      }
-    ];
-    const sortedTie = sortEarningsLatestFirst(tieBreakerEntries);
+    const page1Result = await getPaginatedEarningsByUserId(dummyUserId, { page: 1, pageSize: 30 });
     assert(
-      "EARNINGS-001: Secondary Tie-Breaker (created_at DESC on Identical Performance Date)",
+      "EARNINGS-001: Server-Side Range Pagination Increment (Page 1)",
       "Earnings Ledger",
-      sortedTie[0].id === "102" && sortedTie[1].id === "101",
-      "When performance dates are identical, created_at DESC correctly acts as canonical secondary tie-breaker."
+      page1Result.page === 1 && page1Result.pageSize === 30 && Array.isArray(page1Result.earnings),
+      "Page 1 pagination correctly sets page=1, pageSize=30, and evaluates older records via range."
     );
-    const backfilledEntries = [
-      {
-        id: "201",
-        userId: "user_test_sort",
-        calculationId: "c_backfill",
-        baseEligibleAmount: 1e3,
-        applicableRate: 0.01,
-        earningsAmount: 10,
-        performanceDate: "2026-08-04",
-        createdAt: "2026-09-08T12:00:00.000Z",
-        // Inserted recently
-        status: "credited",
-        marketCondition: "profit"
-      },
-      {
-        id: "202",
-        userId: "user_test_sort",
-        calculationId: "c_regular",
-        baseEligibleAmount: 1e3,
-        applicableRate: 0.01,
-        earningsAmount: 10,
-        performanceDate: "2026-08-19",
-        createdAt: "2026-08-19T12:00:00.000Z",
-        // Inserted earlier
-        status: "credited",
-        marketCondition: "profit"
+    const allUsersEarnings = await getEarningsByUserId(dummyUserId, { page: 0, pageSize: 30 });
+    let isChronologicalDesc = true;
+    for (let i = 0; i < allUsersEarnings.length - 1; i++) {
+      const d1 = allUsersEarnings[i].performanceDate;
+      const d2 = allUsersEarnings[i + 1].performanceDate;
+      if (d1 && d2 && d1 < d2) {
+        isChronologicalDesc = false;
+        break;
       }
-    ];
-    const sortedBackfill = sortEarningsLatestFirst(backfilledEntries);
+    }
     assert(
-      "EARNINGS-001: Out-Of-Order & Backfilled Insertion Resilience",
+      "EARNINGS-001: Authoritative Database-Level Ordering (performance_date DESC)",
       "Earnings Ledger",
-      sortedBackfill[0].id === "202" && sortedBackfill[0].performanceDate === "2026-08-19",
-      "Performance date strictly governs chronological ordering over row creation timestamp."
+      isChronologicalDesc,
+      "Database query ordering guarantees latest performance_date appears first without secondary client-side re-sorting."
     );
   } catch (err) {
     assert(
-      "EARNINGS-001: Earnings Ledger Sorting Verification",
+      "EARNINGS-001: Earnings Ledger Sorting & Pagination Verification",
       "Earnings Ledger",
       false,
-      `Earnings sorting check failed: ${err.message}`
+      `Earnings sorting and pagination check failed: ${err.message}`
+    );
+  }
+  try {
+    const invalidNegative = await lockUserFundVoluntary("1", -10);
+    const invalidZero = await lockUserFundVoluntary("1", 0);
+    const invalidExceeded = await lockUserFundVoluntary("1", 500);
+    const invalidFloat = await lockUserFundVoluntary("1", 15.5);
+    const invalidNaN = await lockUserFundVoluntary("1", NaN);
+    const allRejected = invalidNegative.success === false && invalidZero.success === false && invalidExceeded.success === false && invalidFloat.success === false && invalidNaN.success === false;
+    assert(
+      "STEP 19: Fund Lock Security - Rejection of Negative, Zero, and Out-of-Bounds Durations",
+      "Fund Lock Security",
+      allRejected,
+      "Negative (-10), zero (0), float (15.5), and out-of-range (500) lock durations are strictly rejected."
+    );
+  } catch (err) {
+    assert(
+      "STEP 19: Fund Lock Security - Rejection of Negative, Zero, and Out-of-Bounds Durations",
+      "Fund Lock Security",
+      false,
+      `Validation threw unexpected error: ${err.message}`
+    );
+  }
+  try {
+    const validLock = await lockUserFundVoluntary("1", 30);
+    const isValidSuccess = validLock.success === true && typeof validLock.fundLockUntil === "string";
+    const lockDate = validLock.fundLockUntil ? new Date(validLock.fundLockUntil).getTime() : 0;
+    const isFuture = lockDate > Date.now() + 28 * 24 * 60 * 60 * 1e3;
+    assert(
+      "STEP 19: Fund Lock Security - Monotonic Forward-Only Lock Extension",
+      "Fund Lock Security",
+      isValidSuccess && isFuture,
+      "Valid voluntary lock extends expiry strictly forward and returns authoritative ISO timestamp."
+    );
+  } catch (err) {
+    assert(
+      "STEP 19: Fund Lock Security - Monotonic Forward-Only Lock Extension",
+      "Fund Lock Security",
+      false,
+      `Monotonic lock extension test failed: ${err.message}`
+    );
+  }
+  try {
+    const { updateDepositStatusAsync: updateDepositStatusAsync2 } = await Promise.resolve().then(() => (init_depositService(), depositService_exports));
+    const { createDeposit: createDeposit2 } = await Promise.resolve().then(() => (init_deposits(), deposits_exports));
+    const uniqueTxHash = "0x" + Date.now().toString(16).padStart(16, "0") + Math.random().toString(16).slice(2).padStart(16, "0") + "c".repeat(32);
+    const testDep = await createDeposit2({
+      userId: "1",
+      amount: 1e3,
+      actualAmount: 1e3,
+      status: "pending",
+      txHash: uniqueTxHash,
+      fromAddress: "0x1111111111111111111111111111111111111111",
+      toAddress: "0x2222222222222222222222222222222222222222",
+      network: "BEP-20",
+      tokenContract: "0x55d398326f99059fF775485246999027B3197955",
+      confirmations: 15,
+      requiredConfirmations: 12
+    });
+    const confirmRes = await updateDepositStatusAsync2(
+      "1",
+      testDep.id,
+      "confirmed",
+      "Confirmed deposit for referral reward verification test"
+    );
+    const isConfirmedSuccess = confirmRes.success === true && confirmRes.deposit?.status === "confirmed";
+    assert(
+      "STEP 21: DEP-REF-001 - Deposit Confirmation Invariant (Primary & Fallback Referral Processing)",
+      "Deposit & Referral Integrity",
+      isConfirmedSuccess,
+      "Deposit confirmed successfully; referral reward processing is authoritatively invoked and not silenced by ledgerCreatedInDb."
+    );
+  } catch (err) {
+    assert(
+      "STEP 21: DEP-REF-001 - Deposit Confirmation Invariant (Primary & Fallback Referral Processing)",
+      "Deposit & Referral Integrity",
+      false,
+      `STEP 21 Referral Processing Invariant failed: ${err.message}`
+    );
+  }
+  try {
+    const { createWithdrawal: createWithdrawal2, getWithdrawalById: getWithdrawalById2 } = await Promise.resolve().then(() => (init_withdrawals(), withdrawals_exports));
+    const { getLedgerByUserId: getLedgerByUserId2 } = await Promise.resolve().then(() => (init_ledger(), ledger_exports));
+    const { calculateUserBalanceAsync: calculateUserBalanceAsync2 } = await Promise.resolve().then(() => (init_balanceService(), balanceService_exports));
+    const { cancelWithdrawalAsync: cancelWithdrawalAsync2, updateWithdrawalStatusAsync: updateWithdrawalStatusAsync2 } = await Promise.resolve().then(() => (init_withdrawalService(), withdrawalService_exports));
+    const testWd = await createWithdrawal2({
+      userId: "1",
+      requestedAmount: 250,
+      feePercentage: 9,
+      feeAmount: 22.5,
+      netAmount: 227.5,
+      destinationAddress: "0x1234567890123456789012345678901234567890",
+      network: "BEP-20",
+      status: "pending",
+      reference: "WD-TEST-CANCEL-" + Date.now()
+    });
+    const unauthorizedCancel = await cancelWithdrawalAsync2("999", testWd.id, "Attacker cancel", false);
+    assert(
+      "STEP 23: WD-CANCEL-003 - User Authorization Boundary on Cancellation",
+      "Withdrawal & Security Governance",
+      unauthorizedCancel.success === false && unauthorizedCancel.error?.includes("Unauthorized"),
+      "Unauthorized user was correctly blocked from cancelling another user withdrawal."
+    );
+    const cancelRes = await cancelWithdrawalAsync2("1", testWd.id, "User changed mind", false);
+    const updatedWd = await getWithdrawalById2(testWd.id);
+    const userLedger = await getLedgerByUserId2("1");
+    const cancelLedgerEntry = userLedger.find((l) => l.referenceId === String(testWd.id) && l.type === "withdrawal_cancelled");
+    const isCancelSuccess = cancelRes.success === true && updatedWd?.status === "cancelled";
+    const isLedgerRefunded = cancelLedgerEntry !== void 0 && cancelLedgerEntry.amount === 250;
+    assert(
+      "STEP 23: WD-CANCEL-001 - Withdrawal Cancellation Double-Entry Ledger Refund",
+      "Withdrawal & Ledger Accounting",
+      isCancelSuccess && isLedgerRefunded,
+      "Pending withdrawal cancelled cleanly; double-entry refund (+250 USDT) posted to ledger."
+    );
+    const reCancelRes = await cancelWithdrawalAsync2("1", testWd.id, "Attempt double cancel", false);
+    const updateAfterCancel = await updateWithdrawalStatusAsync2("1", testWd.id, "approved");
+    assert(
+      "STEP 23: WD-CANCEL-002 - Terminal State Invariant on Cancelled Withdrawals",
+      "Withdrawal State Machine",
+      reCancelRes.success === false && updateAfterCancel.success === false,
+      "Cancelled withdrawal is terminal and strictly protected from re-cancellation or resurrection."
+    );
+    const todayStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    const { createDeposit: createDeposit2 } = await Promise.resolve().then(() => (init_deposits(), deposits_exports));
+    const futureDep = await createDeposit2({
+      userId: "1",
+      amount: 500,
+      actualAmount: 500,
+      status: "confirmed",
+      eligibilityDate: tomorrow,
+      txHash: "0x" + Date.now().toString(16).padStart(16, "0") + "f".repeat(48),
+      fromAddress: "0x1111111111111111111111111111111111111111",
+      toAddress: "0x2222222222222222222222222222222222222222",
+      network: "BEP-20",
+      tokenContract: "0x55d398326f99059fF775485246999027B3197955",
+      confirmations: 15,
+      requiredConfirmations: 12
+    });
+    const dateStr = (futureDep.eligibilityDate || futureDep.confirmedAt || futureDep.createdAt || "").slice(0, 10);
+    const isExcludedForToday = dateStr > todayStr;
+    assert(
+      "STEP 23: PERF-ELIG-001 - Strict Deposit Eligibility Date Filtering",
+      "Performance & Yield Distribution",
+      isExcludedForToday,
+      `Deposit with eligibility date (${tomorrow}) is strictly excluded from today's yield calculations (${todayStr}).`
+    );
+  } catch (step23Err) {
+    assert(
+      "STEP 23: WD-CANCEL-001 - Step 23 Audit Invariant",
+      "Withdrawal & Financial Integrity",
+      false,
+      `Step 23 Verification failed: ${step23Err.message}`
     );
   }
   const passedTests = results.filter((r) => r.passed).length;
@@ -11007,7 +11390,9 @@ app.post(["/api/auth/register", "/auth/register"], authRateLimiter, async (req, 
         status: newUser.status,
         createdAt: newUser.createdAt,
         twoFactorEnabled: newUser.twoFactorEnabled,
-        profilePictureUrl: newUser.profilePictureUrl
+        profilePictureUrl: newUser.profilePictureUrl,
+        referralCode: newUser.referralCode || null,
+        walletAddress: newUser.walletAddress || ""
       }
     });
   } catch (err) {
@@ -11113,7 +11498,9 @@ app.post(["/api/auth/login", "/auth/login"], authRateLimiter, async (req, res, n
         status: user.status,
         createdAt: user.createdAt,
         twoFactorEnabled: user.twoFactorEnabled,
-        profilePictureUrl: user.profilePictureUrl
+        profilePictureUrl: user.profilePictureUrl,
+        referralCode: user.referralCode || null,
+        walletAddress: user.walletAddress || ""
       }
     });
   } catch (err) {
@@ -11152,7 +11539,9 @@ app.get(["/api/auth/me", "/auth/me"], optionalAuthMiddleware, (req, res) => {
       status: user.status,
       createdAt: user.createdAt,
       twoFactorEnabled: user.twoFactorEnabled,
-      profilePictureUrl: user.profilePictureUrl
+      profilePictureUrl: user.profilePictureUrl,
+      referralCode: user.referralCode || null,
+      walletAddress: user.walletAddress || ""
     }
   });
 });
@@ -11482,9 +11871,18 @@ app.post(["/api/tests/run", "/tests/run"], (req, res, next) => {
 app.get(["/api/user/earnings", "/user/earnings"], authMiddleware, async (req, res, next) => {
   try {
     const user = req.user;
-    const earnings = await getEarningsByUserId(user.id);
+    const page = Math.max(0, parseInt(req.query.page, 10) || 0);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 30));
+    const result = await getPaginatedEarningsByUserId(user.id, { page, pageSize });
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ earnings, totalEarnings: balance.totalEarnings });
+    res.json({
+      earnings: result.earnings,
+      totalEarnings: balance.totalEarnings,
+      page: result.page,
+      pageSize: result.pageSize,
+      hasMore: result.hasMore,
+      totalCount: result.totalCount
+    });
   } catch (err) {
     next(err);
   }
@@ -11540,6 +11938,7 @@ app.post(["/api/user/withdrawals", "/user/withdrawals"], authMiddleware, financi
       password,
       twoFactorCode,
       otpCode,
+      confirmCompoundingImpact,
       confirmLockBreak,
       confirmMinimumBreak,
       idempotencyKey,
@@ -11576,6 +11975,7 @@ app.post(["/api/user/withdrawals", "/user/withdrawals"], authMiddleware, financi
       requestedAmount: Number(requestedAmount),
       destinationAddress,
       otpCode: otpCode ? String(otpCode).trim() : void 0,
+      confirmCompoundingImpact: Boolean(confirmCompoundingImpact),
       confirmLockBreak: Boolean(confirmLockBreak),
       confirmMinimumBreak: Boolean(confirmMinimumBreak),
       idempotencyKey: idempotencyKey ? idempotencyKey.trim() : void 0,
@@ -11606,22 +12006,48 @@ app.post(["/api/user/withdrawals", "/user/withdrawals"], authMiddleware, financi
     next(err);
   }
 });
-app.post(["/api/user/lock-funds", "/user/lock-funds"], authMiddleware, async (req, res, next) => {
+app.post(["/api/user/withdrawals/:id/cancel", "/user/withdrawals/:id/cancel"], authMiddleware, financialRateLimiter, async (req, res, next) => {
+  try {
+    const user = req.user;
+    const { id } = req.params;
+    const { reason } = req.body;
+    const result = await cancelWithdrawalAsync(
+      user.id,
+      id,
+      typeof reason === "string" ? reason.trim() : void 0,
+      false
+    );
+    if (!result.success) {
+      throw Errors.validation(result.error || "Failed to cancel withdrawal request.");
+    }
+    const balance = await calculateUserBalanceAsync(user.id);
+    res.json({ success: true, withdrawal: result.withdrawal, balance });
+  } catch (err) {
+    next(err);
+  }
+});
+app.post(["/api/user/lock-funds", "/user/lock-funds"], authMiddleware, financialRateLimiter, async (req, res, next) => {
   try {
     const user = req.user;
     const { days, reason } = req.body;
-    const lockDays = days ? Number(days) : 30;
-    const lockUntil = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1e3).toISOString();
-    await updateProfile(user.id, {
-      fundLockUntil: lockUntil,
-      fundLockReason: reason || `User locked funds for ${lockDays} days`
-    });
+    const parsedDays = days !== void 0 && days !== null ? Number(days) : 30;
+    if (isNaN(parsedDays) || !Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 365) {
+      throw Errors.validation("Lock duration must be an integer between 1 and 365 days.");
+    }
+    const result = await lockUserFundVoluntary(
+      user.id,
+      parsedDays,
+      typeof reason === "string" ? reason.trim() : void 0
+    );
+    if (!result.success) {
+      throw Errors.validation(result.error || "Failed to apply fund lock.");
+    }
     const balance = await calculateUserBalanceAsync(user.id);
     res.json({
       success: true,
-      fundLockUntil: lockUntil,
+      fundLockUntil: result.fundLockUntil,
       balance,
-      message: `Funds successfully locked for ${lockDays} days to ensure active yield generation.`
+      message: `Funds successfully locked until ${new Date(result.fundLockUntil).toLocaleDateString()} to ensure active yield generation.`
     });
   } catch (err) {
     next(err);
@@ -11816,7 +12242,7 @@ app.get(["/api/admin/users", "/admin/users"], authMiddleware, adminMiddleware(),
           twoFactorEnabled: Boolean(u.twoFactorEnabled),
           profilePictureUrl: u.profilePictureUrl || null,
           walletAddress: u.walletAddress || "",
-          referralCode: u.referralCode || `FXJ-${u.id.substring(0, 6).toUpperCase()}`,
+          referralCode: u.referralCode || null,
           referrerId: u.referrerId || null,
           referrer,
           isTestUser: Boolean(u.isTestUser),
@@ -11900,7 +12326,7 @@ app.get(["/api/admin/users/:id", "/admin/users/:id"], authMiddleware, adminMiddl
       twoFactorEnabled: Boolean(user.twoFactorEnabled),
       profilePictureUrl: user.profilePictureUrl || null,
       walletAddress: user.walletAddress || "",
-      referralCode: user.referralCode || `FXJ-${user.id.substring(0, 6).toUpperCase()}`,
+      referralCode: user.referralCode || null,
       referrerId: user.referrerId || null,
       isTestUser: Boolean(user.isTestUser),
       isFlaggedForReview: Boolean(user.isFlaggedForReview),
@@ -11918,7 +12344,7 @@ app.get(["/api/admin/users/:id", "/admin/users/:id"], authMiddleware, adminMiddl
       referrer,
       balance,
       referralDetails: {
-        referralCode: user.referralCode || `FXJ-${user.id.substring(0, 6).toUpperCase()}`,
+        referralCode: user.referralCode || null,
         referrer,
         level1Count: referralSummary.level1Count,
         level2Count: referralSummary.level2Count,
@@ -12430,9 +12856,9 @@ app.post(["/api/admin/withdrawals/:id/action", "/admin/withdrawals/:id/action"],
     const admin = req.user;
     const { id } = req.params;
     const { action, txHash, adminNotes, reason } = req.body;
-    const normalizedAction = action === "approve" || action === "approved" ? "approved" : action === "reject" || action === "rejected" ? "rejected" : action === "pay" || action === "paid" || action === "completed" ? "paid" : action === "process" || action === "processing" ? "processing" : action;
-    if (!["approved", "rejected", "paid", "processing"].includes(normalizedAction)) {
-      throw Errors.validation("Invalid withdrawal action. Must be paid, approved, processing, or rejected.");
+    const normalizedAction = action === "approve" || action === "approved" ? "approved" : action === "reject" || action === "rejected" ? "rejected" : action === "pay" || action === "paid" || action === "completed" ? "paid" : action === "process" || action === "processing" ? "processing" : action === "cancel" || action === "cancelled" ? "cancelled" : action;
+    if (!["approved", "rejected", "paid", "processing", "cancelled"].includes(normalizedAction)) {
+      throw Errors.validation("Invalid withdrawal action. Must be paid, approved, processing, rejected, or cancelled.");
     }
     const note = adminNotes || reason;
     if (normalizedAction === "rejected" && (!note || !note.trim())) {

@@ -124,6 +124,7 @@ export type LedgerType =
   | 'withdrawal_fee' 
   | 'withdrawal_paid' 
   | 'withdrawal_rejected' 
+  | 'withdrawal_cancelled'
   | 'admin_adjustment' 
   | 'reversal';
 

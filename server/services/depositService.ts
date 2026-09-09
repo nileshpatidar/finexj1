@@ -292,9 +292,18 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
         reason: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations} confirmations.`,
         timestamp: now.toISOString(),
       });
+    }
 
-      // Idempotently trigger referral commission in application fallback mode only
-      processReferralRewardForDepositAsync(newDeposit.id, authoritativeAmount, user.id).catch(() => {});
+    // Authoritative Referral Reward Processing:
+    // When deposit is confirmed, credit referral rewards (5% Level 1, 2% Level 2).
+    // Must execute whether ledger entry was written via DB RPC or fallback,
+    // as confirm_deposit_atomic exclusively journals the deposit itself.
+    if (!confirmResult.rewardsCreated || (Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0)) {
+      try {
+        await processReferralRewardForDepositAsync(newDeposit.id, authoritativeAmount, user.id);
+      } catch (refErr: any) {
+        console.warn(`[Referral Reward Warning] Failed to process referral reward for deposit #${newDeposit.id}:`, refErr?.message || refErr);
+      }
     }
 
     return {
@@ -436,9 +445,15 @@ export async function verifyDepositOnChainAsync(
         reason: `Re-verification confirmed ${verifiedAmount} USDT on BSC with ${verification.confirmations} confirmations.`,
         timestamp: new Date().toISOString(),
       });
+    }
 
-      // Idempotently trigger referral commission if user has an active referrer
-      processReferralRewardForDepositAsync(deposit.id, verifiedAmount, deposit.userId).catch(() => {});
+    // Authoritative Referral Reward Processing
+    if (!confirmResult.rewardsCreated || (Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0)) {
+      try {
+        await processReferralRewardForDepositAsync(deposit.id, verifiedAmount, deposit.userId);
+      } catch (refErr: any) {
+        console.warn(`[Referral Reward Warning] Failed to process referral reward for deposit #${deposit.id}:`, refErr?.message || refErr);
+      }
     }
 
     return {
@@ -528,8 +543,15 @@ export async function updateDepositStatusAsync(
         beforeValue: { status: deposit.status },
         afterValue: { status: 'confirmed', amount: deposit.amount },
       });
+    }
 
-      processReferralRewardForDepositAsync(deposit.id, deposit.amount, deposit.userId).catch(() => {});
+    // Authoritative Referral Reward Processing
+    if (!confirmResult.rewardsCreated || (Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0)) {
+      try {
+        await processReferralRewardForDepositAsync(deposit.id, deposit.actualAmount || deposit.amount, deposit.userId);
+      } catch (refErr: any) {
+        console.warn(`[Referral Reward Warning] Failed to process referral reward for deposit #${deposit.id}:`, refErr?.message || refErr);
+      }
     }
 
     return { success: true, deposit: confirmResult.deposit };

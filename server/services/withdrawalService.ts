@@ -11,7 +11,7 @@ import {
   processWithdrawalStatusAtomic,
 } from '../repositories/withdrawals';
 import { getDepositByTxHash } from '../repositories/deposits';
-import { createLedgerEntry } from '../repositories/ledger';
+import { createLedgerEntry, getLedgerByUserId } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getSettings } from '../repositories/settings';
 import { isValidBEP20Address, isValidTxHash, verifyBEP20PayoutTx } from '../blockchain';
@@ -298,9 +298,9 @@ export async function updateWithdrawalStatusAsync(
 
     const validNextStates: Record<string, string[]> = {
       pending: ['approved', 'processing', 'paid', 'rejected', 'under_review', 'cancelled'],
-      under_review: ['approved', 'processing', 'paid', 'rejected'],
-      approved: ['processing', 'paid', 'rejected'],
-      processing: ['paid', 'rejected'],
+      under_review: ['approved', 'processing', 'paid', 'rejected', 'cancelled'],
+      approved: ['processing', 'paid', 'rejected', 'cancelled'],
+      processing: ['paid', 'rejected', 'cancelled'],
     };
 
     const allowed = validNextStates[currentStatus] || [];
@@ -399,6 +399,30 @@ export async function updateWithdrawalStatusAsync(
     });
 
     if (atomicResult.success && atomicResult.withdrawal) {
+      // Ensure ledger refund is recorded for cancelled status if database RPC ran an older migration without it
+      if (newStatus === 'cancelled') {
+        try {
+          const userLedger = await getLedgerByUserId(withdrawal.userId);
+          const hasCancelLedger = userLedger.some(
+            l => l.referenceId === String(withdrawal.id) && (l.type === 'withdrawal_cancelled' || l.type === 'withdrawal_rejected')
+          );
+          if (!hasCancelLedger) {
+            const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
+            await createLedgerEntry({
+              userId: withdrawal.userId,
+              type: 'withdrawal_cancelled',
+              amount: withdrawal.requestedAmount,
+              balanceAfter: currentBalance.availableBalance,
+              referenceId: withdrawal.id,
+              description: `Withdrawal request cancelled. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || 'Cancelled by user or administrator'}`,
+              createdAt: new Date().toISOString(),
+              performedBy: adminId,
+            });
+          }
+        } catch (ledgerErr: any) {
+          console.warn('[Ledger Notice] cancellation refund entry skipped:', ledgerErr?.message);
+        }
+      }
       return { success: true, withdrawal: atomicResult.withdrawal };
     }
 
@@ -434,6 +458,23 @@ export async function updateWithdrawalStatusAsync(
         });
       } catch (ledgerErr: any) {
         console.warn('[Ledger Notice] refund entry skipped:', ledgerErr?.message);
+      }
+    } else if (newStatus === 'cancelled') {
+      // Refund held funds back to user balance in ledger atomically
+      try {
+        const currentBalance = await calculateUserBalanceAsync(withdrawal.userId);
+        await createLedgerEntry({
+          userId: withdrawal.userId,
+          type: 'withdrawal_cancelled',
+          amount: withdrawal.requestedAmount,
+          balanceAfter: currentBalance.availableBalance,
+          referenceId: withdrawal.id,
+          description: `Withdrawal request cancelled. Refunded ${withdrawal.requestedAmount} USDT. Reason: ${adminNotes || 'Cancelled by user or administrator'}`,
+          createdAt: now.toISOString(),
+          performedBy: adminId,
+        });
+      } catch (ledgerErr: any) {
+        console.warn('[Ledger Notice] cancellation refund entry skipped:', ledgerErr?.message);
       }
     } else if (newStatus === 'paid') {
       try {
@@ -498,3 +539,45 @@ export async function updateWithdrawalStatusAsync(
     return { success: false, error: err?.message || 'Failed to update withdrawal' };
   }
 }
+
+/**
+ * High-Integrity Atomic Withdrawal Cancellation Handler
+ * Cancels a pending withdrawal request, restores user's held balance, and creates an audited refund ledger entry.
+ */
+export async function cancelWithdrawalAsync(
+  userId: string,
+  withdrawalId: string,
+  reason?: string,
+  isAdmin: boolean = false,
+  adminId?: string
+): Promise<{ success: boolean; withdrawal?: Withdrawal; error?: string }> {
+  const withdrawal = await getWithdrawalById(withdrawalId);
+  if (!withdrawal) {
+    return { success: false, error: 'Withdrawal record not found.' };
+  }
+
+  // Non-admins can only cancel their own withdrawals
+  if (!isAdmin && String(withdrawal.userId) !== String(userId)) {
+    return { success: false, error: 'Unauthorized to cancel this withdrawal request.' };
+  }
+
+  // Non-admins can only cancel pending or under_review withdrawals
+  if (!isAdmin && !['pending', 'under_review'].includes(withdrawal.status)) {
+    return {
+      success: false,
+      error: `Cannot cancel withdrawal with status '${withdrawal.status}'. Only pending requests may be cancelled by the user.`,
+    };
+  }
+
+  const actor = isAdmin ? (adminId || 'admin') : userId;
+  const cancellationReason = reason?.trim() || (isAdmin ? 'Cancelled by administrator' : 'Cancelled by user request');
+
+  return updateWithdrawalStatusAsync(
+    actor,
+    withdrawalId,
+    'cancelled',
+    undefined,
+    cancellationReason
+  );
+}
+

@@ -265,11 +265,11 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       const eligibleDeposits = userConfirmedDeposits.filter(d => {
         if (!d.amount || d.amount <= 0) return false;
         const dateStr = (d.eligibilityDate || d.confirmedAt || d.createdAt || '').slice(0, 10);
-        if (!dateStr) return true;
+        if (!dateStr) return false;
         return dateStr <= input.date;
       });
 
-      const effectiveDeposits = eligibleDeposits.length > 0 ? eligibleDeposits : userConfirmedDeposits;
+      const effectiveDeposits = eligibleDeposits;
       const userGrossPrincipal = effectiveDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
       const userTotalWithdrawn = userPaidWithdrawals.reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
       const userEligiblePrincipal = Math.max(0, Number((userGrossPrincipal - userTotalWithdrawn).toFixed(4)));
