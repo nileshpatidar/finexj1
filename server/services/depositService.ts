@@ -10,7 +10,7 @@ import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getSettings } from '../repositories/settings';
 import { uploadDepositProof } from '../storage';
-import { verifyBEP20Deposit, isValidTxHash, VerificationResult } from '../blockchain';
+import { verifyBEP20Deposit, isValidTxHash, isValidBEP20Address, VerificationResult } from '../blockchain';
 import { calculateUserBalanceAsync } from './balanceService';
 import { checkWalletDuplication } from './fraudService';
 import { processReferralRewardForDepositAsync } from './referralService';
@@ -59,6 +59,28 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     return {
       success: false,
       error: 'Financial configuration error: minimumDepositAmount is invalid or missing in system settings.',
+    };
+  }
+
+  const reqConfirmations = Number(settings.requiredConfirmations);
+  if (isNaN(reqConfirmations) || reqConfirmations < 1) {
+    return {
+      success: false,
+      error: 'Financial configuration error: requiredConfirmations is invalid or missing in system settings.',
+    };
+  }
+
+  if (!settings.bep20DepositAddress || !isValidBEP20Address(settings.bep20DepositAddress)) {
+    return {
+      success: false,
+      error: 'Financial configuration error: bep20DepositAddress is invalid or missing in system settings.',
+    };
+  }
+
+  if (!settings.usdtContractAddress || !isValidBEP20Address(settings.usdtContractAddress)) {
+    return {
+      success: false,
+      error: 'Financial configuration error: usdtContractAddress is invalid or missing in system settings.',
     };
   }
   const claimedAmount = input.amount !== undefined && !isNaN(Number(input.amount)) ? Number(input.amount) : undefined;
@@ -350,8 +372,16 @@ export async function verifyDepositOnChainAsync(
       };
     }
   } else {
-    const settings = await getSettings();
-    const reqConf = deposit.requiredConfirmations || settings.requiredConfirmations || 12;
+    let settings: any;
+    try {
+      settings = await getSettings();
+    } catch (err: any) {
+      return {
+        success: false,
+        error: 'Financial configuration is temporarily unavailable. Please try again later.',
+      };
+    }
+    const reqConf = deposit.requiredConfirmations || Number(settings.requiredConfirmations) || 12;
     verification = {
       isValid: true,
       amount: deposit.amount,

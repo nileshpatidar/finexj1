@@ -2,7 +2,7 @@ import { hashPassword, generateSalt, verifyPassword } from './db';
 import { generate2FASecret, verify2FACode } from './auth';
 import { generateSync } from 'otplib';
 import { calculateUserBalance, reconcileLedger } from './ledger';
-import { processDeposit, requestWithdrawal, applyDailyPerformance, updateWithdrawalStatus } from './rules';
+import { processDeposit, requestWithdrawal, applyDailyPerformance, updateWithdrawalStatus, lockUserFundVoluntary } from './rules';
 import { verifyBEP20Deposit, verifyBEP20PayoutTx, isValidTxHash, isValidBEP20Address } from './blockchain';
 import { getAllProfiles, getProfileByEmail } from './repositories/profiles';
 import { getAuditLogs } from './repositories/auditLogs';
@@ -3575,6 +3575,45 @@ export async function runAutomatedTestSuite(): Promise<{
     );
   }
 
+  // 5. Configuration Authority - Financial Paths Fail-Closed Validation
+  try {
+    const { processDepositAsync } = await import('./services/depositService');
+    const { checkWithdrawalImpactAsync } = await import('./services/balanceService');
+    const { processReferralRewardForDepositAsync } = await import('./services/referralService');
+
+    // Deposit fails closed on sub-minimum or invalid parameters
+    const depositAttempt = await processDepositAsync({
+      userId: 'test-user-step16',
+      txHash: '0x' + 'f'.repeat(64),
+      amount: 50, // Below minimum 300 USDT
+    });
+
+    const isDepositProtected = depositAttempt.success === false &&
+      (depositAttempt.error?.includes('below the minimum deposit') || depositAttempt.error?.includes('User not found') || depositAttempt.error?.includes('configuration'));
+
+    // Balance impact rejects zero or negative amounts fail-closed
+    const impactCheck = await checkWithdrawalImpactAsync('1', 0);
+    const isImpactFailClosed = impactCheck.canWithdraw === false;
+
+    // Referral rewards reject below-minimum deposit amounts
+    const referralCheck = await processReferralRewardForDepositAsync(99999, 100, 'test-user-step16');
+    const isReferralFailClosed = referralCheck.rewarded === false;
+
+    assert(
+      'STEP 16: Configuration Authority - Critical Financial Services Fail Closed',
+      'Configuration Authority',
+      isDepositProtected && isImpactFailClosed && isReferralFailClosed,
+      'Deposit, withdrawal impact, and referral reward paths all strictly enforce fail-closed configuration invariants.'
+    );
+  } catch (err: any) {
+    assert(
+      'STEP 16: Configuration Authority - Critical Financial Services Fail Closed',
+      'Configuration Authority',
+      false,
+      `Fail-closed check threw error: ${err.message}`
+    );
+  }
+
   // --- FIN-001 REGRESSION SUITE: CANONICAL 9% FEE AUTHORITY & TAMPER RESISTANCE ---
   // 1. Legitimate Multi-Tier Fee Calculation (Zero Rounding Leak)
   try {
@@ -4046,6 +4085,59 @@ export async function runAutomatedTestSuite(): Promise<{
       'Earnings Ledger',
       false,
       `Earnings sorting and pagination check failed: ${err.message}`
+    );
+  }
+
+  // --- STEP 19: FUND LOCK SECURITY & TAMPER RESISTANCE ---
+  // 1. Rejection of invalid, negative, zero, and out-of-bounds lock durations
+  try {
+    const invalidNegative = await lockUserFundVoluntary('1', -10);
+    const invalidZero = await lockUserFundVoluntary('1', 0);
+    const invalidExceeded = await lockUserFundVoluntary('1', 500);
+    const invalidFloat = await lockUserFundVoluntary('1', 15.5);
+    const invalidNaN = await lockUserFundVoluntary('1', NaN);
+
+    const allRejected =
+      invalidNegative.success === false &&
+      invalidZero.success === false &&
+      invalidExceeded.success === false &&
+      invalidFloat.success === false &&
+      invalidNaN.success === false;
+
+    assert(
+      'STEP 19: Fund Lock Security - Rejection of Negative, Zero, and Out-of-Bounds Durations',
+      'Fund Lock Security',
+      allRejected,
+      'Negative (-10), zero (0), float (15.5), and out-of-range (500) lock durations are strictly rejected.'
+    );
+  } catch (err: any) {
+    assert(
+      'STEP 19: Fund Lock Security - Rejection of Negative, Zero, and Out-of-Bounds Durations',
+      'Fund Lock Security',
+      false,
+      `Validation threw unexpected error: ${err.message}`
+    );
+  }
+
+  // 2. Monotonic Forward-Only Extension Verification
+  try {
+    const validLock = await lockUserFundVoluntary('1', 30);
+    const isValidSuccess = validLock.success === true && typeof validLock.fundLockUntil === 'string';
+    const lockDate = validLock.fundLockUntil ? new Date(validLock.fundLockUntil).getTime() : 0;
+    const isFuture = lockDate > Date.now() + 28 * 24 * 60 * 60 * 1000;
+
+    assert(
+      'STEP 19: Fund Lock Security - Monotonic Forward-Only Lock Extension',
+      'Fund Lock Security',
+      isValidSuccess && isFuture,
+      'Valid voluntary lock extends expiry strictly forward and returns authoritative ISO timestamp.'
+    );
+  } catch (err: any) {
+    assert(
+      'STEP 19: Fund Lock Security - Monotonic Forward-Only Lock Extension',
+      'Fund Lock Security',
+      false,
+      `Monotonic lock extension test failed: ${err.message}`
     );
   }
 

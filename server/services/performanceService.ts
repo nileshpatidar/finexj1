@@ -104,7 +104,22 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
     }
 
     // STRICT CONFIGURATION SAFETY: Read and validate minimumDepositAmount
-    const settings = await getSettings();
+    let settings: any;
+    try {
+      settings = await getSettings();
+    } catch (err: any) {
+      await createAuditLog({
+        action: 'CONFIGURATION_ERROR',
+        actorId: input.adminUserId,
+        actorRole: 'admin',
+        reason: `System settings unavailable for performance yield calculation: ${err?.message || err}`,
+      });
+      return {
+        success: false,
+        error: 'Financial configuration error: system settings unavailable. Yield calculation aborted.',
+      };
+    }
+
     const minDeposit = Number(settings.minimumDepositAmount);
     if (isNaN(minDeposit) || minDeposit <= 0) {
       await createAuditLog({

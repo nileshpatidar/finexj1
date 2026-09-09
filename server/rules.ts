@@ -82,11 +82,27 @@ export async function lockUserFundVoluntary(
     return { success: false, error: 'User not found.' };
   }
 
-  if (days <= 0 || days > 365) {
-    return { success: false, error: 'Lock duration must be between 1 and 365 days.' };
+  // 1. Strict input validation: must be an integer between 1 and 365 days
+  if (typeof days !== 'number' || isNaN(days) || !isFinite(days) || !Number.isInteger(days) || days < 1 || days > 365) {
+    return { success: false, error: 'Lock duration must be an integer between 1 and 365 days.' };
   }
 
   const now = new Date();
+
+  // 2. Administrative hold protection: user cannot tamper with or bypass active admin locks
+  if (
+    user.fundLockUntil &&
+    new Date(user.fundLockUntil).getTime() > now.getTime() &&
+    user.fundLockReason &&
+    user.fundLockReason.toLowerCase().includes('admin')
+  ) {
+    return {
+      success: false,
+      error: 'Your account is currently subject to an administrative hold. Voluntary lock adjustments are disabled.',
+    };
+  }
+
+  // 3. Monotonic forward-only extension: user can only extend their lock, never shorten or clear it
   const currentExpiry = user.fundLockUntil ? new Date(user.fundLockUntil).getTime() : now.getTime();
   const baseTime = Math.max(now.getTime(), currentExpiry);
   const fundLockUntil = new Date(baseTime + days * 24 * 60 * 60 * 1000).toISOString();
@@ -102,6 +118,10 @@ export async function lockUserFundVoluntary(
     actorEmail: user.email,
     actorRole: user.role,
     targetUserId: user.id,
+    beforeValue: {
+      fundLockUntil: user.fundLockUntil || null,
+      fundLockReason: user.fundLockReason || null,
+    },
     afterValue: { fundLockUntil, days },
     reason: `User locked fund for ${days} days until ${fundLockUntil}.`,
   });

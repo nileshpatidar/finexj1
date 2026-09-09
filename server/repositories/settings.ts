@@ -237,12 +237,15 @@ export async function getSettings(): Promise<AppSettings> {
     return cachedSettings;
   }
 
-  const isDevFallbackAllowed =
+  // Development/test fallback is ONLY permitted when Supabase connection is NOT initialized/ready.
+  // Once the database is connected, all configuration reads MUST be authoritative and fail closed.
+  const isOfflineTestFallbackAllowed =
+    !isServerSupabaseReady() &&
     !config.isProduction &&
     (process.env.NODE_ENV === 'test' || process.env.ALLOW_DEV_CONFIG_FALLBACK === 'true');
 
   if (!isServerSupabaseReady()) {
-    if (isDevFallbackAllowed) {
+    if (isOfflineTestFallbackAllowed) {
       logger.warn('DEV_CONFIG_FALLBACK', 'Supabase not ready in test/dev environment, using development default settings.');
       return { ...developmentDefaultSettings };
     }
@@ -256,17 +259,11 @@ export async function getSettings(): Promise<AppSettings> {
 
     if (error) {
       logger.error('CONFIG_AUTHORITY_QUERY_ERROR', `Failed to query system_settings: ${error.message}`);
-      if (isDevFallbackAllowed) {
-        return { ...developmentDefaultSettings };
-      }
       throw new ConfigurationError(`Database error loading system settings: ${error.message}`);
     }
 
     if (!data || data.length === 0) {
       logger.error('CONFIG_AUTHORITY_EMPTY', 'system_settings table is empty in Supabase.');
-      if (isDevFallbackAllowed) {
-        return { ...developmentDefaultSettings };
-      }
       throw new ConfigurationError('System settings table is empty. Authoritative configuration is missing.');
     }
 
@@ -286,11 +283,6 @@ export async function getSettings(): Promise<AppSettings> {
         metadata: { errors: validation.errors },
       });
 
-      if (isDevFallbackAllowed) {
-        logger.warn('DEV_CONFIG_FALLBACK', `Validation failed (${errorSummary}), using development defaults in test mode.`);
-        return { ...developmentDefaultSettings };
-      }
-
       throw new ConfigurationError(`System configuration validation failed: ${errorSummary}`);
     }
 
@@ -305,9 +297,6 @@ export async function getSettings(): Promise<AppSettings> {
     }
 
     logger.error('CONFIG_AUTHORITY_EXCEPTION', `Unexpected error in getSettings: ${err?.message || err}`);
-    if (isDevFallbackAllowed) {
-      return { ...developmentDefaultSettings };
-    }
     throw new ConfigurationError('Financial configuration is temporarily unavailable. Please try again later.');
   }
 }

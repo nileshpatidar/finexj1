@@ -42,6 +42,7 @@ import { getOperationalFundSummaryAsync, adjustOperationalFundAsync } from './se
 import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync, getAdminLedgerAsync } from './services/accountingService';
 import { getUserTransactionsAsync } from './services/transactionService';
 import { applyDailyPerformanceAsync } from './services/performanceService';
+import { lockUserFundVoluntary } from './rules';
 import { getSignedDepositProofUrl } from './storage';
 import { verifyBEP20Deposit, verifyBEP20PayoutTx, isValidBEP20Address, isValidTxHash } from './blockchain';
 import { runAutomatedTestSuite } from './tests';
@@ -1125,24 +1126,32 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
 });
 
 // User Voluntary Fund Lock
-app.post(['/api/user/lock-funds', '/user/lock-funds'], authMiddleware, async (req, res, next) => {
+app.post(['/api/user/lock-funds', '/user/lock-funds'], authMiddleware, financialRateLimiter, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
     const { days, reason } = req.body;
-    const lockDays = days ? Number(days) : 30;
 
-    const lockUntil = new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000).toISOString();
-    await updateProfile(user.id, {
-      fundLockUntil: lockUntil,
-      fundLockReason: reason || `User locked funds for ${lockDays} days`,
-    });
+    const parsedDays = days !== undefined && days !== null ? Number(days) : 30;
+    if (isNaN(parsedDays) || !Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 365) {
+      throw Errors.validation('Lock duration must be an integer between 1 and 365 days.');
+    }
+
+    const result = await lockUserFundVoluntary(
+      user.id,
+      parsedDays,
+      typeof reason === 'string' ? reason.trim() : undefined
+    );
+
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to apply fund lock.');
+    }
 
     const balance = await calculateUserBalanceAsync(user.id);
     res.json({
       success: true,
-      fundLockUntil: lockUntil,
+      fundLockUntil: result.fundLockUntil,
       balance,
-      message: `Funds successfully locked for ${lockDays} days to ensure active yield generation.`,
+      message: `Funds successfully locked until ${new Date(result.fundLockUntil!).toLocaleDateString()} to ensure active yield generation.`,
     });
   } catch (err) {
     next(err);

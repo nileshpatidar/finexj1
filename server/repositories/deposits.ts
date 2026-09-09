@@ -358,7 +358,25 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
     console.warn('[Deposit Atomic RPC Notice]: RPC call fell back to direct transaction handler:', rpcErr?.message);
   }
 
-  // 2. Direct transactional handler fallback
+  // 2. Direct transactional handler fallback with strict configuration safety
+  let settings: any;
+  try {
+    settings = await getSettings();
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'Financial configuration error: system settings unavailable. Deposit confirmation aborted.',
+    };
+  }
+
+  const minDeposit = Number(settings.minimumDepositAmount);
+  if (isNaN(minDeposit) || minDeposit <= 0) {
+    return {
+      success: false,
+      error: 'Financial configuration error: minimumDepositAmount is invalid or missing in system settings. Deposit confirmation aborted.',
+    };
+  }
+
   const existing = await getDepositById(String(numericDepId));
   if (!existing) {
     return { success: false, error: `Deposit record #${numericDepId} not found in database.` };
