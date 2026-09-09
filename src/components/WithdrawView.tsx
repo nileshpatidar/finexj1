@@ -55,7 +55,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
 
   // Two-Stage Confirmation Modal State
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
-  const [userConfirmedLockBreak, setUserConfirmedLockBreak] = useState(false);
+  const [userConfirmedCompounding, setUserConfirmedCompounding] = useState(false);
   const [userConfirmedMinimumBreak, setUserConfirmedMinimumBreak] = useState(false);
 
   // Submission state
@@ -208,11 +208,29 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
       return;
     }
 
-    // Check if Authoritative Backend warnings apply
-    const needsLockConfirm = previewImpact?.requiresLockBreakConfirmation && !userConfirmedLockBreak;
-    const needsMinConfirm = previewImpact?.requiresMinimumBreakConfirmation && !userConfirmedMinimumBreak;
+    // Authoritative check against withdrawable balance (locked funds are firmly blocked)
+    const withdrawableBal = Number(balance?.eligibleForWithdrawal ?? 0);
+    if (withdrawableBal <= 0 || balance?.canWithdraw === false) {
+      setErrorMessage(
+        balance?.withdrawalRestrictionReason ||
+          'Your deposited funds are currently locked. Withdrawals are available only after the applicable deposit lock period has ended.'
+      );
+      return;
+    }
 
-    if (needsLockConfirm || needsMinConfirm) {
+    if (numAmount > withdrawableBal) {
+      setErrorMessage(
+        `Requested amount ($${numAmount.toFixed(2)}) exceeds your available withdrawable balance ($${withdrawableBal.toFixed(2)}). Locked funds cannot be withdrawn.`
+      );
+      return;
+    }
+
+    // Check if Authoritative Backend notices apply
+    const needsCompoundingConfirm =
+      Boolean(previewImpact?.requiresCompoundingNotice || previewImpact?.touchesProtectedFund) && !userConfirmedCompounding;
+    const needsMinConfirm = Boolean(previewImpact?.requiresMinimumBreakConfirmation) && !userConfirmedMinimumBreak;
+
+    if (needsCompoundingConfirm || needsMinConfirm) {
       setShowConfirmationModal(true);
       return;
     }
@@ -237,7 +255,8 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         password,
         twoFactorCode: twoFactorCode.trim() || undefined,
         otpCode: otpCode.trim(),
-        confirmLockBreak: userConfirmedLockBreak,
+        confirmCompoundingImpact: userConfirmedCompounding,
+        confirmLockBreak: userConfirmedCompounding,
         confirmMinimumBreak: userConfirmedMinimumBreak,
         idempotencyKey,
         userNotes: userNotes.trim() || undefined,
@@ -259,7 +278,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         setTestOtpCode(null);
         setOtpSentMessage(null);
         setShowConfirmationModal(false);
-        setUserConfirmedLockBreak(false);
+        setUserConfirmedCompounding(false);
         setUserConfirmedMinimumBreak(false);
 
         await loadData();
@@ -282,11 +301,13 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
   const authoritativeFeeAmt = previewImpact?.feeAmount ?? Number((numAmount * (authoritativeFeePct / 100)).toFixed(4));
   const authoritativeNetAmt = previewImpact?.netAmount ?? Math.max(0, Number((numAmount - authoritativeFeeAmt).toFixed(4)));
 
-  // Available balance helpers from backend
-  const availableBal = Number(balance?.availableBalance || 0);
+  // Authoritative balance helpers from backend
+  const totalBalance = Number(balance?.availableBalance || 0);
+  const lockedFunds = Number(balance?.lockedBalance ?? balance?.depositLockedPrincipal ?? 0);
+  const withdrawableBalance = Number(balance?.eligibleForWithdrawal ?? 0);
   const referralEarnings = Number(balance?.referralEarnings || 0);
-  const compoundingPrincipal = Number(balance?.activeCompoundingPrincipal ?? Math.max(0, availableBal - referralEarnings));
-  const lockedPrincipal = Number(balance?.depositLockedPrincipal ?? balance?.lockedBalance ?? 0);
+  const compoundingPrincipal = Number(balance?.activeCompoundingPrincipal ?? Math.max(0, totalBalance - referralEarnings));
+  const isLocked = withdrawableBalance <= 0 || balance?.canWithdraw === false;
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-24 text-slate-900 dark:text-slate-100">
@@ -318,74 +339,98 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         </button>
       </div>
 
-      {/* 1. AVAILABLE USER BALANCE CARD & SOURCES BREAKDOWN */}
+      {/* 1. FINANCIAL POSITION CARDS (Total Balance, Locked Funds, Withdrawable Balance) */}
       <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Available Withdrawal Balance
+            Account Financial Position
           </span>
           <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Authoritative Live Balance</span>
+            <span>Authoritative Balance</span>
           </span>
         </div>
 
-        <div className="flex items-baseline space-x-2">
-          <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-            ${availableBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-          <span className="text-sm font-bold text-slate-500 dark:text-slate-400">USDT</span>
-        </div>
-
-        {/* Source Categories Breakdown */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-          {/* Active Compounding Principal */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80">
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
-              Compounding Principal
+        {/* 3 Metric Cards: Total Balance, Locked Funds, Withdrawable Balance */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          {/* Total Balance */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80">
+            <span className="text-[11px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
+              Total Balance
             </span>
-            <p className="text-base font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-              ${compoundingPrincipal.toFixed(2)} USDT
+            <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-1">
+              ${totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-1 leading-tight">
-              Subject to 30-day lock & ${minimumDepositAmount ?? 300} minimum
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-1">
+              Principal + Earnings
             </span>
           </div>
 
-          {/* Referral Income */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80">
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
-              Referral Income
-            </span>
-            <p className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-              ${referralEarnings.toFixed(2)} USDT
+          {/* Locked Funds */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] uppercase font-bold text-amber-600 dark:text-amber-400">
+                Locked Funds
+              </span>
+              {lockedFunds > 0 && <Lock className="w-3.5 h-3.5 text-amber-500" />}
+            </div>
+            <p className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+              ${lockedFunds.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-1 leading-tight">
-              100% unlocked • Free to withdraw anytime
-            </span>
-          </div>
-
-          {/* Deposit Lock Status */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80">
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
-              Locked Principal
-            </span>
-            <p className="text-base font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">
-              ${lockedPrincipal.toFixed(2)} USDT
-            </p>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-1 leading-tight">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-1">
               {balance?.isFundLocked
                 ? `Lock active (${balance.fundLockRemainingDays}d ${balance.fundLockRemainingHours}h)`
-                : 'Mature / Unlocked'}
+                : !balance?.is30DaysOld
+                ? `Maturity (${balance?.accountAgeDays ?? 0}/30d)`
+                : lockedFunds > 0
+                ? '30-day deposit lock active'
+                : 'Zero funds locked'}
+            </span>
+          </div>
+
+          {/* Withdrawable Balance */}
+          <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/50">
+            <span className="text-[11px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">
+              Withdrawable Balance
+            </span>
+            <p className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-1">
+              ${withdrawableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <span className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 block mt-1">
+              Eligible for immediate withdrawal
             </span>
           </div>
         </div>
+
+        {/* Lock Notice Banner (if funds are locked) */}
+        {isLocked && (
+          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 text-xs flex items-start space-x-3">
+            <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="font-bold block">Deposit Lock Active — Withdrawals Blocked</span>
+              <p className="leading-relaxed">
+                {balance?.withdrawalRestrictionReason ||
+                  'Your deposited funds are currently locked. Withdrawals are available only after the applicable deposit lock period has ended.'}
+              </p>
+              {balance?.isFundLocked && balance.fundLockUntil && (
+                <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                  Lock ends on {new Date(balance.fundLockUntil).toLocaleDateString()} (in {balance.fundLockRemainingDays} days, {balance.fundLockRemainingHours} hours).
+                </p>
+              )}
+              {!balance?.is30DaysOld && balance?.withdrawalEligibleDate && (
+                <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                  Account maturity unlocks on {new Date(balance.withdrawalEligibleDate).toLocaleDateString()} ({balance.accountAgeDays} / 30 days completed).
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Source distinction note */}
         <div className="flex items-start space-x-2 text-[11px] text-slate-500 dark:text-slate-400 pt-1">
           <Info className="w-3.5 h-3.5 text-blue-500 flex-shrink-0 mt-0.5" />
           <span>
-            Every withdrawal is subject to the standard {authoritativeFeePct}% fee. Referral income is not part of compounding principal and can be withdrawn freely without affecting your daily yield cycle.
+            Standard {authoritativeFeePct}% withdrawal fee applies to all disbursements. Referral income is not part of compounding principal and can be withdrawn freely without affecting your daily yield cycle.
           </span>
         </div>
       </div>
@@ -424,32 +469,32 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               <label className="font-bold text-slate-700 dark:text-slate-300 text-xs">
                 Withdrawal Amount (USDT)
               </label>
-              {availableBal > 0 && (
+              {withdrawableBalance > 0 && (
                 <div className="flex items-center space-x-1.5">
                   <button
                     type="button"
-                    onClick={() => setAmount((availableBal * 0.25).toFixed(2))}
+                    onClick={() => setAmount((withdrawableBalance * 0.25).toFixed(2))}
                     className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-600 dark:text-slate-300 transition cursor-pointer"
                   >
                     25%
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAmount((availableBal * 0.5).toFixed(2))}
+                    onClick={() => setAmount((withdrawableBalance * 0.5).toFixed(2))}
                     className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-600 dark:text-slate-300 transition cursor-pointer"
                   >
                     50%
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAmount((availableBal * 0.75).toFixed(2))}
+                    onClick={() => setAmount((withdrawableBalance * 0.75).toFixed(2))}
                     className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-600 dark:text-slate-300 transition cursor-pointer"
                   >
                     75%
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAmount(availableBal.toFixed(2))}
+                    onClick={() => setAmount(withdrawableBalance.toFixed(2))}
                     className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-[11px] font-bold transition cursor-pointer"
                   >
                     Max
@@ -517,14 +562,14 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
           </div>
 
           {/* Active Backend Warnings Preview Banner */}
-          {previewImpact?.requiresLockBreakConfirmation && (
+          {(previewImpact?.requiresCompoundingNotice || previewImpact?.touchesProtectedFund) && (
             <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 text-xs flex items-start space-x-2.5">
               <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
               <div>
-                <strong className="font-bold block">30-Day Fund Lock Warning:</strong>
+                <strong className="font-bold block">Withdrawal Notice:</strong>
                 <p className="mt-0.5 leading-relaxed">
-                  {previewImpact.lockBreakWarning ||
-                    'Your principal and earnings are currently locked for the 30-day period. If you continue with this withdrawal, your current compounding/earning cycle will be broken and daily earnings will stop according to the withdrawal rules.'}
+                  {previewImpact.compoundingNoticeText ||
+                    'Your requested withdrawal will reduce your active compounding principal. If you withdraw funds, the withdrawn amount will no longer participate in future compounding/earning calculations according to the platform rules. Your current compounding/earning cycle may be reduced or stopped depending on the amount withdrawn.'}
                 </p>
               </div>
             </div>
@@ -687,7 +732,9 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             type="submit"
             disabled={
               isSubmitting ||
+              isLocked ||
               numAmount <= 0 ||
+              numAmount > withdrawableBalance ||
               !destinationAddress ||
               !password ||
               !otpCode
@@ -699,6 +746,13 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Submitting Authoritative Payout Request...</span>
               </>
+            ) : isLocked ? (
+              <>
+                <Lock className="w-4 h-4" />
+                <span>Funds Locked (Withdrawals Unavailable)</span>
+              </>
+            ) : numAmount > withdrawableBalance ? (
+              <span>Amount Exceeds Withdrawable Balance</span>
             ) : (
               <>
                 <ArrowUpFromLine className="w-4 h-4" />
@@ -719,7 +773,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-                  Withdrawal Impact Confirmation Required
+                  Withdrawal Notice
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                   Please review and acknowledge the terms before completing your withdrawal.
@@ -728,26 +782,27 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             </div>
 
             <div className="space-y-4 text-xs">
-              {/* Lock Break Warning */}
-              {previewImpact?.requiresLockBreakConfirmation && (
+              {/* Compounding Principal Reduction Notice */}
+              {(previewImpact?.requiresCompoundingNotice || previewImpact?.touchesProtectedFund) && (
                 <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 space-y-3">
-                  <div className="flex items-start space-x-2 text-amber-950 dark:text-amber-100">
-                    <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                    <span className="font-bold text-xs leading-relaxed">
-                      {previewImpact.lockBreakWarning ||
-                        'Your principal and earnings are currently locked for the 30-day period. If you continue with this withdrawal, your current compounding/earning cycle will be broken and daily earnings will stop according to the withdrawal rules.'}
-                    </span>
+                  <div className="space-y-2 text-amber-950 dark:text-amber-100">
+                    <p className="font-semibold leading-relaxed">
+                      Your requested withdrawal will reduce your active compounding principal. If you withdraw funds, the withdrawn amount will no longer participate in future compounding/earning calculations according to the platform rules.
+                    </p>
+                    <p className="font-semibold leading-relaxed">
+                      Your current compounding/earning cycle may be reduced or stopped depending on the amount withdrawn.
+                    </p>
                   </div>
 
                   <label className="flex items-start space-x-2.5 cursor-pointer pt-2 border-t border-amber-200 dark:border-amber-800">
                     <input
                       type="checkbox"
-                      checked={userConfirmedLockBreak}
-                      onChange={e => setUserConfirmedLockBreak(e.target.checked)}
+                      checked={userConfirmedCompounding}
+                      onChange={e => setUserConfirmedCompounding(e.target.checked)}
                       className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
                     />
                     <span className="font-semibold text-amber-900 dark:text-amber-200 text-xs">
-                      I understand and confirm breaking my 30-day lock cycle.
+                      I understand and confirm that this withdrawal will reduce my active compounding principal.
                     </span>
                   </label>
                 </div>
@@ -760,7 +815,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                     <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                     <span className="font-bold text-xs leading-relaxed">
                       {previewImpact.minimumBreakWarning ||
-                        'Your withdrawal will reduce your eligible fund below the minimum required amount. If you continue, daily earnings/compounding will stop.'}
+                        `Your withdrawal will reduce your eligible fund below the minimum required amount ($${minimumDepositAmount ?? 300} USDT). If you continue, daily earnings/compounding will stop.`}
                     </span>
                   </div>
 
@@ -808,8 +863,8 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               <button
                 type="button"
                 disabled={
-                  (previewImpact?.requiresLockBreakConfirmation && !userConfirmedLockBreak) ||
-                  (previewImpact?.requiresMinimumBreakConfirmation && !userConfirmedMinimumBreak) ||
+                  Boolean((previewImpact?.requiresCompoundingNotice || previewImpact?.touchesProtectedFund) && !userConfirmedCompounding) ||
+                  Boolean(previewImpact?.requiresMinimumBreakConfirmation && !userConfirmedMinimumBreak) ||
                   isSubmitting
                 }
                 onClick={executeWithdrawalSubmission}

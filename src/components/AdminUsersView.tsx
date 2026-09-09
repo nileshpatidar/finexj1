@@ -426,7 +426,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ onRefreshParentS
                             <div className="flex items-center space-x-1">
                               <span className="text-[10px] text-slate-400">Code:</span>
                               <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-[11px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
-                                {u.referralCode || `FXJ-${u.id}`}
+                                {u.referralCode || 'Unavailable'}
                               </span>
                             </div>
                             <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[160px]">
@@ -608,7 +608,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ onRefreshParentS
 
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-[10px] text-slate-400 font-mono">
-                        Ref: {u.referralCode || `FXJ-${u.id}`}
+                        Ref: {u.referralCode || 'Unavailable'}
                       </span>
 
                       <div className="flex items-center space-x-2">

@@ -443,87 +443,51 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* REQUIREMENT 1: 6 MANDATORY BALANCE SUMMARY METRICS */}
+      {/* Authoritative Earnings & Principal Breakdown (No duplicate Total/Locked/Withdrawable cards) */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            <span>Authoritative Balance Summary</span>
+            <span>Financial Breakdown</span>
           </h2>
           <span className="text-[10px] text-slate-400">Backend Verified</span>
         </div>
 
-        <div id="balance-summary-grid" className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-          {/* 1. Total Available Balance */}
+        <div id="balance-summary-grid" className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* 1. Eligible Compounding Principal */}
           <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Total Balance</span>
-              <Wallet className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <p id="metric-available-balance" className="text-lg font-extrabold text-slate-900 dark:text-white">
-              ${(balance?.availableBalance || 0).toFixed(2)}
-            </p>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">Current available</p>
-          </div>
-
-          {/* 2. Eligible Principal */}
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Eligible Principal</span>
+              <span className="text-xs font-semibold">Compounding Principal</span>
               <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             </div>
             <p id="metric-eligible-principal" className="text-lg font-extrabold text-slate-900 dark:text-white">
               ${(balance?.activeCompoundingPrincipal || 0).toFixed(2)}
             </p>
-            <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">Compounding base</p>
+            <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">Active earning base</p>
           </div>
 
-          {/* 3. Daily Earnings */}
+          {/* 2. Cumulative Daily Earnings */}
           <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Daily Earnings</span>
+              <span className="text-xs font-semibold">Cumulative Yield</span>
               <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             </div>
             <p id="metric-daily-earnings" className="text-lg font-extrabold text-blue-600 dark:text-blue-400">
               +${(balance?.totalEarnings || 0).toFixed(2)}
             </p>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">Cumulative yield</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">Trading returns</p>
           </div>
 
-          {/* 4. Referral Income */}
+          {/* 3. Referral Income */}
           <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Referral Income</span>
+              <span className="text-xs font-semibold">Referral Rewards</span>
               <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
             </div>
             <p id="metric-referral-income" className="text-lg font-extrabold text-purple-600 dark:text-purple-400">
               +${totalReferralIncome.toFixed(2)}
             </p>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">Non-compounding</p>
-          </div>
-
-          {/* 5. Locked Amount */}
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Locked Amount</span>
-              <Lock className="w-4 h-4 text-amber-500" />
-            </div>
-            <p id="metric-locked-amount" className="text-lg font-extrabold text-amber-600 dark:text-amber-400">
-              ${(balance?.lockedBalance || 0).toFixed(2)}
-            </p>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">30d locked funds</p>
-          </div>
-
-          {/* 6. Withdrawable Amount */}
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Withdrawable</span>
-              <BadgeDollarSign className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <p id="metric-withdrawable-amount" className="text-lg font-extrabold text-blue-700 dark:text-blue-300">
-              ${(balance?.eligibleForWithdrawal || 0).toFixed(2)}
-            </p>
-            <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">Liquid quota</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">Non-compounding reward</p>
           </div>
         </div>
       </div>

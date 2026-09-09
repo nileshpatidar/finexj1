@@ -267,7 +267,7 @@ export const ReferralView: React.FC = () => {
                 {isLoadingSummary ? (
                   <span className="text-slate-400 text-sm font-normal">Loading...</span>
                 ) : (
-                  summary?.referralCode || 'FXJ-USER'
+                  summary?.referralCode || 'Referral code unavailable'
                 )}
               </span>
               <button

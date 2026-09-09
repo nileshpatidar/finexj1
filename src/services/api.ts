@@ -152,6 +152,7 @@ export const api = {
     password: string;
     twoFactorCode?: string;
     otpCode?: string;
+    confirmCompoundingImpact?: boolean;
     confirmLockBreak?: boolean;
     confirmMinimumBreak?: boolean;
     idempotencyKey?: string;
@@ -163,7 +164,7 @@ export const api = {
       balance?: UserBalanceSummary;
       requiresOtp?: boolean;
       requiresConfirmation?: boolean;
-      warningType?: 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
+      warningType?: 'COMPOUNDING_NOTICE' | 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
       error?: string;
     }>('/api/user/withdrawals', {
       method: 'POST',

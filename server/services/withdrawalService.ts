@@ -49,6 +49,7 @@ export interface RequestWithdrawalInput {
   requestedAmount: number;
   destinationAddress: string;
   otpCode?: string;
+  confirmCompoundingImpact?: boolean;
   confirmLockBreak?: boolean;
   confirmMinimumBreak?: boolean;
   idempotencyKey?: string;
@@ -61,7 +62,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
   withdrawal?: Withdrawal;
   requiresOtp?: boolean;
   requiresConfirmation?: boolean;
-  warningType?: 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
+  warningType?: 'COMPOUNDING_NOTICE' | 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
   error?: string;
 }> {
   return withUserWithdrawalLock(input.userId, async () => {
@@ -139,13 +140,14 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
       };
     }
 
-    // Check 30-Day Protected Fund Lock Confirmation
-    if (impact.requiresLockBreakConfirmation && input.confirmLockBreak !== true) {
+    // Compounding Notice acknowledgment before touching active compounding principal
+    const confirmedCompounding = Boolean(input.confirmCompoundingImpact || input.confirmLockBreak);
+    if (impact.requiresCompoundingNotice && !confirmedCompounding) {
       return {
         success: false,
         requiresConfirmation: true,
-        warningType: 'LOCK_BREAK_WARNING',
-        error: impact.lockBreakWarning,
+        warningType: 'COMPOUNDING_NOTICE',
+        error: impact.compoundingNoticeText,
       };
     }
 

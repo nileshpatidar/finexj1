@@ -522,7 +522,7 @@ export async function getUserReferralSummaryAsync(userId: string): Promise<UserR
     throw new Error('User not found');
   }
 
-  const referralCode = user.referralCode || `FXJ-${user.id.substring(0, 6).toUpperCase()}`;
+  const referralCode = user.referralCode || '';
 
   // 1. Level 1 count
   const l1Referrals = await getReferralsByReferrerId(userId);

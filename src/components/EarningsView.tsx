@@ -258,8 +258,6 @@ export const EarningsView: React.FC = () => {
 
                       <div className="flex items-center space-x-3 text-[10px] text-slate-500 dark:text-slate-400 mt-1">
                         <span>Base Eligible: ${Number(entry.baseEligibleAmount || 0).toFixed(2)} USDT</span>
-                        <span>•</span>
-                        <span>Calc Ref: {String(entry.calculationId || '').substring(0, 14)}</span>
                       </div>
                     </div>
                   </div>

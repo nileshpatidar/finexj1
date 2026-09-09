@@ -151,6 +151,9 @@ export interface WithdrawalImpactResult {
   netAmount: number;
   isReferralOnly: boolean;
   touchesProtectedFund: boolean;
+  requiresCompoundingNotice?: boolean;
+  compoundingNoticeTitle?: string;
+  compoundingNoticeText?: string;
   requiresLockBreakConfirmation: boolean;
   lockBreakWarning?: string;
   requiresMinimumBreakConfirmation: boolean;

@@ -196,23 +196,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
           <div>
             <span className="text-[11px] font-semibold text-slate-500 uppercase">My Referral Code</span>
             <p className="text-base font-mono font-black text-slate-900 dark:text-white tracking-wider mt-0.5">
-              {user?.referralCode || `FXJ-${user?.id?.padStart(4, '0') || '0000'}`}
+              {user?.referralCode || 'Referral code unavailable'}
             </p>
           </div>
 
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => {
-                const code = user?.referralCode || `FXJ-${user?.id?.padStart(4, '0') || '0000'}`;
-                navigator.clipboard.writeText(code);
-                setCopiedProfileRef(true);
-                setTimeout(() => setCopiedProfileRef(false), 2000);
-              }}
-              className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition cursor-pointer"
-            >
-              {copiedProfileRef ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedProfileRef ? 'Copied' : 'Copy Code'}</span>
-            </button>
+            {user?.referralCode && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(user.referralCode!);
+                  setCopiedProfileRef(true);
+                  setTimeout(() => setCopiedProfileRef(false), 2000);
+                }}
+                className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition cursor-pointer"
+              >
+                {copiedProfileRef ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedProfileRef ? 'Copied' : 'Copy Code'}</span>
+              </button>
+            )}
 
             {onNavigate && (
               <button
