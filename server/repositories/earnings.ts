@@ -29,7 +29,11 @@ export async function getEarningsByUserId(userId: string): Promise<EarningEntry[
     query = query.eq('user_id', userId);
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+  // Financial ledger must display the newest performance date first.
+  // created_at is used only as a deterministic tie-breaker when dates match.
+  const { data, error } = await query
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error(`[Supabase Error] getEarningsByUserId(${userId}):`, error.message);
@@ -180,4 +184,3 @@ export async function getAllEarnings(): Promise<EarningEntry[]> {
     return [];
   }
 }
-
