@@ -32,6 +32,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
   const [country, setCountry] = useState('United States');
   const [referralCode, setReferralCode] = useState('');
   const [referrerVerifiedName, setReferrerVerifiedName] = useState<string | null>(null);
+  const [referralValidationMessage, setReferralValidationMessage] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [require2FA, setRequire2FA] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +50,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
           .then(res => {
             if (res?.valid && res?.referrerName) {
               setReferrerVerifiedName(res.referrerName);
+              setReferralValidationMessage({ type: 'success', message: `Referred by ${res.referrerName}` });
+            } else if (res?.error) {
+              setReferralValidationMessage({ type: 'error', message: res.error });
             }
           })
           .catch(() => {});
@@ -79,6 +83,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
           setRequire2FA(true);
         }
       } else {
+        if (referralValidationMessage?.type === 'error') {
+          setError(referralValidationMessage.message);
+          setIsLoading(false);
+          return;
+        }
         await register({
           fullName,
           email,
@@ -298,24 +307,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
                     onChange={e => {
                       const code = e.target.value.toUpperCase();
                       setReferralCode(code);
-                      if (code.trim().length >= 4) {
+                      if (code.trim().length >= 3) {
                         api.validateReferralCode(code)
                           .then(res => {
                             if (res?.valid && res?.referrerName) {
                               setReferrerVerifiedName(res.referrerName);
+                              setReferralValidationMessage({ type: 'success', message: `Referred by ${res.referrerName}` });
                             } else {
                               setReferrerVerifiedName(null);
+                              setReferralValidationMessage({ type: 'error', message: res?.error || 'Referral code not found or invalid.' });
                             }
                           })
-                          .catch(() => setReferrerVerifiedName(null));
+                          .catch((err: any) => {
+                            setReferrerVerifiedName(null);
+                            setReferralValidationMessage({ type: 'error', message: err?.message || 'Referral code validation failed.' });
+                          });
                       } else {
                         setReferrerVerifiedName(null);
+                        setReferralValidationMessage(null);
                       }
                     }}
                     placeholder="e.g. FXJ12345 or FINEXJ"
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-xs font-mono font-medium focus:outline-none focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-slate-950 transition disabled:opacity-50"
                   />
                 </div>
+                {referralValidationMessage && referralValidationMessage.type === 'error' && (
+                  <p className="text-[11px] text-red-600 dark:text-red-400 font-medium mt-1 leading-snug">
+                    {referralValidationMessage.message}
+                  </p>
+                )}
               </div>
             </>
           )}

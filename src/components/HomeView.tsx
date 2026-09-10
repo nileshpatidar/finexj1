@@ -627,72 +627,99 @@ export const HomeView: React.FC<HomeViewProps> = ({
           id="referral-income-section"
           className="p-5 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-3.5 flex flex-col justify-between"
         >
-          <div>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span>Referral Income Accounting</span>
-              </h3>
-              <div className="flex items-center gap-1.5">
-                {referralSummary?.isEligible !== undefined && (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                      referralSummary.isEligible
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                    }`}
-                  >
-                    {referralSummary.isEligible ? 'Eligible' : 'Inactive (< $300)'}
-                  </span>
-                )}
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
-                  5% L1 / 2% L2
+          {referralSummary && !referralSummary.isEligible ? (
+            /* Compact Locked State in HomeView */
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <span>Refer & Earn is Locked</span>
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wide">
+                  Locked
                 </span>
               </div>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Direct commission earned upon confirmed qualifying deposits (≥ $300). Separate from compounding funds.
-            </p>
-            {referralSummary && !referralSummary.isEligible && (
-              <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400 mt-1.5 bg-amber-50/80 dark:bg-amber-950/30 px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-800/60">
-                {referralSummary.ineligibilityReason || `Maintain at least $${referralSummary.minimumRequiredPrincipal || 300} in eligible funds to participate in Refer & Earn.`}
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                {referralSummary.hasConfirmedDeposit || (referralSummary.totalReferrals || 0) > 0
+                  ? 'Refer & Earn is currently locked because your eligible funds are below the required minimum.'
+                  : `Maintain at least ${referralSummary.minimumRequiredPrincipal || 300} in eligible funds to unlock your referral code and start earning referral rewards.`}
               </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-3 gap-2.5 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 text-xs">
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 1 (5%)</span>
-              <p id="referral-l1-income" className="text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
-                ${l1Income.toFixed(2)}
-              </p>
-              <span className="text-[10px] text-slate-400">Direct partners</span>
+              <div className="pt-1 flex items-center justify-between gap-2">
+                <button
+                  onClick={() => onNavigate('deposit')}
+                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Deposit to Unlock</span>
+                </button>
+                <button
+                  onClick={() => onNavigate('referrals')}
+                  className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Details</span>
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
             </div>
+          ) : (
+            <>
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    <span>Referral Income Accounting</span>
+                  </h3>
+                  <div className="flex items-center gap-1.5">
+                    {referralSummary?.isEligible !== undefined && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        Eligible
+                      </span>
+                    )}
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
+                      5% L1 / 2% L2
+                    </span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Direct commission earned upon confirmed qualifying deposits (≥ $300). Separate from compounding funds.
+                </p>
+              </div>
 
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 2 (2%)</span>
-              <p id="referral-l2-income" className="text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
-                ${l2Income.toFixed(2)}
-              </p>
-              <span className="text-[10px] text-slate-400">Sub-network</span>
-            </div>
+              <div className="grid grid-cols-3 gap-2.5 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 text-xs">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 1 (5%)</span>
+                  <p id="referral-l1-income" className="text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
+                    ${l1Income.toFixed(2)}
+                  </p>
+                  <span className="text-[10px] text-slate-400">Direct partners</span>
+                </div>
 
-            <div>
-              <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400">Total Referral</span>
-              <p id="referral-total-income" className="text-sm font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
-                ${totalReferralIncome.toFixed(2)}
-              </p>
-              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">Liquid & Free</span>
-            </div>
-          </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 2 (2%)</span>
+                  <p id="referral-l2-income" className="text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
+                    ${l2Income.toFixed(2)}
+                  </p>
+                  <span className="text-[10px] text-slate-400">Sub-network</span>
+                </div>
 
-          <button
-            onClick={() => onNavigate('referrals')}
-            className="w-full py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/60 transition flex items-center justify-center space-x-1 cursor-pointer"
-          >
-            <span>Open Referral Network Dashboard</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400">Total Referral</span>
+                  <p id="referral-total-income" className="text-sm font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
+                    ${totalReferralIncome.toFixed(2)}
+                  </p>
+                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">Liquid & Free</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => onNavigate('referrals')}
+                className="w-full py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/60 transition flex items-center justify-center space-x-1 cursor-pointer"
+              >
+                <span>Open Referral Network Dashboard</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 

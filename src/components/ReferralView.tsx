@@ -26,6 +26,7 @@ import {
   Layers,
   ChevronLeft,
   Wallet,
+  Lock,
 } from 'lucide-react';
 
 interface ReferralViewProps {
@@ -255,297 +256,286 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
           <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/4"></div>
           <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded w-3/4"></div>
         </div>
-      ) : summary?.isEligible ? (
-        <div className="p-5 sm:p-6 rounded-3xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60 shadow-xs space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center space-x-2.5">
-              <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
-                <CheckCircle2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-sm sm:text-base font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-2">
-                  <span>Refer & Earn Program: Active & Eligible</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-600 text-white tracking-wide uppercase">
-                    Qualified
-                  </span>
-                </h2>
-                <p className="text-xs text-emerald-800 dark:text-emerald-300/90 mt-0.5">
-                  Your personal maintained deposit satisfies the minimum required threshold of ${summary.minimumRequiredPrincipal} USDT.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 text-xs bg-white dark:bg-emerald-950/50 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 self-start sm:self-auto">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Maintained Principal</span>
-                <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
-                  ${(summary.maintainedEligiblePrincipal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
-                </span>
-              </div>
-              <div className="h-7 w-px bg-slate-200 dark:bg-slate-700"></div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Reward Rates</span>
-                <span className="font-extrabold text-slate-900 dark:text-white">5% L1 / 2% L2</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="p-5 sm:p-6 rounded-3xl bg-amber-50/80 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/70 shadow-xs space-y-3.5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start space-x-3">
-              <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 flex-shrink-0 mt-0.5">
-                <AlertTriangle className="w-5 h-5" />
+      ) : summary && !summary.isEligible ? (
+        /* COMPACT LOCKED STATE (Requirement 1) */
+        <div id="referral-locked-container" className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start space-x-3.5">
+              <div className="p-2.5 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5">
+                <Lock className="w-5 h-5" />
               </div>
               <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-sm sm:text-base font-bold text-amber-950 dark:text-amber-200">
-                    Refer & Earn Program: Inactive
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                    Refer & Earn is Locked
                   </h2>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-600 text-white tracking-wide uppercase">
-                    Ineligible
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wide">
+                    Locked
                   </span>
                 </div>
-                <p className="text-xs font-medium text-amber-900 dark:text-amber-300">
-                  {summary?.ineligibilityReason || `Maintain at least $${summary?.minimumRequiredPrincipal || 300} in eligible funds to participate in Refer & Earn.`}
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  {summary.hasConfirmedDeposit || summary.totalReferrals > 0
+                    ? 'Refer & Earn is currently locked because your eligible funds are below the required minimum.'
+                    : `Maintain at least ${summary.minimumRequiredPrincipal || 300} in eligible funds to unlock your referral code and start earning referral rewards.`}
                 </p>
               </div>
             </div>
 
             {onNavigate && (
               <button
+                id="deposit-to-unlock-btn"
                 onClick={() => onNavigate('deposit')}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer self-start sm:self-auto flex-shrink-0"
+                className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition cursor-pointer flex-shrink-0 self-start sm:self-auto"
               >
-                <Wallet className="w-3.5 h-3.5" />
-                <span>Deposit Funds to Activate</span>
+                <Wallet className="w-4 h-4" />
+                <span>Deposit to Unlock</span>
               </button>
             )}
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-white dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-slate-700 dark:text-slate-300 font-medium">
-              <span>Maintained Eligible Principal:</span>
-              <span className="font-bold font-mono text-slate-900 dark:text-white">
-                ${(summary?.maintainedEligiblePrincipal || 0).toFixed(2)} / ${(summary?.minimumRequiredPrincipal || 300).toFixed(2)} USDT
-              </span>
-            </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-              <div
-                className="bg-amber-500 h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${Math.min(100, (((summary?.maintainedEligiblePrincipal || 0) / (summary?.minimumRequiredPrincipal || 300)) * 100))}%`,
-                }}
-              />
-            </div>
-            <p className="text-[11px] text-amber-800 dark:text-amber-400">
-              * Notice: Referral rewards cannot accrue while your account is ineligible. Referral income and yields do not count towards qualifying funds. You must deposit and maintain personal funds to activate Refer & Earn.
-            </p>
+          <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <span>
+              Maintained Eligible Principal: <strong className="text-slate-800 dark:text-slate-200 font-mono">${(summary.maintainedEligiblePrincipal || 0).toFixed(2)}</strong> / ${(summary.minimumRequiredPrincipal || 300).toFixed(2)} USDT
+            </span>
+            <span className="text-[11px] text-slate-400">
+              Personal confirmed deposits minus withdrawals
+            </span>
           </div>
         </div>
-      )}
-
-      {/* Referral Code & Link Sharing Card */}
-      <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-3">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              Your Invitation Credentials
-            </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Share your authoritative code with new investors to receive credited rewards upon qualifying deposits.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-            {summary && !summary.isEligible && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                <AlertTriangle className="w-3 h-3" />
-                Rewards Inactive
-              </span>
-            )}
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold text-blue-700 dark:text-blue-300">
-              <Shield className="w-3 h-3" />
-              2-Level Depth Limit
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* My Referral Code */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 space-y-1.5">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              My Referral Code
-            </span>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-base sm:text-lg font-mono font-black text-slate-900 dark:text-white tracking-widest">
-                {isLoadingSummary && !effectiveReferralCode ? (
-                  <span className="text-slate-400 text-sm font-normal">Loading...</span>
-                ) : (
-                  effectiveReferralCode || 'Referral code unavailable'
-                )}
-              </span>
-              <button
-                onClick={handleCopyCode}
-                disabled={!effectiveReferralCode}
-                className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  copiedCode
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
-                }`}
-              >
-                {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedCode ? 'Copied' : 'Copy Code'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* My Referral Link */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 space-y-1.5">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              My Referral Link
-            </span>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate max-w-[200px] sm:max-w-[240px]">
-                {isLoadingSummary ? 'Loading link...' : referralUrl || 'https://finexj.com/register?ref=...'}
-              </span>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button
-                  onClick={handleCopyLink}
-                  disabled={!referralUrl}
-                  className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                    copiedLink
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
-                  }`}
-                >
-                  {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedLink ? 'Copied' : 'Copy Link'}</span>
-                </button>
-                <button
-                  onClick={handleShare}
-                  disabled={!referralUrl}
-                  title="Share invitation link"
-                  className="p-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition cursor-pointer"
-                >
-                  <Share2 className="w-3.5 h-3.5" />
-                </button>
+      ) : summary?.isEligible ? (
+        <>
+          <div className="p-5 sm:p-6 rounded-3xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-2">
+                    <span>Refer & Earn Program: Active & Eligible</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-600 text-white tracking-wide uppercase">
+                      Qualified
+                    </span>
+                  </h2>
+                  <p className="text-xs text-emerald-800 dark:text-emerald-300/90 mt-0.5">
+                    Your personal maintained deposit satisfies the minimum required threshold of ${summary.minimumRequiredPrincipal} USDT.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-xs bg-white dark:bg-emerald-950/50 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 self-start sm:self-auto">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Maintained Principal</span>
+                  <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                    ${(summary.maintainedEligiblePrincipal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                  </span>
+                </div>
+                <div className="h-7 w-px bg-slate-200 dark:bg-slate-700"></div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Reward Rates</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white">5% L1 / 2% L2</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Summary Stats Grid (Authoritative Backend Calculated) */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-        {/* TOTAL REFERRALS */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Total Referrals</span>
-            <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          </div>
-          <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoadingSummary ? (
-              <span className="text-slate-300 text-sm">...</span>
-            ) : (
-              summary?.totalReferrals || 0
-            )}
-          </p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">Level 1 & Level 2 Total</p>
-        </div>
+          {/* Referral Code & Link Sharing Card */}
+          <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-3">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  Your Invitation Credentials
+                </h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Share your authoritative code with new investors to receive credited rewards upon qualifying deposits.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold text-blue-700 dark:text-blue-300">
+                  <Shield className="w-3 h-3" />
+                  2-Level Depth Limit
+                </div>
+              </div>
+            </div>
 
-        {/* LEVEL 1 REFERRALS */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Level 1 Referrals</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-              5% Direct
-            </span>
-          </div>
-          <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoadingSummary ? (
-              <span className="text-slate-300 text-sm">...</span>
-            ) : (
-              summary?.level1Referrals || 0
-            )}
-          </p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">Directly Invited Investors</p>
-        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* My Referral Code */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  My Referral Code
+                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-base sm:text-lg font-mono font-black text-slate-900 dark:text-white tracking-widest">
+                    {isLoadingSummary && !effectiveReferralCode ? (
+                      <span className="text-slate-400 text-sm font-normal">Loading...</span>
+                    ) : (
+                      effectiveReferralCode || 'Referral code unavailable'
+                    )}
+                  </span>
+                  <button
+                    onClick={handleCopyCode}
+                    disabled={!effectiveReferralCode}
+                    className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      copiedCode
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
+                    }`}
+                  >
+                    {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedCode ? 'Copied' : 'Copy Code'}</span>
+                  </button>
+                </div>
+              </div>
 
-        {/* LEVEL 2 REFERRALS */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Level 2 Referrals</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-              2% Indirect
-            </span>
+              {/* My Referral Link */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  My Referral Link
+                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate max-w-[200px] sm:max-w-[240px]">
+                    {isLoadingSummary ? 'Loading link...' : referralUrl || 'https://finexj.com/register?ref=...'}
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={handleCopyLink}
+                      disabled={!referralUrl}
+                      className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        copiedLink
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
+                      }`}
+                    >
+                      {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedLink ? 'Copied' : 'Copy Link'}</span>
+                    </button>
+                    <button
+                      onClick={handleShare}
+                      disabled={!referralUrl}
+                      title="Share invitation link"
+                      className="p-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition cursor-pointer"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-            {isLoadingSummary ? (
-              <span className="text-slate-300 text-sm">...</span>
-            ) : (
-              summary?.level2Referrals || 0
-            )}
-          </p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">Invited by Level 1 Team</p>
-        </div>
 
-        {/* TOTAL REFERRAL INCOME */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Total Referral Income</span>
-            <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <p className="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-            {isLoadingSummary ? (
-              <span className="text-slate-300 text-sm">...</span>
-            ) : (
-              `$${(summary?.totalReferralIncome || 0).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })} USDT`
-            )}
-          </p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">Cumulative Earned Rewards</p>
-        </div>
+          {/* Summary Stats Grid (Authoritative Backend Calculated) */}
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {/* TOTAL REFERRALS */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider">Total Referrals</span>
+                <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                {isLoadingSummary ? (
+                  <span className="text-slate-300 text-sm">...</span>
+                ) : (
+                  summary?.totalReferrals || 0
+                )}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Level 1 & Level 2 Total</p>
+            </div>
 
-        {/* LEVEL 1 INCOME */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Level 1 Income</span>
-            <Award className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          </div>
-          <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {isLoadingSummary ? (
-              <span className="text-slate-300 text-sm">...</span>
-            ) : (
-              `$${(summary?.level1Income || 0).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })} USDT`
-            )}
-          </p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">Direct 5% Tier Income</p>
-        </div>
+            {/* LEVEL 1 REFERRALS */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider">Level 1 Referrals</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                  5% Direct
+                </span>
+              </div>
+              <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                {isLoadingSummary ? (
+                  <span className="text-slate-300 text-sm">...</span>
+                ) : (
+                  summary?.level1Referrals || 0
+                )}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Directly Invited Investors</p>
+            </div>
 
-        {/* LEVEL 2 INCOME */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Level 2 Income</span>
-            <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            {/* LEVEL 2 REFERRALS */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider">Level 2 Referrals</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                  2% Indirect
+                </span>
+              </div>
+              <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                {isLoadingSummary ? (
+                  <span className="text-slate-300 text-sm">...</span>
+                ) : (
+                  summary?.level2Referrals || 0
+                )}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Invited by Level 1 Team</p>
+            </div>
+
+            {/* TOTAL REFERRAL INCOME */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider">Total Referral Income</span>
+                <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <p className="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                {isLoadingSummary ? (
+                  <span className="text-slate-300 text-sm">...</span>
+                ) : (
+                  `${(summary?.totalReferralIncome || 0).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })} USDT`
+                )}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Cumulative Earned Rewards</p>
+            </div>
+
+            {/* LEVEL 1 INCOME */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider">Level 1 Income</span>
+                <Award className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
+                {isLoadingSummary ? (
+                  <span className="text-slate-300 text-sm">...</span>
+                ) : (
+                  `${(summary?.level1Income || 0).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })} USDT`
+                )}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Direct 5% Tier Income</p>
+            </div>
+
+            {/* LEVEL 2 INCOME */}
+            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider">Level 2 Income</span>
+                <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <p className="text-xl sm:text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                {isLoadingSummary ? (
+                  <span className="text-slate-300 text-sm">...</span>
+                ) : (
+                  `${(summary?.level2Income || 0).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })} USDT`
+                )}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Indirect 2% Tier Income</p>
+            </div>
           </div>
-          <p className="text-xl sm:text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-            {isLoadingSummary ? (
-              <span className="text-slate-300 text-sm">...</span>
-            ) : (
-              `$${(summary?.level2Income || 0).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })} USDT`
-            )}
-          </p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">Indirect 2% Tier Income</p>
-        </div>
-      </div>
+        </>
+      ) : null}
 
       {/* STRICT FINANCIAL COMPLIANCE NOTICE: REFERRAL INCOME VS COMPOUNDING PRINCIPAL */}
       <div className="p-4 sm:p-5 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 text-xs space-y-2">
@@ -627,30 +617,50 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
             </button>
           </div>
         ) : !level1Data || level1Data.items.length === 0 ? (
-          /* EMPTY STATE (As required: no demo/fake data) */
-          <div className="p-8 sm:p-10 text-center rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
-              <Users className="w-6 h-6" />
+          /* EMPTY STATE */
+          summary && !summary.isEligible ? (
+            <div className="p-8 text-center rounded-3xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                <Lock className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Refer & Earn Network Locked
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                Maintain at least ${summary?.minimumRequiredPrincipal || 300} in eligible funds to unlock your referral network and invitation credentials.
+              </p>
             </div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              No referrals yet
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-              Share your authoritative referral code or link with other investors. When they complete a qualifying deposit (≥ 300 USDT), you will automatically receive a 5% Level 1 reward and 2% on their Level 2 team.
-            </p>
-            <div className="pt-2">
-              <button
-                onClick={handleCopyLink}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition cursor-pointer"
-              >
-                {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                <span>{copiedLink ? 'Link Copied' : 'Copy Referral Link'}</span>
-              </button>
+          ) : (
+            <div className="p-8 sm:p-10 text-center rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
+                <Users className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                No referrals yet
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                Share your authoritative referral code or link with other investors. When they complete a qualifying deposit (≥ 300 USDT), you will automatically receive a 5% Level 1 reward and 2% on their Level 2 team.
+              </p>
+              <div className="pt-2">
+                <button
+                  onClick={handleCopyLink}
+                  className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition cursor-pointer"
+                >
+                  {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedLink ? 'Link Copied' : 'Copy Referral Link'}</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )
         ) : (
           /* Level 1 List */
           <div className="space-y-3">
+            {summary && !summary.isEligible && (
+              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
+                <Lock className="w-4 h-4 flex-shrink-0" />
+                <span>Historical Referral Network: Rewards are paused while your account maintains less than the minimum required funds.</span>
+              </div>
+            )}
             {level1Data.items.map(l1Member => {
               const isExpanded = expandedL1Id === l1Member.id;
               const subTeam = level2Map[l1Member.id];

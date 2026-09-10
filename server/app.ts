@@ -346,6 +346,15 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
     const now = new Date().toISOString();
     const generatedReferralCode = 'FXJ' + Math.random().toString(36).substring(2, 8).toUpperCase();
 
+    // Security check: Validate explicitly provided referral code BEFORE creating user
+    const rawRefCode = req.body.referralCode ? String(req.body.referralCode).trim() : '';
+    if (rawRefCode) {
+      const validation = await validateReferralCodeAsync(rawRefCode);
+      if (!validation.valid) {
+        throw Errors.validation(validation.error || 'Referral code not found or invalid.');
+      }
+    }
+
     const newUser = await createProfile({
       fullName: fullName.trim(),
       email: email.trim().toLowerCase(),
@@ -363,8 +372,11 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
     });
 
     // Bind incoming referral code if provided
-    if (req.body.referralCode) {
-      await bindReferralAsync(newUser, req.body.referralCode).catch(() => {});
+    if (rawRefCode) {
+      const bindResult = await bindReferralAsync(newUser, rawRefCode);
+      if (!bindResult.success) {
+        throw Errors.validation(bindResult.error || 'Failed to bind referral relationship.');
+      }
     }
 
     await createAuditLog({
@@ -393,7 +405,7 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
         createdAt: newUser.createdAt,
         twoFactorEnabled: newUser.twoFactorEnabled,
         profilePictureUrl: newUser.profilePictureUrl,
-        referralCode: newUser.referralCode || null,
+        referralCode: null, // New user has not yet deposited; referral credentials locked
         walletAddress: newUser.walletAddress || '',
       },
     });
@@ -513,6 +525,18 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
     const token = createSessionToken(user, settings.sessionVersion || 1);
     setSessionCookie(res, token);
 
+    let exposedReferralCode: string | null = null;
+    if (user.role !== 'user') {
+      exposedReferralCode = user.referralCode || null;
+    } else {
+      try {
+        const eligibility = await checkReferralEligibilityAsync(user.id);
+        exposedReferralCode = eligibility.isEligible ? (user.referralCode || null) : null;
+      } catch {
+        exposedReferralCode = null;
+      }
+    }
+
     res.json({
       success: true,
       token,
@@ -527,7 +551,7 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
         createdAt: user.createdAt,
         twoFactorEnabled: user.twoFactorEnabled,
         profilePictureUrl: user.profilePictureUrl,
-        referralCode: user.referralCode || null,
+        referralCode: exposedReferralCode,
         walletAddress: user.walletAddress || '',
       },
     });
@@ -557,10 +581,22 @@ app.post(['/api/auth/logout-all', '/auth/logout-all'], authMiddleware, (req, res
 });
 
 // Get current profile (safe for session probing)
-app.get(['/api/auth/me', '/auth/me'], optionalAuthMiddleware, (req, res) => {
+app.get(['/api/auth/me', '/auth/me'], optionalAuthMiddleware, async (req, res) => {
   const user: User | null = (req as any).user;
   if (!user) {
     return res.json({ user: null });
+  }
+
+  let exposedReferralCode: string | null = null;
+  if (user.role !== 'user') {
+    exposedReferralCode = user.referralCode || null;
+  } else {
+    try {
+      const eligibility = await checkReferralEligibilityAsync(user.id);
+      exposedReferralCode = eligibility.isEligible ? (user.referralCode || null) : null;
+    } catch {
+      exposedReferralCode = null;
+    }
   }
 
   res.json({
@@ -575,7 +611,7 @@ app.get(['/api/auth/me', '/auth/me'], optionalAuthMiddleware, (req, res) => {
       createdAt: user.createdAt,
       twoFactorEnabled: user.twoFactorEnabled,
       profilePictureUrl: user.profilePictureUrl,
-      referralCode: user.referralCode || null,
+      referralCode: exposedReferralCode,
       walletAddress: user.walletAddress || '',
     },
   });

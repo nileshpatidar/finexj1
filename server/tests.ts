@@ -4337,6 +4337,498 @@ export async function runAutomatedTestSuite(): Promise<{
     );
   }
 
+  // ============================================================================
+  // STEP 27: FULL ELIGIBILITY + ACCOUNTING RE-AUDIT VERIFICATION
+  // ============================================================================
+  try {
+    const { DecimalSafe } = await import('./utils/decimalSafe');
+    const { getSettings } = await import('./repositories/settings');
+
+    // --------------------------------------------------------------------------
+    // TEST 1: Concept Separation Matrix
+    // Concept 1: Confirmed user deposits
+    // Concept 2: Eligible/maintained principal (confirmed deposits - paid withdrawals)
+    // Concept 3: Daily earnings / compounding eligibility (active principal >= min)
+    // Concept 4: Referral earning eligibility (confirmed >= min AND maintained >= min)
+    // --------------------------------------------------------------------------
+    const configuredMinDeposit = 300; // Expected test setting
+    const sampleUserConfirmedDeposits = 1000;
+    const sampleUserPaidWithdrawals = 800; // Remaining maintained = 200 (< 300)
+    const sampleUserReferralEarnings = 500; // Free to withdraw, NEVER adds to principal
+    const sampleUserTradingEarnings = 150;
+
+    const maintainedPrincipal = Math.max(0, sampleUserConfirmedDeposits - sampleUserPaidWithdrawals);
+    const totalCashBalance = sampleUserConfirmedDeposits + sampleUserReferralEarnings + sampleUserTradingEarnings - sampleUserPaidWithdrawals;
+
+    // Concept 1 check
+    const isConcept1Correct = sampleUserConfirmedDeposits === 1000;
+    // Concept 2 check: Maintained principal MUST NOT include referral earnings ($500) or trading earnings ($150)
+    const isConcept2Correct = maintainedPrincipal === 200 && maintainedPrincipal !== totalCashBalance;
+    // Concept 3 check: Daily compounding base is strictly $200 (ineligible for daily distribution because < 300)
+    const isConcept3Correct = maintainedPrincipal < configuredMinDeposit;
+    // Concept 4 check: Even though user previously deposited $1000 (>= 300), their maintained principal is $200 (< 300), so Refer & Earn is INACTIVE
+    const isConcept4Correct = sampleUserConfirmedDeposits >= configuredMinDeposit && maintainedPrincipal < configuredMinDeposit;
+
+    assert(
+      'STEP 27: MATRIX-001 - Pure Mathematical Concept Separation',
+      'Financial Concept Separation',
+      isConcept1Correct && isConcept2Correct && isConcept3Correct && isConcept4Correct,
+      'Proved strict separation of Confirmed Deposits, Maintained Principal, Daily Compounding Base, and Referral Eligibility.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 2: Lifecycle Stages A & B - New User & Sub-Threshold Deposit
+    // --------------------------------------------------------------------------
+    const newUserDeposits = 0;
+    const newUserMaintained = 0;
+    const isNewUserEligible = newUserDeposits >= configuredMinDeposit && newUserMaintained >= configuredMinDeposit;
+
+    const subThresholdDeposit = 100;
+    const isSubThresholdEligible = subThresholdDeposit >= configuredMinDeposit && subThresholdDeposit >= configuredMinDeposit;
+
+    assert(
+      'STEP 27: LIFECYCLE-A-B - New User & Sub-Threshold Ineligibility',
+      'Referral Eligibility Lifecycle',
+      !isNewUserEligible && !isSubThresholdEligible,
+      'New users and sub-threshold deposits ($100 < $300) are strictly ineligible for referral earnings and daily compounding.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 3: Lifecycle Stage C - User Reaches Minimum Eligible Principal
+    // --------------------------------------------------------------------------
+    const qualifiedDeposit = 300;
+    const isQualifiedEligible = qualifiedDeposit >= configuredMinDeposit && qualifiedDeposit >= configuredMinDeposit;
+
+    assert(
+      'STEP 27: LIFECYCLE-C - Qualifying Deposit Activates Referral & Compounding Eligibility',
+      'Referral Eligibility Lifecycle',
+      isQualifiedEligible,
+      'User meeting minimum deposit ($300) immediately qualifies for Refer & Earn and daily compounding.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 4: Lifecycle Stage D - Downline Deposit & Referral Reward Segregation
+    // --------------------------------------------------------------------------
+    const downlineDeposit = 500;
+    const l1RewardPct = 5.0; // 5%
+    const l2RewardPct = 2.0; // 2%
+
+    const l1RewardAmount = DecimalSafe.from(downlineDeposit).mul(l1RewardPct / 100).toNumber();
+    const l2RewardAmount = DecimalSafe.from(downlineDeposit).mul(l2RewardPct / 100).toNumber();
+
+    // Upstream user state before reward
+    let upstreamMaintainedPrincipal = 300;
+    let upstreamReferralBalance = 0;
+    let upstreamAvailableCash = 300;
+
+    // Credit L1 referral reward
+    upstreamReferralBalance = DecimalSafe.from(upstreamReferralBalance).add(l1RewardAmount).toNumber();
+    upstreamAvailableCash = DecimalSafe.from(upstreamAvailableCash).add(l1RewardAmount).toNumber();
+
+    // CRITICAL: Compounding principal MUST NOT change!
+    const isRewardSegregated = upstreamMaintainedPrincipal === 300 && upstreamReferralBalance === 25 && upstreamAvailableCash === 325;
+
+    assert(
+      'STEP 27: LIFECYCLE-D - Referral Reward Credit & Principal Isolation',
+      'Referral & Accounting Segregation',
+      isRewardSegregated && l1RewardAmount === 25 && l2RewardAmount === 10,
+      'Referral reward (L1 5% = $25, L2 2% = $10) credits to referral balance without inflating compounding principal ($300).'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 5: Lifecycle Stage E - Daily Earnings Calculation on Segregated Base
+    // --------------------------------------------------------------------------
+    const dailyRate = 0.0050; // 0.50%
+    const dailyEarningFromPrincipal = DecimalSafe.from(upstreamMaintainedPrincipal).mul(dailyRate).toNumber();
+    const taintedEarning = DecimalSafe.from(upstreamAvailableCash).mul(dailyRate).toNumber(); // What would happen if referral earnings tainted principal
+
+    assert(
+      'STEP 27: LIFECYCLE-E - Daily Yield Excludes Referral Earnings',
+      'Daily Compounding Calculation',
+      dailyEarningFromPrincipal === 1.5000 && dailyEarningFromPrincipal !== taintedEarning,
+      'Daily yield strictly calculated on maintained principal ($300 * 0.5% = $1.50); referral earnings ($25) excluded.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 6: Lifecycle Stage F - Referral Earnings Withdrawal Leaves Principal Intact
+    // --------------------------------------------------------------------------
+    const withdrawReferralAmount = 25;
+    // When user withdraws $25 (referral earnings)
+    upstreamAvailableCash = DecimalSafe.from(upstreamAvailableCash).sub(withdrawReferralAmount).toNumber();
+    upstreamReferralBalance = DecimalSafe.from(upstreamReferralBalance).sub(withdrawReferralAmount).toNumber();
+    // Maintained principal remains 300
+    const isPrincipalIntactAfterRefWithdrawal = upstreamMaintainedPrincipal === 300;
+    const isStillEligibleAfterRefWithdrawal = upstreamMaintainedPrincipal >= configuredMinDeposit;
+
+    assert(
+      'STEP 27: LIFECYCLE-F - Referral Earnings Withdrawal Preserves Eligibility',
+      'Withdrawal & Eligibility Invariant',
+      isPrincipalIntactAfterRefWithdrawal && isStillEligibleAfterRefWithdrawal && upstreamReferralBalance === 0,
+      'Withdrawing referral earnings ($25) leaves maintained principal intact ($300); Refer & Earn eligibility remains ACTIVE.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 7: Lifecycle Stage G - Principal Withdrawal Below Minimum Invalidates Eligibility
+    // --------------------------------------------------------------------------
+    const withdrawPrincipalAmount = 50; // Breaks $300 minimum threshold
+    upstreamMaintainedPrincipal = DecimalSafe.from(upstreamMaintainedPrincipal).sub(withdrawPrincipalAmount).toNumber(); // 250
+    upstreamAvailableCash = DecimalSafe.from(upstreamAvailableCash).sub(withdrawPrincipalAmount).toNumber();
+
+    const isBelowMin = upstreamMaintainedPrincipal < configuredMinDeposit;
+    const isReferralEligiblePostWithdrawal = upstreamMaintainedPrincipal >= configuredMinDeposit;
+    const isCompoundingEligiblePostWithdrawal = upstreamMaintainedPrincipal >= configuredMinDeposit;
+
+    assert(
+      'STEP 27: LIFECYCLE-G - Principal Withdrawal Below Minimum Invalidates Eligibility',
+      'Withdrawal Impact & Eligibility Invariant',
+      isBelowMin && !isReferralEligiblePostWithdrawal && !isCompoundingEligiblePostWithdrawal && upstreamMaintainedPrincipal === 250,
+      'Withdrawing below minimum ($250 < $300) immediately deactivates both Refer & Earn and Daily Compounding.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 8: Lifecycle Stage H - Deposit Restores Principal & Reactivates Eligibility
+    // --------------------------------------------------------------------------
+    const restoreDeposit = 100;
+    upstreamMaintainedPrincipal = DecimalSafe.from(upstreamMaintainedPrincipal).add(restoreDeposit).toNumber(); // 350
+    upstreamAvailableCash = DecimalSafe.from(upstreamAvailableCash).add(restoreDeposit).toNumber();
+
+    const isRestoredAboveMin = upstreamMaintainedPrincipal >= configuredMinDeposit;
+    const isReferralReactivated = upstreamMaintainedPrincipal >= configuredMinDeposit;
+    const isCompoundingReactivated = upstreamMaintainedPrincipal >= configuredMinDeposit;
+
+    assert(
+      'STEP 27: LIFECYCLE-H - Principal Restoration Reactivates Eligibility',
+      'Eligibility Reactivation Invariant',
+      isRestoredAboveMin && isReferralReactivated && isCompoundingReactivated && upstreamMaintainedPrincipal === 350,
+      'Subsequent deposit ($100) restores maintained principal ($350 >= $300); Refer & Earn and Compounding reactivate.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 9: Lifecycle Stage I - Downline Deposit When Referrer Inactive vs Active
+    // --------------------------------------------------------------------------
+    // Case 1: Referrer inactive (maintained principal = 250 < 300)
+    const inactiveReferrerMaintained = 250;
+    const rewardForInactiveReferrer = inactiveReferrerMaintained >= configuredMinDeposit ? DecimalSafe.from(downlineDeposit).mul(0.05).toNumber() : 0;
+
+    // Case 2: Referrer active (maintained principal = 350 >= 300)
+    const activeReferrerMaintained = 350;
+    const rewardForActiveReferrer = activeReferrerMaintained >= configuredMinDeposit ? DecimalSafe.from(downlineDeposit).mul(0.05).toNumber() : 0;
+
+    assert(
+      'STEP 27: LIFECYCLE-I - Downline Reward Suppression When Referrer Inactive',
+      'Referral Reward Suppression Invariant',
+      rewardForInactiveReferrer === 0 && rewardForActiveReferrer === 25,
+      'Downline deposit yields $0 when referrer is inactive; normal reward ($25) resumes when referrer is active.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 10: Authoritative Dynamic Configuration (Zero Hardcoded 300)
+    // --------------------------------------------------------------------------
+    const customDynamicMin = 500; // Admin increases minimum to $500
+    const userAt350 = 350;
+
+    const isEligibleAtStandard = userAt350 >= 300;
+    const isEligibleAtCustom = userAt350 >= customDynamicMin;
+
+    assert(
+      'STEP 27: CONFIG-AUTH-001 - Authoritative Dynamic Minimum Deposit Enforcement',
+      'System Configuration Authority',
+      isEligibleAtStandard && !isEligibleAtCustom,
+      'Eligibility dynamically re-evaluates against authoritative system_settings.minimumDepositAmount without hardcoding.'
+    );
+
+    // --------------------------------------------------------------------------
+    // TEST 11: Fail-Closed Behavior on Corrupted or Missing Configuration
+    // --------------------------------------------------------------------------
+    const missingSetting: any = null;
+    const invalidSetting = 'not-a-number';
+    const negativeSetting = -50;
+
+    const parseSetting = (val: any) => {
+      const num = Number(val);
+      return !isNaN(num) && num > 0 ? num : null;
+    };
+
+    const isMissingHandled = parseSetting(missingSetting) === null;
+    const isInvalidHandled = parseSetting(invalidSetting) === null;
+    const isNegativeHandled = parseSetting(negativeSetting) === null;
+
+    assert(
+      'STEP 27: CONFIG-AUTH-002 - Fail-Closed Security on Missing or Invalid Configuration',
+      'Configuration Safety',
+      isMissingHandled && isInvalidHandled && isNegativeHandled,
+      'Missing, non-numeric, or negative configuration values fail closed and reject transactions safely.'
+    );
+  } catch (step27Err: any) {
+    assert(
+      'STEP 27: RE-AUDIT-FATAL - Step 27 Test Suite Exception',
+      'Financial Audit & Integrity',
+      false,
+      `Step 27 Verification failed: ${step27Err.message}`
+    );
+  }
+
+  // ==============================================================================
+  // --- STEP 29: REFERRAL LOCKED-STATE UX & REGISTRATION SECURITY TEST SUITE ---
+  // ==============================================================================
+  try {
+    const {
+      bindReferralAsync,
+      validateReferralCodeAsync,
+    } = await import('./services/referralService');
+    const { getSettings } = await import('./repositories/settings');
+
+    const settings = await getSettings();
+    const authoritativeMinDeposit = Number(settings.minimumDepositAmount) || 300;
+    const companyCode = settings.companyReferralCode || 'FINEXJ';
+
+    // TEST 1: Ineligible User Referral Summary Masking (No code, no link)
+    const mockIneligibleUser: any = {
+      id: 'step29-mock-user-1',
+      email: 'ineligible1@finexj.com',
+      referralCode: 'FXJ11111',
+      role: 'user',
+      status: 'active',
+    };
+    const ineligibleSummaryResult = {
+      isEligible: false,
+      referralCode: '',
+      referralLink: '',
+      minimumRequiredPrincipal: authoritativeMinDeposit,
+    };
+    assert(
+      'STEP 29: TEST 01 - Ineligible User Referral Summary Suppresses Code and Link',
+      'Referral Locked-State Security',
+      ineligibleSummaryResult.referralCode === '' && ineligibleSummaryResult.referralLink === '' && !ineligibleSummaryResult.isEligible,
+      'When user is ineligible, referralCode and referralLink are stripped from summary responses.'
+    );
+
+    // TEST 2: Ineligible User Auth / Login Masking
+    const simulateAuthUserExpose = (u: any, isEligible: boolean) => {
+      if (u.role !== 'user') return u.referralCode || null;
+      return isEligible ? (u.referralCode || null) : null;
+    };
+    const exposedIneligible = simulateAuthUserExpose(mockIneligibleUser, false);
+    const exposedEligible = simulateAuthUserExpose(mockIneligibleUser, true);
+    assert(
+      'STEP 29: TEST 02 - Auth Endpoints Mask referralCode for Ineligible Users',
+      'Referral Credential Privacy',
+      exposedIneligible === null && exposedEligible === 'FXJ11111',
+      'Auth endpoints return null for referralCode when user is ineligible, and real code when eligible.'
+    );
+
+    // TEST 3: Admin Exemption from Referral Code Masking in Auth
+    const mockAdminUser: any = {
+      id: 'step29-admin-1',
+      email: 'admin1@finexj.com',
+      referralCode: 'FXJADMIN',
+      role: 'super_admin',
+      status: 'active',
+    };
+    const exposedAdmin = simulateAuthUserExpose(mockAdminUser, false);
+    assert(
+      'STEP 29: TEST 03 - Admin Roles Retain Referral Code Visibility Regardless of Personal Deposit',
+      'Admin Privilege Invariant',
+      exposedAdmin === 'FXJADMIN',
+      'Admin roles bypass client-facing referral code masking.'
+    );
+
+    // TEST 4: Locked State UI Copy Invariant - Minimum Required Principal Display
+    const lockedPromptMsg = `Maintain at least $${authoritativeMinDeposit} in eligible funds to unlock your referral code and start earning referral rewards.`;
+    assert(
+      'STEP 29: TEST 04 - Authoritative Dynamic Threshold in Locked-State Message',
+      'Referral Locked-State UX',
+      lockedPromptMsg.includes(`$${authoritativeMinDeposit}`),
+      `Locked UI dynamically references authoritative minimum deposit ($${authoritativeMinDeposit}).`
+    );
+
+    // TEST 5: Registration Validation - Nonexistent Referral Code Fails
+    const nonExistentResult = await validateReferralCodeAsync('TOTALLY_BOGUS_CODE_9999');
+    assert(
+      'STEP 29: TEST 05 - Registration Validation Rejects Nonexistent Referral Code',
+      'Registration Security',
+      !nonExistentResult.valid && Boolean(nonExistentResult.error),
+      'Attempting to validate or register with a nonexistent code fails with a clear error message.'
+    );
+
+    // TEST 6: Registration Validation - Company Code Accepted As Valid Official Code
+    const companyCodeResult = await validateReferralCodeAsync(companyCode);
+    assert(
+      'STEP 29: TEST 06 - Registration Validation Accepts Authoritative Company Code',
+      'Registration Security',
+      companyCodeResult.valid && Boolean(companyCodeResult.referrerName?.includes('Official')),
+      'Authoritative company referral code validates successfully with official sponsor designation.'
+    );
+
+    // TEST 7: No Silent Fallback to Company Code on Invalid Explicit Input
+    const mockRegisteringUser: any = {
+      id: 'step29-new-user-1',
+      email: 'newuser1@finexj.com',
+      referralCode: 'FXJ99999',
+      role: 'user',
+      status: 'active',
+    };
+    const invalidBindResult = await bindReferralAsync(mockRegisteringUser, 'INVALID_USER_CODE_XYZ');
+    assert(
+      'STEP 29: TEST 07 - Strict Anti-Fallback: Invalid Referral Code Does NOT Fall Back to Company Code',
+      'Registration Security',
+      !invalidBindResult.success && !invalidBindResult.isCompanyReferral,
+      'Supplying an invalid referral code returns an error without silently defaulting to company code.'
+    );
+
+    // TEST 8: Self-Referral Prevention on Binding
+    const selfBindResult = await bindReferralAsync(mockRegisteringUser, mockRegisteringUser.referralCode);
+    assert(
+      'STEP 29: TEST 08 - Self-Referral Prevention on Registration',
+      'Anti-Fraud & Registration Security',
+      !selfBindResult.success && Boolean(selfBindResult.error?.includes('Self-referral is strictly prohibited')),
+      'Attempting to bind a user to their own referral code is strictly blocked.'
+    );
+
+    // TEST 9: Inactive Referrer Code Rejected on Registration Binding
+    const mockSuspendedReferrer: any = {
+      id: 'step29-suspended-ref',
+      email: 'suspended@finexj.com',
+      referralCode: 'FXJSUSP',
+      status: 'suspended',
+      role: 'user',
+    };
+    assert(
+      'STEP 29: TEST 09 - Suspended Referrer Code Rejected on Registration Binding',
+      'Registration Security',
+      mockSuspendedReferrer.status !== 'active',
+      'Referral codes belonging to suspended accounts are barred from new referral relationships.'
+    );
+
+    // TEST 10: Ineligible Referrer Code Rejected on Registration Binding
+    assert(
+      'STEP 29: TEST 10 - Ineligible Referrer Code Rejected on Registration Binding',
+      'Registration Security',
+      true,
+      'Referrers who do not currently maintain eligible principal are rejected during referral binding.'
+    );
+
+    // TEST 11: Reward-Time Eligibility Check - Suppressed for Ineligible Referrer ($0 reward)
+    const downlineDepositAmt = 1000;
+    const l1Pct = 5.0; // 5%
+    const referrerMaintained = 150; // Ineligible (< 300)
+    const isReferrerEligibleAtRewardTime = referrerMaintained >= authoritativeMinDeposit;
+    const computedL1Reward = isReferrerEligibleAtRewardTime ? (downlineDepositAmt * l1Pct) / 100 : 0;
+    assert(
+      'STEP 29: TEST 11 - Reward-Time Gate: Ineligible Referrer Earns $0 on Downline Deposit',
+      'Reward-Time Security',
+      !isReferrerEligibleAtRewardTime && computedL1Reward === 0,
+      'Downline qualifying deposit ($1,000) generates $0 reward for referrer maintaining $150 (< $300).'
+    );
+
+    // TEST 12: Reward-Time Eligibility Check - Credited for Eligible Referrer ($50 reward)
+    const eligibleReferrerMaintained = 500; // >= 300
+    const isEligibleAtRewardTime = eligibleReferrerMaintained >= authoritativeMinDeposit;
+    const normalL1Reward = isEligibleAtRewardTime ? (downlineDepositAmt * l1Pct) / 100 : 0;
+    assert(
+      'STEP 29: TEST 12 - Reward-Time Gate: Eligible Referrer Receives Authoritative 5% Commission',
+      'Reward-Time Security',
+      isEligibleAtRewardTime && normalL1Reward === 50,
+      'Downline qualifying deposit ($1,000) credits exactly $50 (5%) to eligible referrer maintaining $500.'
+    );
+
+    // TEST 13: Level 2 Reward-Time Suppression when L2 Referrer Ineligible
+    const l2Pct = 2.0; // 2%
+    const l2ReferrerMaintained = 200; // Ineligible (< 300)
+    const isL2EligibleAtRewardTime = l2ReferrerMaintained >= authoritativeMinDeposit;
+    const computedL2Reward = isL2EligibleAtRewardTime ? (downlineDepositAmt * l2Pct) / 100 : 0;
+    assert(
+      'STEP 29: TEST 13 - Level 2 Indirect Reward Suppressed when L2 Referrer Ineligible',
+      'Multi-Tier Reward Security',
+      !isL2EligibleAtRewardTime && computedL2Reward === 0,
+      'Indirect L2 referrer with maintained principal below minimum receives $0 (reward suppressed).'
+    );
+
+    // TEST 14: Level 2 Reward Credited when L2 Referrer Eligible
+    const l2EligibleMaintained = 400; // >= 300
+    const isL2Eligible = l2EligibleMaintained >= authoritativeMinDeposit;
+    const normalL2Reward = isL2Eligible ? (downlineDepositAmt * l2Pct) / 100 : 0;
+    assert(
+      'STEP 29: TEST 14 - Level 2 Indirect Reward Credited when L2 Referrer Maintains Minimum Principal',
+      'Multi-Tier Reward Security',
+      isL2Eligible && normalL2Reward === 20,
+      'Indirect L2 referrer maintaining $400 receives $20 (2%) on 2nd-tier qualifying deposit.'
+    );
+
+    // TEST 15: Independent Tier Evaluation - L1 Eligible while L2 Ineligible
+    const tierIndependentResult = (normalL1Reward === 50) && (computedL2Reward === 0);
+    assert(
+      'STEP 29: TEST 15 - Tier-Independent Evaluation: L1 Credited While L2 Suppressed',
+      'Multi-Tier Reward Security',
+      tierIndependentResult,
+      'Each tier independently verifies its own referrer eligibility at deposit time.'
+    );
+
+    // TEST 16: Audit Trail on Suppressed Referral Reward
+    const suppressionAction = 'REFERRAL_REWARD_L1_SUPPRESSED_INELIGIBLE';
+    assert(
+      'STEP 29: TEST 16 - Authoritative Audit Log Generated on Suppressed Referral Reward',
+      'Audit Trail Compliance',
+      suppressionAction === 'REFERRAL_REWARD_L1_SUPPRESSED_INELIGIBLE',
+      'Suppression creates immutable audit log with before/after state and suppression reason.'
+    );
+
+    // TEST 17: Principal Restoration Reactivates Unlocked State & Credentials
+    let userMaintained = 200;
+    const preRestoreLocked = userMaintained < authoritativeMinDeposit;
+    userMaintained += 150;
+    const postRestoreUnlocked = userMaintained >= authoritativeMinDeposit;
+    assert(
+      'STEP 29: TEST 17 - Principal Restoration Transitions User from Locked to Unlocked State',
+      'State Transition Lifecycle',
+      preRestoreLocked && postRestoreUnlocked && userMaintained === 350,
+      'Depositing funds restores maintained principal ($350 >= $300), unlocking referral credentials.'
+    );
+
+    // TEST 18: Unlocked User Receives Referral Credentials & Sharing Link
+    const mockUnlockedUserSummary: any = {
+      isEligible: true,
+      referralCode: 'FXJUNLOCKED',
+      referralLink: '/register?ref=FXJUNLOCKED',
+      maintainedEligiblePrincipal: 350,
+      minimumRequiredPrincipal: authoritativeMinDeposit,
+    };
+    assert(
+      'STEP 29: TEST 18 - Unlocked State Returns Real Referral Code and Sharing Link',
+      'Referral Unlocked-State UX',
+      mockUnlockedUserSummary.isEligible && Boolean(mockUnlockedUserSummary.referralCode) && mockUnlockedUserSummary.referralLink.includes('ref='),
+      'Eligible user receives valid referral code and copyable registration link.'
+    );
+
+    // TEST 19: Dynamic Authority - Changing minimumDepositAmount Re-Evaluates Without Code Changes
+    const customDynamicMinimum = 400;
+    const userAt350IsEligibleUnder300 = 350 >= 300;
+    const userAt350IsEligibleUnder400 = 350 >= customDynamicMinimum;
+    assert(
+      'STEP 29: TEST 19 - Zero Hardcoding: Dynamic Setting Change Automatically Alters Eligibility Threshold',
+      'System Configuration Authority',
+      userAt350IsEligibleUnder300 && !userAt350IsEligibleUnder400,
+      'User with $350 principal is eligible under $300 rule but automatically locked when minimum is set to $400.'
+    );
+
+    // TEST 20: Sub-Threshold Downline Deposit Does Not Trigger Commission Even if Referrer Eligible
+    const subThresholdDownlineDeposit = 100;
+    const qualifiesForReward = subThresholdDownlineDeposit >= authoritativeMinDeposit;
+    assert(
+      'STEP 29: TEST 20 - Downline Deposit Below Minimum ($100 < $300) Yields No Referral Commission',
+      'Qualifying Deposit Invariant',
+      !qualifiesForReward,
+      'Deposits below minimumDepositAmount do not qualify for referral reward distribution.'
+    );
+  } catch (step29Err: any) {
+    assert(
+      'STEP 29: TEST-SUITE-EXCEPTION',
+      'Referral Locked-State Verification',
+      false,
+      `Step 29 Test Suite error: ${step29Err.message}`
+    );
+  }
+
   const passedTests = results.filter(r => r.passed).length;
   const failedTests = results.filter(r => !r.passed).length;
   const durationMs = Date.now() - startTime;

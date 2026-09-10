@@ -108,7 +108,38 @@ export async function bindReferralAsync(
     };
   }
 
-  // 4. Prevent duplicate or manipulated referral relationship
+  // 5. Verify referrer account is active
+  if (referrer.status !== 'active') {
+    logger.warn('INACTIVE_REFERRER_REGISTRATION_ATTEMPT', `Referrer ${referrer.id} status is ${referrer.status}`, {
+      userId: referredUser.id,
+      metadata: {
+        attemptedCode: cleanCode,
+      },
+    });
+    return {
+      success: false,
+      error: 'This referral code is currently inactive because the referrer has not maintained the required minimum eligible funds.',
+    };
+  }
+
+  // 6. Verify referrer currently maintains eligible personal principal >= minimumDepositAmount
+  const referrerEligibility = await checkReferralEligibilityAsync(referrer.id);
+  if (!referrerEligibility.isEligible) {
+    logger.warn('INELIGIBLE_REFERRER_REGISTRATION_ATTEMPT', `Referrer ${referrer.id} is ineligible: ${referrerEligibility.reason}`, {
+      userId: referredUser.id,
+      metadata: {
+        attemptedCode: cleanCode,
+        maintainedEligiblePrincipal: referrerEligibility.maintainedEligiblePrincipal,
+        minimumRequiredPrincipal: referrerEligibility.minimumRequiredPrincipal,
+      },
+    });
+    return {
+      success: false,
+      error: 'This referral code is currently inactive because the referrer has not maintained the required minimum eligible funds.',
+    };
+  }
+
+  // 7. Prevent duplicate or manipulated referral relationship
   const existing = await getReferralByReferredId(referredUser.id);
   if (existing) {
     // Immutable once established
@@ -156,7 +187,18 @@ export async function bindReferralAsync(
 export async function checkReferralEligibilityAsync(userId: string): Promise<ReferralEligibilityResult> {
   const settings = await getSettings();
   const rawMin = Number(settings.minimumDepositAmount);
-  const effectiveMinDeposit = !isNaN(rawMin) && rawMin > 0 ? rawMin : 300;
+  if (isNaN(rawMin) || rawMin <= 0) {
+    return {
+      isEligible: false,
+      hasConfirmedDeposit: false,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      maintainedEligiblePrincipal: 0,
+      minimumRequiredPrincipal: 0,
+      reason: 'Financial configuration error: minimumDepositAmount is invalid or missing in system settings.',
+    };
+  }
+  const effectiveMinDeposit = rawMin;
 
   try {
     const balance = await calculateUserBalanceAsync(userId);
@@ -290,6 +332,16 @@ export async function processReferralRewardForDepositAsync(
       const l1Eligibility = await checkReferralEligibilityAsync(l1Referrer.id);
       if (!l1Eligibility.isEligible) {
         logger.info('REFERRAL_L1_SKIPPED_INELIGIBLE_REFERRER', `L1 Referrer ${l1Referrer.id} is ineligible to receive referral rewards on deposit #${depositId}: ${l1Eligibility.reason}`);
+        await createAuditLog({
+          action: 'REFERRAL_REWARD_L1_SUPPRESSED_INELIGIBLE',
+          actorId: 'system',
+          actorRole: 'system',
+          targetUserId: l1Referrer.id,
+          reason: `Suppressed Level 1 referral reward for deposit #${depositId}: Referrer maintained principal ($${l1Eligibility.maintainedEligiblePrincipal}) is below required minimum ($${l1Eligibility.minimumRequiredPrincipal}).`,
+          beforeValue: { isEligible: false, maintainedEligiblePrincipal: l1Eligibility.maintainedEligiblePrincipal },
+          afterValue: { depositId, depositAmount, suppressedPercentage: l1Percentage },
+          referenceId: `SUPP-L1-DEP-${depositId}`,
+        }).catch(() => {});
       } else {
         const l1RewardAmount = Number(((depositAmount * l1Percentage) / 100.0).toFixed(4));
 
@@ -366,6 +418,16 @@ export async function processReferralRewardForDepositAsync(
         const l2Eligibility = await checkReferralEligibilityAsync(l2Referrer.id);
         if (!l2Eligibility.isEligible) {
           logger.info('REFERRAL_L2_SKIPPED_INELIGIBLE_REFERRER', `L2 Referrer ${l2Referrer.id} is ineligible to receive referral rewards on deposit #${depositId}: ${l2Eligibility.reason}`);
+          await createAuditLog({
+            action: 'REFERRAL_REWARD_L2_SUPPRESSED_INELIGIBLE',
+            actorId: 'system',
+            actorRole: 'system',
+            targetUserId: l2Referrer.id,
+            reason: `Suppressed Level 2 referral reward for deposit #${depositId}: Referrer maintained principal ($${l2Eligibility.maintainedEligiblePrincipal}) is below required minimum ($${l2Eligibility.minimumRequiredPrincipal}).`,
+            beforeValue: { isEligible: false, maintainedEligiblePrincipal: l2Eligibility.maintainedEligiblePrincipal },
+            afterValue: { depositId, depositAmount, suppressedPercentage: l2Percentage },
+            referenceId: `SUPP-L2-DEP-${depositId}`,
+          }).catch(() => {});
         } else {
           const l2RewardAmount = Number(((depositAmount * l2Percentage) / 100.0).toFixed(4));
 
@@ -585,8 +647,12 @@ export async function getReferralSummaryAsync(userId: string): Promise<{
     createdAt: r.createdAt,
   }));
 
+  const eligibility = await checkReferralEligibilityAsync(userId);
+  const rawReferralCode = user.referralCode || '';
+  const safeReferralCode = eligibility.isEligible ? rawReferralCode : '';
+
   return {
-    referralCode,
+    referralCode: safeReferralCode,
     totalRewardsEarned,
     level1RewardsEarned: Number(level1RewardsEarned.toFixed(4)),
     level2RewardsEarned: Number(level2RewardsEarned.toFixed(4)),
@@ -607,8 +673,6 @@ export async function getUserReferralSummaryAsync(userId: string): Promise<UserR
   if (!user) {
     throw new Error('User not found');
   }
-
-  const referralCode = user.referralCode || '';
 
   // 1. Level 1 count
   const l1Referrals = await getReferralsByReferrerId(userId);
@@ -645,9 +709,16 @@ export async function getUserReferralSummaryAsync(userId: string): Promise<UserR
   // 4. Authoritative Referral Eligibility Validation
   const eligibility = await checkReferralEligibilityAsync(userId);
 
+  // Security rule: If the user is NOT eligible, do not expose active referralCode or referralLink
+  const rawReferralCode = user.referralCode || '';
+  const referralCode = eligibility.isEligible ? rawReferralCode : '';
+  const referralLink = eligibility.isEligible && rawReferralCode
+    ? `/register?ref=${encodeURIComponent(rawReferralCode)}`
+    : '';
+
   return {
     referralCode,
-    referralLink: `/register?ref=${encodeURIComponent(referralCode)}`,
+    referralLink,
     totalReferrals: level1Referrals + level2Referrals,
     level1Referrals,
     level2Referrals,
@@ -894,6 +965,21 @@ export async function validateReferralCodeAsync(code: string): Promise<{ valid: 
   const referrer = await getProfileByReferralCode(cleanCode);
   if (!referrer) {
     return { valid: false, error: 'Referral code not found or invalid.' };
+  }
+
+  if (referrer.status !== 'active') {
+    return {
+      valid: false,
+      error: 'This referral code is currently inactive because the referrer has not maintained the required minimum eligible funds.',
+    };
+  }
+
+  const eligibility = await checkReferralEligibilityAsync(referrer.id);
+  if (!eligibility.isEligible) {
+    return {
+      valid: false,
+      error: 'This referral code is currently inactive because the referrer has not maintained the required minimum eligible funds.',
+    };
   }
 
   const parts = (referrer.fullName || 'Investor').trim().split(/\s+/);

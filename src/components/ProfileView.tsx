@@ -13,6 +13,7 @@ import {
   Copy,
   Users,
   ChevronRight,
+  Lock,
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -192,16 +193,37 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
           Receive 5% Level 1 direct rewards and 2% Level 2 indirect rewards when your referred investors make qualifying deposits (≥ 300 USDT). Referral rewards are non-compounding cash.
         </p>
 
-        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <span className="text-[11px] font-semibold text-slate-500 uppercase">My Referral Code</span>
-            <p className="text-base font-mono font-black text-slate-900 dark:text-white tracking-wider mt-0.5">
-              {user?.referralCode || 'Referral code unavailable'}
-            </p>
+        {!user?.referralCode ? (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 font-bold text-xs">
+                <Lock className="w-3.5 h-3.5" />
+                <span>Refer & Earn is Locked</span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Maintain at least the required minimum eligible principal in your account to unlock your referral code.
+              </p>
+            </div>
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('deposit')}
+                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer self-start sm:self-auto"
+              >
+                <span>Deposit to Unlock</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
+        ) : (
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <span className="text-[11px] font-semibold text-slate-500 uppercase">My Referral Code</span>
+              <p className="text-base font-mono font-black text-slate-900 dark:text-white tracking-wider mt-0.5">
+                {user.referralCode}
+              </p>
+            </div>
 
-          <div className="flex items-center space-x-2">
-            {user?.referralCode && (
+            <div className="flex items-center space-x-2">
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(user.referralCode!);
@@ -213,19 +235,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
                 {copiedProfileRef ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedProfileRef ? 'Copied' : 'Copy Code'}</span>
               </button>
-            )}
 
-            {onNavigate && (
-              <button
-                onClick={() => onNavigate('referrals')}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
-              >
-                <span>Referral Dashboard</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            )}
+              {onNavigate && (
+                <button
+                  onClick={() => onNavigate('referrals')}
+                  className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
+                >
+                  <span>Referral Dashboard</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* 2-Factor Authentication (TOTP) */}
