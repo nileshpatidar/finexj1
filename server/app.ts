@@ -31,6 +31,7 @@ import {
   bindReferralAsync,
   getReferralSummaryAsync,
   getUserReferralSummaryAsync,
+  checkReferralEligibilityAsync,
   getUserLevel1ReferralsPaginatedAsync,
   getUserLevel2ReferralsPaginatedAsync,
   validateReferralCodeAsync,
@@ -2536,6 +2537,20 @@ app.get(['/api/referrals/summary', '/referrals/summary'], authMiddleware, async 
     res.json({
       success: true,
       summary,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Authoritative User Referral Eligibility Status
+app.get(['/api/referrals/eligibility', '/referrals/eligibility'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const eligibility = await checkReferralEligibilityAsync(user.id);
+    res.json({
+      success: true,
+      eligibility,
     });
   } catch (err) {
     next(err);

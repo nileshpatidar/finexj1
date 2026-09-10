@@ -15,6 +15,7 @@ import {
   TrendingUp,
   Award,
   AlertCircle,
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Shield,
@@ -24,9 +25,14 @@ import {
   ArrowRight,
   Layers,
   ChevronLeft,
+  Wallet,
 } from 'lucide-react';
 
-export const ReferralView: React.FC = () => {
+interface ReferralViewProps {
+  onNavigate?: (view: string) => void;
+}
+
+export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   // Summary state
   const [summary, setSummary] = useState<UserReferralSummary | null>(null);
@@ -243,6 +249,101 @@ export const ReferralView: React.FC = () => {
         </button>
       </div>
 
+      {/* Authoritative Referral Eligibility Status Card */}
+      {isLoadingSummary ? (
+        <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm animate-pulse space-y-3">
+          <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/4"></div>
+          <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded w-3/4"></div>
+        </div>
+      ) : summary?.isEligible ? (
+        <div className="p-5 sm:p-6 rounded-3xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm sm:text-base font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-2">
+                  <span>Refer & Earn Program: Active & Eligible</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-600 text-white tracking-wide uppercase">
+                    Qualified
+                  </span>
+                </h2>
+                <p className="text-xs text-emerald-800 dark:text-emerald-300/90 mt-0.5">
+                  Your personal maintained deposit satisfies the minimum required threshold of ${summary.minimumRequiredPrincipal} USDT.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-xs bg-white dark:bg-emerald-950/50 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 self-start sm:self-auto">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Maintained Principal</span>
+                <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                  ${(summary.maintainedEligiblePrincipal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                </span>
+              </div>
+              <div className="h-7 w-px bg-slate-200 dark:bg-slate-700"></div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Reward Rates</span>
+                <span className="font-extrabold text-slate-900 dark:text-white">5% L1 / 2% L2</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="p-5 sm:p-6 rounded-3xl bg-amber-50/80 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/70 shadow-xs space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 flex-shrink-0 mt-0.5">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-sm sm:text-base font-bold text-amber-950 dark:text-amber-200">
+                    Refer & Earn Program: Inactive
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-600 text-white tracking-wide uppercase">
+                    Ineligible
+                  </span>
+                </div>
+                <p className="text-xs font-medium text-amber-900 dark:text-amber-300">
+                  {summary?.ineligibilityReason || `Maintain at least $${summary?.minimumRequiredPrincipal || 300} in eligible funds to participate in Refer & Earn.`}
+                </p>
+              </div>
+            </div>
+
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('deposit')}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer self-start sm:self-auto flex-shrink-0"
+              >
+                <Wallet className="w-3.5 h-3.5" />
+                <span>Deposit Funds to Activate</span>
+              </button>
+            )}
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-slate-700 dark:text-slate-300 font-medium">
+              <span>Maintained Eligible Principal:</span>
+              <span className="font-bold font-mono text-slate-900 dark:text-white">
+                ${(summary?.maintainedEligiblePrincipal || 0).toFixed(2)} / ${(summary?.minimumRequiredPrincipal || 300).toFixed(2)} USDT
+              </span>
+            </div>
+            <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+              <div
+                className="bg-amber-500 h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${Math.min(100, (((summary?.maintainedEligiblePrincipal || 0) / (summary?.minimumRequiredPrincipal || 300)) * 100))}%`,
+                }}
+              />
+            </div>
+            <p className="text-[11px] text-amber-800 dark:text-amber-400">
+              * Notice: Referral rewards cannot accrue while your account is ineligible. Referral income and yields do not count towards qualifying funds. You must deposit and maintain personal funds to activate Refer & Earn.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Referral Code & Link Sharing Card */}
       <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-3">
@@ -255,9 +356,17 @@ export const ReferralView: React.FC = () => {
               Share your authoritative code with new investors to receive credited rewards upon qualifying deposits.
             </p>
           </div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold text-blue-700 dark:text-blue-300 self-start sm:self-auto">
-            <Shield className="w-3 h-3" />
-            2-Level Depth Limit
+          <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+            {summary && !summary.isEligible && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="w-3 h-3" />
+                Rewards Inactive
+              </span>
+            )}
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold text-blue-700 dark:text-blue-300">
+              <Shield className="w-3 h-3" />
+              2-Level Depth Limit
+            </div>
           </div>
         </div>
 
@@ -444,7 +553,7 @@ export const ReferralView: React.FC = () => {
           <Shield className="w-4 h-4 text-blue-600 flex-shrink-0" />
           <span>Financial Policy: Strict Separation of Referral Income from Compounding Principal</span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
           <div className="space-y-1">
             <p className="font-semibold text-slate-800 dark:text-slate-200">
               1. Non-Compounding Rule:
@@ -453,7 +562,7 @@ export const ReferralView: React.FC = () => {
               Referral income does <span className="font-bold underline">NOT</span> participate in daily compounding.
               Daily earnings are calculated solely from verified qualifying deposit principal (currently{' '}
               <span className="font-semibold text-slate-900 dark:text-white">
-                ${(summary?.eligibleDepositPrincipal || 0).toLocaleString(undefined, {
+                ${(summary?.maintainedEligiblePrincipal || summary?.eligibleDepositPrincipal || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })} USDT
@@ -467,7 +576,16 @@ export const ReferralView: React.FC = () => {
             </p>
             <p>
               Referral rewards are one-time distributions triggered exclusively when a referred user confirms a qualifying deposit of{' '}
-              <span className="font-semibold text-slate-900 dark:text-white">≥ 300 USDT</span>. Referral income is not generated from withdrawals, and the standard 9% withdrawal fee is retained entirely by FINEXJ for reserve operations.
+              <span className="font-semibold text-slate-900 dark:text-white">≥ ${summary?.minimumRequiredPrincipal || 300} USDT</span>. Referral income is not generated from withdrawals, and withdrawal fees are retained entirely by the reserve fund.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <p className="font-semibold text-slate-800 dark:text-slate-200">
+              3. Referrer Eligibility Rule:
+            </p>
+            <p>
+              A user must personally deposit and maintain at least{' '}
+              <span className="font-semibold text-slate-900 dark:text-white">≥ ${summary?.minimumRequiredPrincipal || 300} USDT</span> in eligible funds. If a user withdraws below this threshold, Refer & Earn eligibility becomes inactive until funds are replenished.
             </p>
           </div>
         </div>

@@ -4,6 +4,7 @@ import {
   Referral,
   ReferralReward,
   UserReferralSummary,
+  ReferralEligibilityResult,
   Level1ReferralItem,
   Level2ReferralItem,
   PaginatedLevel1ReferralsResponse,
@@ -141,6 +142,79 @@ export async function bindReferralAsync(
 }
 
 /**
+ * Authoritatively verifies whether a user is currently eligible to participate in Refer & Earn.
+ * 
+ * Business Rules:
+ * 1. Minimum qualifying amount is NOT hardcoded; reads dynamically from system_settings.minimumDepositAmount.
+ * 2. User is eligible ONLY when:
+ *    - Confirmed/verified personal deposit(s) >= minimumDepositAmount, AND
+ *    - Current maintained eligible principal (confirmed deposits - paid withdrawals) >= minimumDepositAmount.
+ * 3. Referral income and compounding yields are NEVER counted as qualifying principal.
+ * 4. Unconfirmed, rejected, cancelled, pending deposits NEVER qualify.
+ * 5. If user withdraws and maintained principal falls below minimum, eligibility becomes inactive.
+ */
+export async function checkReferralEligibilityAsync(userId: string): Promise<ReferralEligibilityResult> {
+  const settings = await getSettings();
+  const rawMin = Number(settings.minimumDepositAmount);
+  const effectiveMinDeposit = !isNaN(rawMin) && rawMin > 0 ? rawMin : 300;
+
+  try {
+    const balance = await calculateUserBalanceAsync(userId);
+    const totalDeposited = balance.totalDeposited;
+    const totalWithdrawn = balance.totalWithdrawn;
+    
+    // Maintained eligible principal: strictly confirmed deposit principal minus withdrawals.
+    // Referral income and yields are NEVER counted towards qualifying principal.
+    const maintainedEligiblePrincipal = Math.max(0, Number((totalDeposited - totalWithdrawn).toFixed(4)));
+    const hasConfirmedDeposit = totalDeposited >= effectiveMinDeposit;
+    const maintainsMinimum = maintainedEligiblePrincipal >= effectiveMinDeposit;
+
+    if (!hasConfirmedDeposit) {
+      return {
+        isEligible: false,
+        hasConfirmedDeposit: false,
+        totalDeposited,
+        totalWithdrawn,
+        maintainedEligiblePrincipal,
+        minimumRequiredPrincipal: effectiveMinDeposit,
+        reason: `Must have confirmed personal deposit(s) of at least $${effectiveMinDeposit} USDT to participate in Refer & Earn.`,
+      };
+    }
+
+    if (!maintainsMinimum) {
+      return {
+        isEligible: false,
+        hasConfirmedDeposit: true,
+        totalDeposited,
+        totalWithdrawn,
+        maintainedEligiblePrincipal,
+        minimumRequiredPrincipal: effectiveMinDeposit,
+        reason: `Maintain at least $${effectiveMinDeposit} in eligible funds to participate in Refer & Earn. Current maintained: $${maintainedEligiblePrincipal.toFixed(2)} USDT.`,
+      };
+    }
+
+    return {
+      isEligible: true,
+      hasConfirmedDeposit: true,
+      totalDeposited,
+      totalWithdrawn,
+      maintainedEligiblePrincipal,
+      minimumRequiredPrincipal: effectiveMinDeposit,
+    };
+  } catch (err: any) {
+    return {
+      isEligible: false,
+      hasConfirmedDeposit: false,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      maintainedEligiblePrincipal: 0,
+      minimumRequiredPrincipal: effectiveMinDeposit,
+      reason: err?.message || 'Unable to verify referral eligibility.',
+    };
+  }
+}
+
+/**
  * Idempotently evaluates and credits multi-tier referral rewards (Level 1: 5%, Level 2: 2%)
  * when a qualifying deposit is verified and confirmed on-chain.
  *
@@ -212,58 +286,64 @@ export async function processReferralRewardForDepositAsync(
     // =========================================================================
     const l1Referrer = await getProfileById(user.referrerId);
     if (l1Referrer && l1Referrer.status === 'active' && String(l1Referrer.id) !== String(user.id)) {
-      const l1RewardAmount = Number(((depositAmount * l1Percentage) / 100.0).toFixed(4));
+      // REQUIREMENT 4 & 5: Check Level 1 Referrer Eligibility (confirmed deposit >= min and maintained principal >= min)
+      const l1Eligibility = await checkReferralEligibilityAsync(l1Referrer.id);
+      if (!l1Eligibility.isEligible) {
+        logger.info('REFERRAL_L1_SKIPPED_INELIGIBLE_REFERRER', `L1 Referrer ${l1Referrer.id} is ineligible to receive referral rewards on deposit #${depositId}: ${l1Eligibility.reason}`);
+      } else {
+        const l1RewardAmount = Number(((depositAmount * l1Percentage) / 100.0).toFixed(4));
 
-      if (l1RewardAmount > 0) {
-        const l1Reference = `REF-L1-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
+        if (l1RewardAmount > 0) {
+          const l1Reference = `REF-L1-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
 
-        // STEP 14C: Atomic PostgreSQL Credit (succeeds or fails together: reward + ledger + audit)
-        const l1Result = await creditReferralRewardAtomic({
-          depositId,
-          rewardLevel: 1,
-          referrerId: l1Referrer.id,
-          referredId: user.id,
-          amount: l1RewardAmount,
-          percentage: l1Percentage,
-          reference: l1Reference,
-          notes: `Level 1 (${l1Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
-          performedBy: 'referral_engine',
-        });
+          // STEP 14C: Atomic PostgreSQL Credit (succeeds or fails together: reward + ledger + audit)
+          const l1Result = await creditReferralRewardAtomic({
+            depositId,
+            rewardLevel: 1,
+            referrerId: l1Referrer.id,
+            referredId: user.id,
+            amount: l1RewardAmount,
+            percentage: l1Percentage,
+            reference: l1Reference,
+            notes: `Level 1 (${l1Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
+            performedBy: 'referral_engine',
+          });
 
-        if (l1Result.success) {
-          if (l1Result.isDuplicate) {
-            logger.info('REFERRAL_L1_DUPLICATE_IDEMPOTENT', `L1 reward already processed for deposit #${depositId}`);
-          } else if (l1Result.reward) {
-            if (!l1Result.ledgerCreatedInDb) {
-              const l1Balance = await calculateUserBalanceAsync(l1Referrer.id);
-              const balanceAfter = Number((l1Balance.availableBalance + l1RewardAmount).toFixed(4));
+          if (l1Result.success) {
+            if (l1Result.isDuplicate) {
+              logger.info('REFERRAL_L1_DUPLICATE_IDEMPOTENT', `L1 reward already processed for deposit #${depositId}`);
+            } else if (l1Result.reward) {
+              if (!l1Result.ledgerCreatedInDb) {
+                const l1Balance = await calculateUserBalanceAsync(l1Referrer.id);
+                const balanceAfter = Number((l1Balance.availableBalance + l1RewardAmount).toFixed(4));
 
-              await createLedgerEntry({
-                userId: l1Referrer.id,
-                type: 'referral_reward_l1',
-                amount: l1RewardAmount,
-                balanceAfter,
-                referenceId: l1Result.reward.id,
-                description: `Level 1 referral reward from investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l1Percentage}%)`,
-                performedBy: 'referral_engine',
-              });
+                await createLedgerEntry({
+                  userId: l1Referrer.id,
+                  type: 'referral_reward_l1',
+                  amount: l1RewardAmount,
+                  balanceAfter,
+                  referenceId: l1Result.reward.id,
+                  description: `Level 1 referral reward from investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l1Percentage}%)`,
+                  performedBy: 'referral_engine',
+                });
 
-              await createAuditLog({
-                action: 'REFERRAL_REWARD_L1_CREDITED',
-                actorId: 'system',
-                actorRole: 'system',
-                targetUserId: l1Referrer.id,
-                reason: `Credited ${l1RewardAmount} USDT Level 1 referral reward from deposit #${depositId}`,
-                beforeValue: { availableBalance: l1Balance.availableBalance },
-                afterValue: { rewardAmount: l1RewardAmount, reference: l1Reference, newBalance: balanceAfter },
-                referenceId: l1Reference,
-              });
+                await createAuditLog({
+                  action: 'REFERRAL_REWARD_L1_CREDITED',
+                  actorId: 'system',
+                  actorRole: 'system',
+                  targetUserId: l1Referrer.id,
+                  reason: `Credited ${l1RewardAmount} USDT Level 1 referral reward from deposit #${depositId}`,
+                  beforeValue: { availableBalance: l1Balance.availableBalance },
+                  afterValue: { rewardAmount: l1RewardAmount, reference: l1Reference, newBalance: balanceAfter },
+                  referenceId: l1Reference,
+                });
+              }
+
+              rewardsCreated.push(l1Result.reward);
             }
-
-            rewardsCreated.push(l1Result.reward);
+          } else {
+            logger.warn('REFERRAL_L1_CREDIT_UNSUCCESSFUL', `Could not credit L1 referral reward for deposit #${depositId}: ${l1Result.error}`);
           }
-        } else {
-          logger.warn('REFERRAL_L1_CREDIT_UNSUCCESSFUL', `Could not credit L1 referral reward for deposit #${depositId}: ${l1Result.error}`);
         }
       }
     }
@@ -282,58 +362,64 @@ export async function processReferralRewardForDepositAsync(
       const l2Referrer = await getProfileById(l1Referrer.referrerId);
 
       if (l2Referrer && l2Referrer.status === 'active') {
-        const l2RewardAmount = Number(((depositAmount * l2Percentage) / 100.0).toFixed(4));
+        // REQUIREMENT 4, 5 & 9: Check Level 2 Referrer Eligibility
+        const l2Eligibility = await checkReferralEligibilityAsync(l2Referrer.id);
+        if (!l2Eligibility.isEligible) {
+          logger.info('REFERRAL_L2_SKIPPED_INELIGIBLE_REFERRER', `L2 Referrer ${l2Referrer.id} is ineligible to receive referral rewards on deposit #${depositId}: ${l2Eligibility.reason}`);
+        } else {
+          const l2RewardAmount = Number(((depositAmount * l2Percentage) / 100.0).toFixed(4));
 
-        if (l2RewardAmount > 0) {
-          const l2Reference = `REF-L2-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
+          if (l2RewardAmount > 0) {
+            const l2Reference = `REF-L2-DEP-${depositId}-${Date.now().toString(36).toUpperCase()}`;
 
-          // STEP 14C: Atomic PostgreSQL Credit (succeeds or fails together: reward + ledger + audit)
-          const l2Result = await creditReferralRewardAtomic({
-            depositId,
-            rewardLevel: 2,
-            referrerId: l2Referrer.id,
-            referredId: user.id,
-            amount: l2RewardAmount,
-            percentage: l2Percentage,
-            reference: l2Reference,
-            notes: `Level 2 (${l2Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
-            performedBy: 'referral_engine',
-          });
+            // STEP 14C: Atomic PostgreSQL Credit (succeeds or fails together: reward + ledger + audit)
+            const l2Result = await creditReferralRewardAtomic({
+              depositId,
+              rewardLevel: 2,
+              referrerId: l2Referrer.id,
+              referredId: user.id,
+              amount: l2RewardAmount,
+              percentage: l2Percentage,
+              reference: l2Reference,
+              notes: `Level 2 (${l2Percentage}%) referral reward on qualifying deposit #${depositId} ($${depositAmount} USDT)`,
+              performedBy: 'referral_engine',
+            });
 
-          if (l2Result.success) {
-            if (l2Result.isDuplicate) {
-              logger.info('REFERRAL_L2_DUPLICATE_IDEMPOTENT', `L2 reward already processed for deposit #${depositId}`);
-            } else if (l2Result.reward) {
-              if (!l2Result.ledgerCreatedInDb) {
-                const l2Balance = await calculateUserBalanceAsync(l2Referrer.id);
-                const balanceAfter = Number((l2Balance.availableBalance + l2RewardAmount).toFixed(4));
+            if (l2Result.success) {
+              if (l2Result.isDuplicate) {
+                logger.info('REFERRAL_L2_DUPLICATE_IDEMPOTENT', `L2 reward already processed for deposit #${depositId}`);
+              } else if (l2Result.reward) {
+                if (!l2Result.ledgerCreatedInDb) {
+                  const l2Balance = await calculateUserBalanceAsync(l2Referrer.id);
+                  const balanceAfter = Number((l2Balance.availableBalance + l2RewardAmount).toFixed(4));
 
-                await createLedgerEntry({
-                  userId: l2Referrer.id,
-                  type: 'referral_reward_l2',
-                  amount: l2RewardAmount,
-                  balanceAfter,
-                  referenceId: l2Result.reward.id,
-                  description: `Level 2 referral reward from 2nd-tier investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l2Percentage}%)`,
-                  performedBy: 'referral_engine',
-                });
+                  await createLedgerEntry({
+                    userId: l2Referrer.id,
+                    type: 'referral_reward_l2',
+                    amount: l2RewardAmount,
+                    balanceAfter,
+                    referenceId: l2Result.reward.id,
+                    description: `Level 2 referral reward from 2nd-tier investor ${user.email} (Deposit #${depositId} of $${depositAmount} USDT at ${l2Percentage}%)`,
+                    performedBy: 'referral_engine',
+                  });
 
-                await createAuditLog({
-                  action: 'REFERRAL_REWARD_L2_CREDITED',
-                  actorId: 'system',
-                  actorRole: 'system',
-                  targetUserId: l2Referrer.id,
-                  reason: `Credited ${l2RewardAmount} USDT Level 2 referral reward from deposit #${depositId}`,
-                  beforeValue: { availableBalance: l2Balance.availableBalance },
-                  afterValue: { rewardAmount: l2RewardAmount, reference: l2Reference, newBalance: balanceAfter },
-                  referenceId: l2Reference,
-                });
+                  await createAuditLog({
+                    action: 'REFERRAL_REWARD_L2_CREDITED',
+                    actorId: 'system',
+                    actorRole: 'system',
+                    targetUserId: l2Referrer.id,
+                    reason: `Credited ${l2RewardAmount} USDT Level 2 referral reward from deposit #${depositId}`,
+                    beforeValue: { availableBalance: l2Balance.availableBalance },
+                    afterValue: { rewardAmount: l2RewardAmount, reference: l2Reference, newBalance: balanceAfter },
+                    referenceId: l2Reference,
+                  });
+                }
+
+                rewardsCreated.push(l2Result.reward);
               }
-
-              rewardsCreated.push(l2Result.reward);
+            } else {
+              logger.warn('REFERRAL_L2_CREDIT_UNSUCCESSFUL', `Could not credit L2 referral reward for deposit #${depositId}: ${l2Result.error}`);
             }
-          } else {
-            logger.warn('REFERRAL_L2_CREDIT_UNSUCCESSFUL', `Could not credit L2 referral reward for deposit #${depositId}: ${l2Result.error}`);
           }
         }
       }
@@ -556,9 +642,8 @@ export async function getUserReferralSummaryAsync(userId: string): Promise<UserR
 
   const totalReferralIncome = Number((level1Income + level2Income).toFixed(4));
 
-  // 4. Compounding principal strictly separate from referral income
-  const balance = await calculateUserBalanceAsync(userId);
-  const eligibleDepositPrincipal = balance.totalDeposited;
+  // 4. Authoritative Referral Eligibility Validation
+  const eligibility = await checkReferralEligibilityAsync(userId);
 
   return {
     referralCode,
@@ -569,7 +654,12 @@ export async function getUserReferralSummaryAsync(userId: string): Promise<UserR
     totalReferralIncome,
     level1Income: Number(level1Income.toFixed(4)),
     level2Income: Number(level2Income.toFixed(4)),
-    eligibleDepositPrincipal,
+    eligibleDepositPrincipal: eligibility.maintainedEligiblePrincipal,
+    isEligible: eligibility.isEligible,
+    hasConfirmedDeposit: eligibility.hasConfirmedDeposit,
+    maintainedEligiblePrincipal: eligibility.maintainedEligiblePrincipal,
+    minimumRequiredPrincipal: eligibility.minimumRequiredPrincipal,
+    ineligibilityReason: eligibility.reason,
   };
 }
 

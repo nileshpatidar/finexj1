@@ -208,7 +208,30 @@ export async function checkWithdrawalImpactAsync(
   userId: string,
   requestedAmount: number
 ): Promise<WithdrawalImpactResult> {
-  const balance = await calculateUserBalanceAsync(userId);
+  let balance: UserBalanceSummary;
+  try {
+    balance = await calculateUserBalanceAsync(userId);
+  } catch (err: any) {
+    return {
+      canWithdraw: false,
+      error: err?.message || 'User not found',
+      availableBalance: 0,
+      referralEarnings: 0,
+      activeCompoundingPrincipal: 0,
+      depositLockedPrincipal: 0,
+      isFundLocked: false,
+      is30DaysOld: false,
+      requestedAmount,
+      feePercentage: 9,
+      feeAmount: 0,
+      netAmount: 0,
+      isReferralOnly: false,
+      touchesProtectedFund: false,
+      requiresLockBreakConfirmation: false,
+      requiresMinimumBreakConfirmation: false,
+      projectedRemainingPrincipal: 0,
+    };
+  }
   let settings: any;
   try {
     settings = await getSettings();
@@ -384,7 +407,7 @@ export async function checkWithdrawalImpactAsync(
     // Check if remaining principal falls below the configured minimum required for compounding/earnings
     if (projectedRemainingPrincipal < minDeposit && balance.activeCompoundingPrincipal >= minDeposit) {
       requiresMinimumBreakConfirmation = true;
-      minimumBreakWarning = `Your withdrawal will reduce your eligible fund below the minimum required amount ($${minDeposit} USDT). If you continue, daily earnings/compounding will stop.`;
+      minimumBreakWarning = `Your withdrawal will reduce your eligible fund below the minimum required amount ($${minDeposit} USDT). If you continue, daily compounding earnings and Refer & Earn eligibility will become inactive.`;
     }
   }
 

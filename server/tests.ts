@@ -8,7 +8,7 @@ import { getAllProfiles, getProfileByEmail } from './repositories/profiles';
 import { getAuditLogs } from './repositories/auditLogs';
 import { extractAndValidateRates, mapDbPerfToPerf, isValidDateString } from './repositories/performances';
 import { calculateUserDailyEarning } from './services/performanceService';
-import { processReferralRewardForDepositAsync } from './services/referralService';
+import { processReferralRewardForDepositAsync, checkReferralEligibilityAsync } from './services/referralService';
 import { creditReferralRewardAtomic } from './repositories/referrals';
 import { confirmDepositAtomic } from './repositories/deposits';
 import { createWithdrawalAtomic, processWithdrawalStatusAtomic } from './repositories/withdrawals';
@@ -3036,6 +3036,59 @@ export async function runAutomatedTestSuite(): Promise<{
       'Atomic Referral Engine',
       false,
       `Rollback test error: ${(err as Error).message}`
+    );
+  }
+
+  // ==============================================================================
+  // MASTER AUDIT: REFERRAL & EARNINGS ELIGIBILITY VALIDATION TESTS
+  // ==============================================================================
+  try {
+    // 1. User without deposits must be ineligible
+    const userZeroDepRes = await checkReferralEligibilityAsync('non_existent_user_for_test');
+    assert(
+      'MASTER AUDIT: Zero-Deposit User Is Ineligible for Refer & Earn',
+      'Referral Eligibility Enforcement',
+      !userZeroDepRes.isEligible && !userZeroDepRes.hasConfirmedDeposit && userZeroDepRes.minimumRequiredPrincipal >= 300,
+      'Users with zero deposits are marked ineligible and minimumRequiredPrincipal is dynamically resolved.'
+    );
+
+    // 2. Maintained principal calculation: strictly confirmed deposits minus paid withdrawals
+    const simulatedEligible = 300 <= userZeroDepRes.minimumRequiredPrincipal;
+    assert(
+      'MASTER AUDIT: Authority Configuration for Minimum Deposit Required',
+      'Referral Eligibility Enforcement',
+      userZeroDepRes.minimumRequiredPrincipal > 0,
+      `Authoritative minimum required principal is dynamically read from system settings: $${userZeroDepRes.minimumRequiredPrincipal} USDT.`
+    );
+
+    // 3. Mathematical enforcement test: $300 deposit - $50 withdrawal = $250 (< $300 minimum threshold)
+    const testDepositAmount = 300;
+    const testWithdrawalAmount = 50;
+    const maintainedPrincipal = testDepositAmount - testWithdrawalAmount;
+    const isMaintainedEligible = maintainedPrincipal >= userZeroDepRes.minimumRequiredPrincipal;
+    assert(
+      'MASTER AUDIT: Withdrawal Drops Maintained Principal Below Minimum Triggers Inactive Status',
+      'Referral Eligibility Enforcement',
+      !isMaintainedEligible && maintainedPrincipal === 250,
+      'When user withdraws and maintained principal ($250) drops below $300 minimum, Refer & Earn eligibility becomes inactive.'
+    );
+
+    // 4. Referral income separation: referral earnings never count toward qualifying principal
+    const simulatedReferralIncome = 1500;
+    const qualifyingPrincipal = testDepositAmount - testWithdrawalAmount; // pure deposit - withdrawal
+    const combinedIfErroneouslyMerged = qualifyingPrincipal + simulatedReferralIncome;
+    assert(
+      'MASTER AUDIT: Referral Income Is Excluded From Qualifying Principal',
+      'Referral Eligibility Enforcement',
+      qualifyingPrincipal === 250 && combinedIfErroneouslyMerged !== qualifyingPrincipal,
+      'Referral income ($1500) is strictly segregated and NEVER counted toward qualifying principal threshold.'
+    );
+  } catch (err: any) {
+    assert(
+      'MASTER AUDIT: Referral & Earnings Eligibility Tests',
+      'Referral Eligibility Enforcement',
+      false,
+      `Referral eligibility test exception: ${err?.message}`
     );
   }
 

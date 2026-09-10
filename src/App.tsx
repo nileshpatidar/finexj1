@@ -145,7 +145,7 @@ const AppContent: React.FC = () => {
 
             {currentView === 'transactions' && <TransactionsView />}
 
-            {currentView === 'referrals' && <ReferralView />}
+            {currentView === 'referrals' && <ReferralView onNavigate={setCurrentView} />}
 
             {currentView === 'profile' && <ProfileView onNavigate={setCurrentView} />}
           </>

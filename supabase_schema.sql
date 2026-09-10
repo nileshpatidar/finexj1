@@ -117,7 +117,7 @@ BEGIN
 END $$;
 
 -- ==============================================================================
--- 3. Withdrawals Table (Strict 6% Fee, 30-Day Lock, Idempotency & Audit)
+-- 3. Withdrawals Table (Strict 9% Fee, 30-Day Lock, Idempotency & Audit)
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS withdrawals (
   id SERIAL PRIMARY KEY,
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS withdrawals (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   requested_amount NUMERIC(18, 4) NOT NULL,
   amount NUMERIC(18, 4) NOT NULL,
-  fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 6.0000, -- Canonical 6% withdrawal fee
+  fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 9.0000, -- Canonical 9% withdrawal fee
   fee_amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
   net_amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
   currency TEXT NOT NULL DEFAULT 'USDT',
@@ -150,7 +150,7 @@ DO $$
 BEGIN
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS reference TEXT;
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS amount NUMERIC(18, 4);
-  ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 6.0000;
+  ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 9.0000;
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'USDT';
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'BEP-20';
   ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_tx_hash TEXT;
@@ -403,14 +403,14 @@ CREATE INDEX IF NOT EXISTS idx_admin_messages_user_id ON admin_messages(user_id)
 CREATE INDEX IF NOT EXISTS idx_admin_messages_is_read ON admin_messages(is_read);
 
 -- ==============================================================================
--- Initial System Settings (Canonical 6% Withdrawal Fee & 30-Day Lock Rule)
+-- Initial System Settings (Canonical 9% Withdrawal Fee & 30-Day Lock Rule)
 -- ==============================================================================
 INSERT INTO system_settings (key, value, updated_at) VALUES
   ('bep20DepositAddress', '0x71C5A8c0B26D19543e49e29547d6e492211C54a9', NOW()),
   ('usdtContractAddress', '0x55d398326f99059fF775485246999027B3197955', NOW()),
   ('requiredConfirmations', '12', NOW()),
   ('minimumDepositAmount', '300', NOW()),
-  ('withdrawalFeePercentage', '6', NOW()), -- Canonical 6% Fee
+  ('withdrawalFeePercentage', '9', NOW()), -- Canonical 9% Fee
   ('accountAgeRequirementDays', '30', NOW()), -- Canonical 30-Day Account Age Lock
   ('depositLockPeriodDays', '30', NOW()), -- Canonical 30-Day Deposit Principal Lock
   ('telegramSupportUrl', 'https://t.me/FINEXJ_OfficialSupport', NOW()),
@@ -507,7 +507,7 @@ CREATE OR REPLACE FUNCTION create_withdrawal_atomic(
   p_reference TEXT,
   p_idempotency_key TEXT,
   p_user_notes TEXT,
-  p_fee_percentage NUMERIC DEFAULT 6.0000,
+  p_fee_percentage NUMERIC DEFAULT 9.0000,
   p_fee_amount NUMERIC DEFAULT NULL,
   p_net_amount NUMERIC DEFAULT NULL,
   p_fund_lock_days INTEGER DEFAULT 30

@@ -21,7 +21,7 @@
 - **Scope**: Entire database cluster state, tables, stored functions, indexes, and constraints.
 
 ### C. Logical Schema & Data Backups
-- **Tool**: Standard PostgreSQL `pg_dump` and versioned migration files located in `/supabase/migrations/` (`001` through `008`).
+- **Tool**: Standard PostgreSQL `pg_dump` and versioned migration files located in `/supabase/migrations/` (`001` through `018`).
 - **Configuration**: Version-controlled idempotent schema definitions ensuring zero-loss schema reconstitution.
 
 ---
@@ -46,8 +46,9 @@
    ```bash
    psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/001_initial_schema.sql
    psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/002_auth_security.sql
-   ...
-   psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/008_fraud_referral_audit_hardening.sql
+   # ... sequential migrations through:
+   psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/017_finexj_withdrawal_cancellation_and_perf_eligibility.sql
+   psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/018_finexj_daily_compounding_base.sql
    ```
 3. Restore table data from logical backup dump:
    ```bash
@@ -62,7 +63,7 @@ Before reopening user traffic, verify financial and relational integrity:
 
 1. **Reconcile User Balances vs Ledger Journal**:
    - Execute the database audit verification routine `SELECT verify_data_integrity();` or run the automated test suite (`POST /api/tests/run` or via internal CLI) to verify that:
-     $$\text{Available Balance} = \sum(\text{Confirmed Deposits}) + \sum(\text{Credited Earnings}) - \sum(\text{Paid/Held Withdrawals}) + \sum(\text{Admin Adjustments})$$
+     $$\text{Available Balance} = \sum(\text{Confirmed Deposits}) + \sum(\text{Credited Earnings}) + \sum(\text{Credited Referral Rewards}) - \sum(\text{Paid/Held Withdrawals}) + \sum(\text{Admin Adjustments})$$
 2. **Blockchain Transaction Hash Uniqueness**:
    - Confirm zero duplicate transaction hashes across `deposits` and `withdrawals`.
 3. **Daily Performance Sequence Integrity**:
@@ -72,7 +73,14 @@ Before reopening user traffic, verify financial and relational integrity:
 
 ---
 
-## 5. Migration Safety & Bad Migration Rollback
+## 5. Verification Status: Documented vs Actually Tested
+
+- **Documented**: Cloud provider Point-in-Time Recovery (PITR) procedures, WAL streaming, and cloud console physical restores are documented architectural standards requiring live Supabase infrastructure console access during a disaster recovery drill.
+- **Actually Tested**: Schema migration chain idempotency (`001` through `018`), mathematical daily compounding formula, referral rewards segregation, double-entry ledger balance conservation, and API validation layers have been verified in the codebase.
+
+---
+
+## 6. Migration Safety & Bad Migration Rollback
 
 ### Migration Safety Rules
 - All DDL statements must be wrapped in `DO $$ BEGIN ... END $$;` blocks or use `IF NOT EXISTS` / `IF EXISTS`.
@@ -91,7 +99,7 @@ Before reopening user traffic, verify financial and relational integrity:
 
 ---
 
-## 6. Access Control & Authorization Matrix
+## 7. Access Control & Authorization Matrix
 
 - **Disaster Recovery Operations**: Restricted exclusively to **Super Admin** and **Lead Infrastructure Engineer** with Multi-Factor Authentication (MFA/TOTP) enabled.
 - **Production Credentials Policy**:

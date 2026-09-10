@@ -628,6 +628,21 @@ export interface UserReferralSummary {
   level1Income: number;
   level2Income: number;
   eligibleDepositPrincipal: number; // Strictly separated from referral income
+  isEligible: boolean; // Authoritative backend eligibility flag
+  hasConfirmedDeposit: boolean;
+  maintainedEligiblePrincipal: number; // Confirmed deposits - paid withdrawals
+  minimumRequiredPrincipal: number; // Dynamic from system_settings.minimumDepositAmount
+  ineligibilityReason?: string;
+}
+
+export interface ReferralEligibilityResult {
+  isEligible: boolean;
+  hasConfirmedDeposit: boolean;
+  totalDeposited: number;
+  totalWithdrawn: number;
+  maintainedEligiblePrincipal: number;
+  minimumRequiredPrincipal: number;
+  reason?: string;
 }
 
 export interface Level1ReferralItem {

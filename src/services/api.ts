@@ -481,6 +481,20 @@ export const api = {
   getUserReferralSummary: () =>
     request<{ success: boolean; summary: UserReferralSummary }>('/api/referrals/summary'),
 
+  checkReferralEligibility: () =>
+    request<{
+      success: boolean;
+      eligibility: {
+        isEligible: boolean;
+        hasConfirmedDeposit: boolean;
+        totalDeposited: number;
+        totalWithdrawn: number;
+        maintainedEligiblePrincipal: number;
+        minimumRequiredPrincipal: number;
+        reason?: string;
+      };
+    }>('/api/referrals/eligibility'),
+
   getLevel1Referrals: (page: number = 1, limit: number = 10) =>
     request<{ success: boolean; data: PaginatedLevel1ReferralsResponse }>(
       `/api/referrals/level1?page=${page}&limit=${limit}`

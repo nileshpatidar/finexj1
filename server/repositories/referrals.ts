@@ -1,4 +1,4 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { Referral, ReferralReward } from '../types';
 import { resolveUserIdForDb } from './profiles';
 
@@ -443,49 +443,51 @@ export async function creditReferralRewardAtomic(
     };
   }
 
-  const supabase = getServerSupabase();
   const dbDepositId = !isNaN(Number(input.depositId)) ? Number(input.depositId) : input.depositId;
   const dbReferrerId = await resolveUserIdForDb(input.referrerId);
   const dbReferredId = await resolveUserIdForDb(input.referredId);
   const dbReferralId = input.referralId ? (!isNaN(Number(input.referralId)) ? Number(input.referralId) : null) : null;
 
   // 1. Primary path: Atomic PostgreSQL Function Execution
-  try {
-    const { data: rpcData, error: rpcError } = await supabase.rpc('credit_referral_reward_atomic', {
-      p_deposit_id: dbDepositId,
-      p_reward_level: input.rewardLevel,
-      p_referrer_id: dbReferrerId,
-      p_referred_id: dbReferredId,
-      p_amount: input.amount,
-      p_percentage: input.percentage,
-      p_reference: input.reference || null,
-      p_notes: input.notes || null,
-      p_referral_id: dbReferralId,
-      p_performed_by: input.performedBy || 'referral_engine',
-    });
+  if (isServerSupabaseReady()) {
+    try {
+      const supabase = getServerSupabase();
+      const { data: rpcData, error: rpcError } = await supabase.rpc('credit_referral_reward_atomic', {
+        p_deposit_id: dbDepositId,
+        p_reward_level: input.rewardLevel,
+        p_referrer_id: dbReferrerId,
+        p_referred_id: dbReferredId,
+        p_amount: input.amount,
+        p_percentage: input.percentage,
+        p_reference: input.reference || null,
+        p_notes: input.notes || null,
+        p_referral_id: dbReferralId,
+        p_performed_by: input.performedBy || 'referral_engine',
+      });
 
-    if (!rpcError && rpcData) {
-      if (rpcData.success) {
-        return {
-          success: true,
-          isDuplicate: !!rpcData.is_duplicate,
-          reward: rpcData.reward ? mapDbReferralReward(rpcData.reward) : undefined,
-          ledgerId: rpcData.ledger_id,
-          auditId: rpcData.audit_id,
-          balanceAfter: rpcData.balance_after,
-          ledgerCreatedInDb: true,
-          message: rpcData.message,
-        };
+      if (!rpcError && rpcData) {
+        if (rpcData.success) {
+          return {
+            success: true,
+            isDuplicate: !!rpcData.is_duplicate,
+            reward: rpcData.reward ? mapDbReferralReward(rpcData.reward) : undefined,
+            ledgerId: rpcData.ledger_id,
+            auditId: rpcData.audit_id,
+            balanceAfter: rpcData.balance_after,
+            ledgerCreatedInDb: true,
+            message: rpcData.message,
+          };
+        }
+        if (rpcData.error) {
+          return {
+            success: false,
+            error: rpcData.error,
+          };
+        }
       }
-      if (rpcData.error) {
-        return {
-          success: false,
-          error: rpcData.error,
-        };
-      }
+    } catch (rpcErr: any) {
+      console.warn('[Referral Atomic RPC Notice]: RPC call fell back to transactional repository handler:', rpcErr?.message);
     }
-  } catch (rpcErr: any) {
-    console.warn('[Referral Atomic RPC Notice]: RPC call fell back to transactional repository handler:', rpcErr?.message);
   }
 
   // 2. Transactional Application Fallback (Used if RPC is not yet registered in environment)

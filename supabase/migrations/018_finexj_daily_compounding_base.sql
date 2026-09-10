@@ -78,10 +78,9 @@ BEGIN
 
   -- Fetch minimum deposit threshold from system_settings if configured
   BEGIN
-    SELECT COALESCE((raw_value->>'minimum_deposit_amount')::NUMERIC, (raw_value->>'minimumDepositAmount')::NUMERIC, 300.0000)
-    INTO v_min_deposit
+    SELECT value::NUMERIC INTO v_min_deposit
     FROM system_settings
-    WHERE key = 'financial_thresholds'
+    WHERE key = 'minimumDepositAmount'
     LIMIT 1;
     IF v_min_deposit IS NULL OR v_min_deposit <= 0 THEN
       v_min_deposit := 300.0000;
@@ -91,7 +90,7 @@ BEGIN
   END;
 
   -- 4. Idempotency Check: Existing record for p_date
-  SELECT * INTO v_perf FROM daily_performance WHERE date = p_date;
+  SELECT * INTO v_perf FROM daily_performances WHERE date = p_date;
   IF v_perf.id IS NOT NULL AND NOT p_overwrite_existing THEN
     RETURN jsonb_build_object(
       'success', FALSE,
@@ -102,9 +101,9 @@ BEGIN
   -- If overwriting existing, clean previous earnings and ledger for this performance_date
   IF v_perf.id IS NOT NULL AND p_overwrite_existing THEN
     DELETE FROM ledger WHERE reference_id = v_perf.id::TEXT AND type IN ('daily_earnings', 'daily_loss');
-    DELETE FROM earnings WHERE daily_performance_id = v_perf.id OR performance_date = p_date;
+    DELETE FROM earnings WHERE daily_performance_id = v_perf.id OR performance_date = p_date OR date = p_date;
 
-    UPDATE daily_performance SET
+    UPDATE daily_performances SET
       performance_percentage = v_rate_pct,
       applicable_rate = p_applicable_rate,
       trading_profit_percentage = v_rate_pct,
@@ -118,7 +117,7 @@ BEGIN
     WHERE id = v_perf.id
     RETURNING * INTO v_perf;
   ELSE
-    INSERT INTO daily_performance (
+    INSERT INTO daily_performances (
       date,
       performance_percentage,
       applicable_rate,
@@ -213,7 +212,10 @@ BEGIN
     IF v_user_principal >= v_min_deposit THEN
       v_yield_amount := ROUND(v_user_principal * p_applicable_rate, 4);
 
-      -- Record user earning row (upsert/idempotent per user and date)
+      -- Guarantee idempotency by cleaning any existing earnings for this user and date
+      DELETE FROM earnings WHERE user_id = v_user.id AND (daily_performance_id = v_perf.id OR performance_date = p_date OR date = p_date);
+
+      -- Record user earning row
       INSERT INTO earnings (
         user_id,
         daily_performance_id,
@@ -233,7 +235,7 @@ BEGIN
       ) VALUES (
         v_user.id,
         v_perf.id,
-        v_perf.id,
+        v_perf.id::TEXT,
         p_date,
         p_date,
         v_user_principal,
@@ -247,17 +249,6 @@ BEGIN
         v_default_notes,
         v_now
       )
-      ON CONFLICT (user_id, performance_date) DO UPDATE SET
-        active_principal = EXCLUDED.active_principal,
-        base_eligible_amount = EXCLUDED.base_eligible_amount,
-        rate_percentage = EXCLUDED.rate_percentage,
-        applicable_rate = EXCLUDED.applicable_rate,
-        payout_amount = EXCLUDED.payout_amount,
-        earnings_amount = EXCLUDED.earnings_amount,
-        status = 'credited',
-        market_condition = EXCLUDED.market_condition,
-        note = EXCLUDED.note,
-        created_at = v_now
       RETURNING id INTO v_earning_id;
 
       -- Double-Entry Ledger Entry (Idempotent per user and performance date)
@@ -305,7 +296,7 @@ BEGIN
   END LOOP;
 
   -- 6. Update Daily Performance Aggregate Totals
-  UPDATE daily_performance SET
+  UPDATE daily_performances SET
     applied_count = v_applied_count,
     total_distributed = v_total_distributed,
     overall_fund_amount = CASE 

@@ -221,6 +221,8 @@ let cachedSettings: AppSettings | null = null;
 let cacheExpiryTimestamp = 0;
 const CACHE_TTL_MS = 10_000;
 
+let devSettingsState: AppSettings = { ...developmentDefaultSettings };
+
 export function invalidateSettingsCache(): void {
   cachedSettings = null;
   cacheExpiryTimestamp = 0;
@@ -229,7 +231,7 @@ export function invalidateSettingsCache(): void {
 /**
  * Retrieves authoritative system settings from Supabase system_settings table.
  * Strictly verifies and validates all database values.
- * Fails closed if database values are missing or invalid.
+ * Fails closed in production if database values are missing or invalid.
  */
 export async function getSettings(): Promise<AppSettings> {
   const now = Date.now();
@@ -237,17 +239,20 @@ export async function getSettings(): Promise<AppSettings> {
     return cachedSettings;
   }
 
-  // Development/test fallback is ONLY permitted when Supabase connection is NOT initialized/ready.
-  // Once the database is connected, all configuration reads MUST be authoritative and fail closed.
-  const isOfflineTestFallbackAllowed =
+  // Development fallback is permitted when running in non-production and Supabase is not ready/configured.
+  // In production, all configuration reads MUST be authoritative and fail closed.
+  const isOfflineFallbackAllowed =
     !isServerSupabaseReady() &&
-    !config.isProduction &&
-    (process.env.NODE_ENV === 'test' || process.env.ALLOW_DEV_CONFIG_FALLBACK === 'true');
+    (!config.isProduction || process.env.ALLOW_DEV_CONFIG_FALLBACK === 'true');
 
   if (!isServerSupabaseReady()) {
-    if (isOfflineTestFallbackAllowed) {
-      logger.warn('DEV_CONFIG_FALLBACK', 'Supabase not ready in test/dev environment, using development default settings.');
-      return { ...developmentDefaultSettings };
+    if (isOfflineFallbackAllowed) {
+      if (!cachedSettings) {
+        logger.info('DEV_CONFIG_MODE', 'Supabase database is not configured. Serving development default system settings.');
+      }
+      cachedSettings = { ...devSettingsState };
+      cacheExpiryTimestamp = now + CACHE_TTL_MS;
+      return cachedSettings;
     }
     logger.error('CONFIG_AUTHORITY_ERROR', 'Supabase database is unavailable. Cannot load authoritative system settings.');
     throw new ConfigurationError('Supabase database is unavailable. System configuration cannot be loaded.');
@@ -258,11 +263,23 @@ export async function getSettings(): Promise<AppSettings> {
     const { data, error } = await supabase.from('system_settings').select('*');
 
     if (error) {
+      if (!config.isProduction) {
+        logger.warn('DEV_CONFIG_FALLBACK', `Failed to query system_settings: ${error.message}. Using fallback settings.`);
+        cachedSettings = { ...devSettingsState };
+        cacheExpiryTimestamp = now + CACHE_TTL_MS;
+        return cachedSettings;
+      }
       logger.error('CONFIG_AUTHORITY_QUERY_ERROR', `Failed to query system_settings: ${error.message}`);
       throw new ConfigurationError(`Database error loading system settings: ${error.message}`);
     }
 
     if (!data || data.length === 0) {
+      if (!config.isProduction) {
+        logger.warn('DEV_CONFIG_FALLBACK', 'system_settings table is empty. Using fallback settings.');
+        cachedSettings = { ...devSettingsState };
+        cacheExpiryTimestamp = now + CACHE_TTL_MS;
+        return cachedSettings;
+      }
       logger.error('CONFIG_AUTHORITY_EMPTY', 'system_settings table is empty in Supabase.');
       throw new ConfigurationError('System settings table is empty. Authoritative configuration is missing.');
     }
@@ -342,6 +359,15 @@ export async function updateSettings(updates: Partial<AppSettings>): Promise<App
   const validation = validateSystemSettings(updates, { allowPartial: true });
   if (!validation.valid) {
     throw new ConfigurationError(`Invalid settings update: ${validation.errors.join('; ')}`);
+  }
+
+  if (!isServerSupabaseReady()) {
+    if (!config.isProduction) {
+      Object.assign(devSettingsState, validation.validatedSettings);
+      invalidateSettingsCache();
+      return getSettings();
+    }
+    throw new ConfigurationError('Supabase database is unavailable. Cannot update system settings.');
   }
 
   const supabase = getServerSupabase();

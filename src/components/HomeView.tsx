@@ -633,13 +633,31 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 <span>Referral Income Accounting</span>
               </h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
-                5% L1 / 2% L2
-              </span>
+              <div className="flex items-center gap-1.5">
+                {referralSummary?.isEligible !== undefined && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      referralSummary.isEligible
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                    }`}
+                  >
+                    {referralSummary.isEligible ? 'Eligible' : 'Inactive (< $300)'}
+                  </span>
+                )}
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
+                  5% L1 / 2% L2
+                </span>
+              </div>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Direct commission earned upon confirmed qualifying deposits (≥ $300). Separate from compounding funds.
             </p>
+            {referralSummary && !referralSummary.isEligible && (
+              <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400 mt-1.5 bg-amber-50/80 dark:bg-amber-950/30 px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-800/60">
+                {referralSummary.ineligibilityReason || `Maintain at least $${referralSummary.minimumRequiredPrincipal || 300} in eligible funds to participate in Refer & Earn.`}
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-2.5 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 text-xs">
