@@ -277,6 +277,7 @@ DECLARE
   v_user RECORD;
   v_user_principal NUMERIC(18, 4) := 0.0000;
   v_user_dep_principal NUMERIC(18, 4) := 0.0000;
+  v_user_prev_earnings NUMERIC(18, 4) := 0.0000;
   v_user_withdrawn NUMERIC(18, 4) := 0.0000;
   v_yield_amount NUMERIC(18, 4) := 0.0000;
   v_market_condition TEXT := 'profit';
@@ -379,11 +380,11 @@ BEGIN
     ) RETURNING * INTO v_perf;
   END IF;
 
-  -- 5. Atomic Loop: Compute compounding principal and credit earnings per eligible user
+  -- 5. Atomic Loop: Compute compounding base and credit earnings per eligible user
   FOR v_user IN 
     SELECT id, email, status FROM users WHERE status != 'suspended' ORDER BY id ASC
   LOOP
-    -- Calculate confirmed deposit principal eligible on or before p_date
+    -- 1. Calculate active confirmed deposit principal eligible on or before p_date within 55 calendar days maturity
     -- Strictly prioritizes eligibility_date when set, then confirmed_at, then created_at
     SELECT COALESCE(SUM(amount), 0) INTO v_user_dep_principal
     FROM deposits
@@ -395,15 +396,45 @@ BEGIN
           WHEN confirmed_at IS NOT NULL THEN (confirmed_at::date <= p_date::date)
           ELSE (created_at::date <= p_date::date)
         END
+      )
+      AND (
+        p_date::date - (
+          CASE
+            WHEN eligibility_date IS NOT NULL THEN eligibility_date::date
+            WHEN confirmed_at IS NOT NULL THEN confirmed_at::date
+            ELSE created_at::date
+          END
+        ) < 55
       );
 
-    -- Calculate paid withdrawals (principal deduction)
+    -- 2. Calculate previous credited compounding earnings strictly before p_date (prevents double-counting)
+    SELECT COALESCE(SUM(COALESCE(earnings_amount, payout_amount, 0)), 0) INTO v_user_prev_earnings
+    FROM earnings
+    WHERE user_id = v_user.id
+      AND status = 'credited'
+      AND (
+        CASE
+          WHEN performance_date IS NOT NULL THEN performance_date::date < p_date::date
+          WHEN date IS NOT NULL THEN date::date < p_date::date
+          ELSE created_at::date < p_date::date
+        END
+      );
+
+    -- 3. Calculate paid withdrawals on or before p_date (amounts withdrawn permanently reduce compounding capital)
     SELECT COALESCE(SUM(COALESCE(requested_amount, amount, 0)), 0) INTO v_user_withdrawn
     FROM withdrawals
-    WHERE user_id = v_user.id AND status IN ('paid', 'completed');
+    WHERE user_id = v_user.id 
+      AND status IN ('paid', 'completed')
+      AND (
+        CASE
+          WHEN paid_at IS NOT NULL THEN paid_at::date <= p_date::date
+          ELSE created_at::date <= p_date::date
+        END
+      );
 
-    -- Eligible active compounding principal (referral income strictly excluded)
-    v_user_principal := GREATEST(0.0000, v_user_dep_principal - v_user_withdrawn);
+    -- 4. True Daily Compounding Base: active deposit principal + previous credited earnings - amounts withdrawn
+    -- Referral rewards are strictly segregated and NEVER included in compounding
+    v_user_principal := GREATEST(0.0000, v_user_dep_principal + v_user_prev_earnings - v_user_withdrawn);
 
     -- Enforce minimum deposit qualification threshold ($300)
     IF v_user_principal >= v_min_deposit THEN

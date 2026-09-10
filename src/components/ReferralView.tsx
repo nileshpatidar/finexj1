@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import {
   UserReferralSummary,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 
 export const ReferralView: React.FC = () => {
+  const { user } = useAuth();
   // Summary state
   const [summary, setSummary] = useState<UserReferralSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
@@ -175,17 +177,20 @@ export const ReferralView: React.FC = () => {
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
+  // Authoritative referral code sourced from users.referral_code (via summary or authenticated user profile)
+  const effectiveReferralCode = summary?.referralCode || user?.referralCode || '';
+
   // Copy referral code
   const handleCopyCode = () => {
-    if (!summary?.referralCode) return;
-    navigator.clipboard.writeText(summary.referralCode);
+    if (!effectiveReferralCode) return;
+    navigator.clipboard.writeText(effectiveReferralCode);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
   // Construct full referral URL using authoritative code
-  const referralUrl = summary?.referralCode
-    ? `${window.location.origin}/register?ref=${encodeURIComponent(summary.referralCode)}`
+  const referralUrl = effectiveReferralCode
+    ? `${window.location.origin}/register?ref=${encodeURIComponent(effectiveReferralCode)}`
     : '';
 
   // Copy referral link
@@ -203,7 +208,7 @@ export const ReferralView: React.FC = () => {
       try {
         await navigator.share({
           title: 'Join FINEXJ Digital Asset Fund',
-          text: `Register on FINEXJ using my referral code ${summary?.referralCode} to access institutional digital asset management:`,
+          text: `Register on FINEXJ using my referral code ${effectiveReferralCode} to access institutional digital asset management:`,
           url: referralUrl,
         });
       } catch {
@@ -264,15 +269,15 @@ export const ReferralView: React.FC = () => {
             </span>
             <div className="flex items-center justify-between gap-2">
               <span className="text-base sm:text-lg font-mono font-black text-slate-900 dark:text-white tracking-widest">
-                {isLoadingSummary ? (
+                {isLoadingSummary && !effectiveReferralCode ? (
                   <span className="text-slate-400 text-sm font-normal">Loading...</span>
                 ) : (
-                  summary?.referralCode || 'Referral code unavailable'
+                  effectiveReferralCode || 'Referral code unavailable'
                 )}
               </span>
               <button
                 onClick={handleCopyCode}
-                disabled={!summary?.referralCode}
+                disabled={!effectiveReferralCode}
                 className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                   copiedCode
                     ? 'bg-emerald-600 text-white'

@@ -33,7 +33,7 @@ export const TransactionsView: React.FC = () => {
   const [summary, setSummary] = useState<TransactionsSummary | null>(null);
   const [pagination, setPagination] = useState<TransactionsPagination>({
     page: 1,
-    limit: 20,
+    limit: 30,
     totalCount: 0,
     totalPages: 1,
     hasMore: false,
@@ -475,42 +475,62 @@ export const TransactionsView: React.FC = () => {
                         )}
                       </div>
 
-                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 line-clamp-1">
-                        {item.description}
-                      </p>
+                      {isEarning || isLoss ? (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+                          <span className="flex items-center space-x-1 font-medium text-slate-700 dark:text-slate-300">
+                            <Clock className="w-3.5 h-3.5 text-blue-500" />
+                            <span>Yield Date: {item.performanceDate || item.date || item.createdAt.slice(0, 10)}</span>
+                          </span>
+                          <span>•</span>
+                          <span className="font-semibold text-blue-600 dark:text-blue-400">
+                            Yield Rate: {(item.ratePercentage !== undefined ? item.ratePercentage : (Number(item.percentage) || 0)) >= 0 ? '+' : ''}
+                            {(item.ratePercentage !== undefined ? item.ratePercentage : (Number(item.percentage) || 0)).toFixed(2)}%
+                          </span>
+                          <span>•</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-200">
+                            Base Eligible: ${(item.baseEligibleAmount ?? 0).toFixed(2)} USDT
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 line-clamp-1">
+                            {item.description}
+                          </p>
 
-                      {/* Metadata row: Reference, Date, Blockchain links */}
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
-                        <span className="flex items-center space-x-1">
-                          <Clock className="w-3 h-3" />
-                          <span>{new Date(item.createdAt).toLocaleString()}</span>
-                        </span>
-
-                        {item.reference && (
-                          <>
-                            <span>•</span>
-                            <span className="font-mono text-slate-600 dark:text-slate-400">
-                              Ref: {item.reference}
+                          {/* Metadata row: Reference, Date, Blockchain links */}
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
+                            <span className="flex items-center space-x-1">
+                              <Clock className="w-3 h-3" />
+                              <span>{new Date(item.createdAt).toLocaleString()}</span>
                             </span>
-                          </>
-                        )}
 
-                        {item.txHash && (
-                          <>
-                            <span>•</span>
-                            <a
-                              href={`https://bscscan.com/tx/${item.txHash}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center space-x-1 font-mono text-blue-600 dark:text-blue-400 hover:underline"
-                              title="View on BscScan"
-                            >
-                              <span>{item.txHash.slice(0, 8)}...{item.txHash.slice(-6)}</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          </>
-                        )}
-                      </div>
+                            {item.reference && (
+                              <>
+                                <span>•</span>
+                                <span className="font-mono text-slate-600 dark:text-slate-400">
+                                  Ref: {item.reference}
+                                </span>
+                              </>
+                            )}
+
+                            {item.txHash && (
+                              <>
+                                <span>•</span>
+                                <a
+                                  href={`https://bscscan.com/tx/${item.txHash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center space-x-1 font-mono text-blue-600 dark:text-blue-400 hover:underline"
+                                  title="View on BscScan"
+                                >
+                                  <span>{item.txHash.slice(0, 8)}...{item.txHash.slice(-6)}</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -524,7 +544,7 @@ export const TransactionsView: React.FC = () => {
                             : 'text-rose-600 dark:text-rose-400'
                         }`}
                       >
-                        {isPositive ? '+' : '-'}${displayAmount.toFixed(2)}
+                        {isPositive ? '+' : '-'}${isEarning || isLoss ? displayAmount.toFixed(4) : displayAmount.toFixed(2)}
                       </span>
                       <span className="text-[10px] font-bold text-slate-500 uppercase">
                         USDT
@@ -611,11 +631,19 @@ export const TransactionsView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
-                    Transaction Audit Details
+                    {selectedTx.type === 'daily_earnings' || selectedTx.type === 'daily_loss'
+                      ? 'Daily Performance Details'
+                      : 'Transaction Audit Details'}
                   </h3>
-                  <p className="text-[11px] text-slate-500 font-mono">
-                    ID: {selectedTx.id}
-                  </p>
+                  {selectedTx.type === 'daily_earnings' || selectedTx.type === 'daily_loss' ? (
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      Yield Date: {selectedTx.performanceDate || selectedTx.date || selectedTx.createdAt.slice(0, 10)}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 font-mono">
+                      ID: {selectedTx.id}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -670,20 +698,33 @@ export const TransactionsView: React.FC = () => {
                 </>
               )}
 
-              {/* Daily Yield Breakdown */}
-              {selectedTx.type === 'daily_earnings' && (
-                <div className="border-t border-slate-200 dark:border-slate-800 pt-2 mt-2 space-y-1 text-xs">
+              {/* Daily Performance Yield Breakdown - Display only: Yield Date, Yield rate, Base Eligible Amount, Earnings amount, Status */}
+              {(selectedTx.type === 'daily_earnings' || selectedTx.type === 'daily_loss') && (
+                <div className="border-t border-slate-200 dark:border-slate-800 pt-2 mt-2 space-y-1.5 text-xs">
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                    <span>Compounding Principal Base</span>
-                    <span className="font-bold">${(selectedTx.baseEligibleAmount || 0).toFixed(2)} USDT</span>
+                    <span>Performance / Yield Date</span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      {selectedTx.performanceDate || selectedTx.date || selectedTx.createdAt.slice(0, 10)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                    <span>Base Eligible Amount</span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      ${(selectedTx.baseEligibleAmount ?? 0).toFixed(2)} USDT
+                    </span>
                   </div>
                   <div className="flex justify-between text-blue-600 dark:text-blue-400">
-                    <span>Distributed Yield Rate</span>
-                    <span className="font-bold">+{selectedTx.ratePercentage || 0}%</span>
+                    <span>Yield Rate</span>
+                    <span className="font-bold">
+                      {(selectedTx.ratePercentage !== undefined ? selectedTx.ratePercentage : 0) >= 0 ? '+' : ''}
+                      {(selectedTx.ratePercentage !== undefined ? selectedTx.ratePercentage : 0).toFixed(2)}%
+                    </span>
                   </div>
                   <div className="flex justify-between font-extrabold text-sm text-emerald-600 dark:text-emerald-400 pt-1 border-t border-slate-200 dark:border-slate-800">
-                    <span>Net Credited Yield</span>
-                    <span>+${selectedTx.amount.toFixed(2)} USDT</span>
+                    <span>Earnings Amount</span>
+                    <span>
+                      {selectedTx.amount >= 0 ? '+' : ''}${selectedTx.amount.toFixed(4)} USDT
+                    </span>
                   </div>
                 </div>
               )}
@@ -707,21 +748,22 @@ export const TransactionsView: React.FC = () => {
               )}
             </div>
 
-            {/* Blockchain & Routing Details */}
-            <div className="space-y-2.5 text-xs">
-              <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider text-[10px]">
-                Network & Reference Verification
-              </h4>
+            {/* Blockchain & Routing Details - Hidden for daily earnings/loss */}
+            {selectedTx.type !== 'daily_earnings' && selectedTx.type !== 'daily_loss' && (
+              <div className="space-y-2.5 text-xs">
+                <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider text-[10px]">
+                  Network & Reference Verification
+                </h4>
 
-              <div className="space-y-2">
-                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase font-bold block mb-0.5">
-                    Network
-                  </span>
-                  <span className="font-bold text-slate-800 dark:text-slate-200">
-                    BNB Smart Chain (BEP-20)
-                  </span>
-                </div>
+                <div className="space-y-2">
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block mb-0.5">
+                      Network
+                    </span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      BNB Smart Chain (BEP-20)
+                    </span>
+                  </div>
 
                 {selectedTx.reference && (
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -806,6 +848,7 @@ export const TransactionsView: React.FC = () => {
                 )}
               </div>
             </div>
+            )}
 
             {/* Close Button */}
             <div className="pt-2">

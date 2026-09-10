@@ -219,7 +219,7 @@ export async function getUserTransactionsAsync(
 
     const isYieldPositive = e.earningsAmount >= 0;
     const ratePct = Number((e.applicableRate * 100).toFixed(4));
-    const desc = `Daily trading yield for ${e.performanceDate} @ ${ratePct >= 0 ? '+' : ''}${ratePct.toFixed(2)}% on ${e.baseEligibleAmount} USDT compounding principal`;
+    const desc = `Daily performance yield for ${e.performanceDate} @ ${ratePct >= 0 ? '+' : ''}${ratePct.toFixed(2)}% on ${e.baseEligibleAmount} USDT base`;
 
     allItems.push({
       id: rawId,
@@ -229,8 +229,8 @@ export async function getUserTransactionsAsync(
       currency: 'USDT',
       status: e.status === 'credited' ? 'credited' : 'rejected',
       createdAt: e.createdAt,
-      referenceId: String(e.calculationId || e.id),
-      reference: `YIELD-${e.performanceDate}`,
+      referenceId: undefined,
+      reference: undefined, // Internal calculation/database references stripped from user-facing ledger
       description: desc,
       ratePercentage: ratePct,
       baseEligibleAmount: e.baseEligibleAmount,

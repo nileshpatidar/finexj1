@@ -8,7 +8,7 @@ import {
   updateDailyPerformance,
   isValidDateString,
 } from '../repositories/performances';
-import { createEarning, deleteEarningsByDate } from '../repositories/earnings';
+import { createEarning, deleteEarningsByDate, getAllEarnings } from '../repositories/earnings';
 import { createLedgerEntry, deleteLedgerByReferenceAndTypes } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { calculateUserBalanceAsync } from './balanceService';
@@ -237,12 +237,14 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       };
     }
 
-    const [{ deposits: allDeposits }, { withdrawals: allWithdrawals }] = await Promise.all([
+    const [{ deposits: allDeposits }, { withdrawals: allWithdrawals }, allEarnings] = await Promise.all([
       getAllDeposits(),
       getAllWithdrawals(),
+      getAllEarnings(),
     ]);
     const confirmedDepositsList = (allDeposits || []).filter(d => d.status === 'confirmed');
     const paidWithdrawalsList = (allWithdrawals || []).filter(w => w.status === 'paid');
+    const creditedEarningsList = (allEarnings || []).filter(e => e.status === 'credited');
     const totalDepositedSum = confirmedDepositsList.reduce((acc, d) => acc + (d.amount || 0), 0);
     const totalWithdrawnSum = paidWithdrawalsList.reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
     const liveTotalConfirmedPrincipal = Math.max(0, totalDepositedSum - totalWithdrawnSum);
@@ -259,20 +261,46 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
       const userPaidWithdrawals = paidWithdrawalsList.filter(
         w => String(w.userId) === String(user.id) || (Number(w.userId) === Number(user.id) && !isNaN(Number(user.id)))
       );
+      const userCreditedEarnings = creditedEarningsList.filter(
+        e => String(e.userId) === String(user.id) || (Number(e.userId) === Number(user.id) && !isNaN(Number(user.id)))
+      );
 
       if (userConfirmedDeposits.length === 0) continue;
 
+      // 1. Confirmed deposits eligible on or before input.date within independent 55-day maturity
       const eligibleDeposits = userConfirmedDeposits.filter(d => {
         if (!d.amount || d.amount <= 0) return false;
         const dateStr = (d.eligibilityDate || d.confirmedAt || d.createdAt || '').slice(0, 10);
-        if (!dateStr) return false;
-        return dateStr <= input.date;
+        if (!dateStr || dateStr > input.date) return false;
+
+        // Independent 55-day maturity check per deposit
+        const dDate = new Date(dateStr + 'T00:00:00Z').getTime();
+        const pDate = new Date(input.date + 'T00:00:00Z').getTime();
+        const diffDays = Math.floor((pDate - dDate) / (24 * 60 * 60 * 1000));
+        return diffDays >= 0 && diffDays < 55;
       });
 
-      const effectiveDeposits = eligibleDeposits;
-      const userGrossPrincipal = effectiveDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
-      const userTotalWithdrawn = userPaidWithdrawals.reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
-      const userEligiblePrincipal = Math.max(0, Number((userGrossPrincipal - userTotalWithdrawn).toFixed(4)));
+      const userGrossPrincipal = eligibleDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
+
+      // 2. Previous credited compounding earnings strictly before input.date (prevents double-counting)
+      const userPrevEarnings = userCreditedEarnings
+        .filter(e => {
+          const eDate = (e.performanceDate || e.createdAt || '').slice(0, 10);
+          return eDate < input.date;
+        })
+        .reduce((acc, e) => acc + (e.earningsAmount || 0), 0);
+
+      // 3. Paid withdrawals on or before input.date (withdrawals permanently reduce compounding capital)
+      const userTotalWithdrawn = userPaidWithdrawals
+        .filter(w => {
+          const wDate = (w.paidAt || w.createdAt || '').slice(0, 10);
+          return wDate <= input.date;
+        })
+        .reduce((acc, w) => acc + (w.requestedAmount || 0), 0);
+
+      // 4. True Daily Compounding Base: active deposit principal + previous credited earnings - amounts withdrawn
+      // Referral rewards are strictly segregated and NEVER included in compounding
+      const userEligiblePrincipal = Math.max(0, Number((userGrossPrincipal + userPrevEarnings - userTotalWithdrawn).toFixed(4)));
 
       if (userEligiblePrincipal >= minDeposit) {
         totalEligiblePrincipal = totalEligiblePrincipal.add(userEligiblePrincipal);
