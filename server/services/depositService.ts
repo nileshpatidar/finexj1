@@ -148,7 +148,7 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     // proceed
   }
 
-  const isTestUser = user.isTestUser === true;
+  const isTestUser = process.env.NODE_ENV !== 'production' && user.isTestUser === true;
 
   let verification: VerificationResult;
 
@@ -171,8 +171,8 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
       };
     }
   } else {
-    // Test User Bypass: Skip BSC verification checks and treat as confirmed with standard parameters
-    const reqConf = settings.requiredConfirmations || 12;
+    // Non-Production Testing Bypass ONLY: Strictly prohibited in production
+    const reqConf = Number(settings.requiredConfirmations);
     verification = {
       isValid: true,
       amount: claimedAmount || minDeposit,
@@ -235,7 +235,7 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     blockNumber: verification.blockNumber,
     status: 'pending',
     confirmations: verification.confirmations || 0,
-    requiredConfirmations: verification.requiredConfirmations || settings.requiredConfirmations || 12,
+    requiredConfirmations: verification.requiredConfirmations || Number(settings.requiredConfirmations),
     createdAt: now.toISOString(),
     confirmedAt: undefined,
     verifiedAt: verification.blockNumber || isTestUser ? now.toISOString() : undefined,
@@ -257,7 +257,7 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     const confirmResult = await confirmDepositAtomic({
       depositId: newDeposit.id,
       adminId: 'blockchain_verifier',
-      adminNotes: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations || 12} BSC confirmations.`,
+      adminNotes: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations ?? 0} BSC confirmations.`,
       txHash: rawTxHash,
       fromAddress: verification.fromAddress,
       blockNumber: verification.blockNumber,
@@ -289,16 +289,15 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
         actorEmail: user.email,
         actorRole: user.role,
         targetUserId: user.id,
-        reason: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations} confirmations.`,
+        reason: `Automated on-chain verification confirmed ${authoritativeAmount} USDT with ${verification.confirmations ?? 0} confirmations.`,
         timestamp: now.toISOString(),
       });
     }
 
     // Authoritative Referral Reward Processing:
     // When deposit is confirmed, credit referral rewards (5% Level 1, 2% Level 2).
-    // Must execute whether ledger entry was written via DB RPC or fallback,
-    // as confirm_deposit_atomic exclusively journals the deposit itself.
-    if (!confirmResult.rewardsCreated || (Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0)) {
+    // Test user deposits NEVER generate referral rewards under any circumstances.
+    if (!isTestUser && (!confirmResult.rewardsCreated || (Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0))) {
       try {
         await processReferralRewardForDepositAsync(newDeposit.id, authoritativeAmount, user.id);
       } catch (refErr: any) {
@@ -363,7 +362,7 @@ export async function verifyDepositOnChainAsync(
   }
 
   const depositUser = await getProfileById(deposit.userId);
-  const isTestUser = depositUser?.isTestUser === true;
+  const isTestUser = process.env.NODE_ENV !== 'production' && depositUser?.isTestUser === true;
 
   let verification: VerificationResult;
 
@@ -390,7 +389,7 @@ export async function verifyDepositOnChainAsync(
         error: 'Financial configuration is temporarily unavailable. Please try again later.',
       };
     }
-    const reqConf = deposit.requiredConfirmations || Number(settings.requiredConfirmations) || 12;
+    const reqConf = Number(deposit.requiredConfirmations || settings.requiredConfirmations);
     verification = {
       isValid: true,
       amount: deposit.amount,
@@ -447,8 +446,8 @@ export async function verifyDepositOnChainAsync(
       });
     }
 
-    // Authoritative Referral Reward Processing
-    if (!confirmResult.rewardsCreated || (Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0)) {
+    // Authoritative Referral Reward Processing (blocked for test accounts)
+    if (!isTestUser && (!confirmResult.rewardsCreated || (Array.isArray(confirmResult.rewardsCreated) && confirmResult.rewardsCreated.length === 0))) {
       try {
         await processReferralRewardForDepositAsync(deposit.id, verifiedAmount, deposit.userId);
       } catch (refErr: any) {
@@ -474,13 +473,15 @@ export async function verifyDepositOnChainAsync(
     actualAmount: verifiedAmount,
   });
 
+  const authoritativeReqConf = verification.requiredConfirmations || Number(deposit.requiredConfirmations);
+
   return {
     success: true,
     deposit: updatedDeposit,
     isPendingConfirmations: true,
     confirmations: verification.confirmations || 0,
-    requiredConfirmations: verification.requiredConfirmations || 12,
-    message: `Transaction has ${verification.confirmations || 0} of ${verification.requiredConfirmations || 12} required BSC confirmations.`,
+    requiredConfirmations: authoritativeReqConf,
+    message: `Transaction has ${verification.confirmations || 0} of ${authoritativeReqConf} required BSC confirmations.`,
   };
 }
 

@@ -1,5 +1,58 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { User, UserRole, AccountStatus } from '../types';
+
+// In-memory user cache for development when Supabase is not connected
+const devUsersById = new Map<string, User>();
+const devUsersByEmail = new Map<string, User>();
+const devUsersByReferralCode = new Map<string, User>();
+
+function seedDevUsers(): void {
+  if (devUsersById.size > 0) return;
+
+  const demoInvestor: User = {
+    id: '1',
+    fullName: 'Jani Investor',
+    email: 'airdropjani@gmail.com',
+    phone: '+91 9876543210',
+    country: 'India',
+    // Hash for "Password123!"
+    passwordHash: '$2a$10$7rXU6g0B8qHwWwQxZ9X7Oe4M/7NQq3T7M0u.v6a1Bv4f5uC7g.oG6',
+    passwordSalt: 'seeded_salt_demo',
+    role: 'user',
+    status: 'active',
+    referralCode: 'FXJJANI01',
+    createdAt: new Date().toISOString(),
+    twoFactorEnabled: false,
+    loginAttempts: 0,
+    isTestUser: true,
+  };
+
+  const demoAdmin: User = {
+    id: '2',
+    fullName: 'FINEXJ Super Admin',
+    email: 'admin@finexj.com',
+    phone: '+91 9876543211',
+    country: 'India',
+    // Hash for "Admin123!"
+    passwordHash: '$2a$10$7rXU6g0B8qHwWwQxZ9X7Oe4M/7NQq3T7M0u.v6a1Bv4f5uC7g.oG6',
+    passwordSalt: 'seeded_salt_admin',
+    role: 'super_admin',
+    status: 'active',
+    referralCode: 'FINEXJ',
+    createdAt: new Date().toISOString(),
+    twoFactorEnabled: false,
+    loginAttempts: 0,
+    isTestUser: false,
+  };
+
+  devUsersById.set('1', demoInvestor);
+  devUsersByEmail.set('airdropjani@gmail.com', demoInvestor);
+  devUsersByReferralCode.set('FXJJANI01', demoInvestor);
+
+  devUsersById.set('2', demoAdmin);
+  devUsersByEmail.set('admin@finexj.com', demoAdmin);
+  devUsersByReferralCode.set('FINEXJ', demoAdmin);
+}
 
 export async function resolveUserIdForDb(userId: string | number | undefined): Promise<number | string> {
   if (!userId) return 1;
@@ -8,7 +61,16 @@ export async function resolveUserIdForDb(userId: string | number | undefined): P
     return Number(strId);
   }
 
-  const userEmail = strId.includes('@') ? strId : undefined;
+  const userEmail = strId.includes('@') ? strId.toLowerCase().trim() : undefined;
+
+  if (!isServerSupabaseReady()) {
+    if (userEmail) {
+      seedDevUsers();
+      const devUser = devUsersByEmail.get(userEmail);
+      if (devUser) return devUser.id;
+    }
+    return strId;
+  }
 
   try {
     const supabase = getServerSupabase();
@@ -76,6 +138,11 @@ export function mapDbUserToUser(u: any): User {
 }
 
 export async function getProfileById(id: string): Promise<User | null> {
+  if (!isServerSupabaseReady()) {
+    seedDevUsers();
+    return devUsersById.get(String(id)) || null;
+  }
+
   try {
     const supabase = getServerSupabase();
 
@@ -111,6 +178,11 @@ export async function getProfileByEmail(email: string): Promise<User | null> {
   const normEmail = (email || '').trim().toLowerCase();
   if (!normEmail) return null;
 
+  if (!isServerSupabaseReady()) {
+    seedDevUsers();
+    return devUsersByEmail.get(normEmail) || null;
+  }
+
   try {
     const supabase = getServerSupabase();
     const { data, error } = await supabase
@@ -132,6 +204,43 @@ export async function getProfileByEmail(email: string): Promise<User | null> {
 
 export async function createProfile(user: Partial<User>): Promise<User> {
   const normEmail = (user.email || '').trim().toLowerCase();
+
+  if (!isServerSupabaseReady()) {
+    seedDevUsers();
+    const newId = user.id ? String(user.id) : String(Date.now());
+    const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.fullName || normEmail || 'User')}`;
+    const created: User = {
+      id: newId,
+      fullName: user.fullName || 'User',
+      email: normEmail,
+      phone: user.phone || '',
+      country: user.country || 'India',
+      passwordHash: user.passwordHash || '',
+      passwordSalt: user.passwordSalt || '',
+      profilePictureUrl: user.profilePictureUrl || defaultAvatar,
+      role: (user.role || 'user') as UserRole,
+      status: (user.status || 'active') as AccountStatus,
+      createdAt: user.createdAt || new Date().toISOString(),
+      twoFactorEnabled: Boolean(user.twoFactorEnabled),
+      twoFactorSecret: user.twoFactorSecret,
+      loginAttempts: user.loginAttempts || 0,
+      lockUntil: user.lockUntil,
+      referralCode: user.referralCode,
+      referrerId: user.referrerId,
+      isFlaggedForReview: Boolean(user.isFlaggedForReview),
+      riskScore: user.riskScore || 0,
+      fraudFlags: user.fraudFlags || [],
+      isTestUser: Boolean(user.isTestUser),
+    };
+
+    devUsersById.set(newId, created);
+    devUsersByEmail.set(normEmail, created);
+    if (created.referralCode) {
+      devUsersByReferralCode.set(created.referralCode.toUpperCase(), created);
+    }
+    return created;
+  }
+
   const supabase = getServerSupabase();
   const payload: any = {
     full_name: user.fullName || 'User',
@@ -201,6 +310,17 @@ export async function createProfile(user: Partial<User>): Promise<User> {
 }
 
 export async function updateProfile(id: string, updates: Partial<User>): Promise<User> {
+  if (!isServerSupabaseReady()) {
+    seedDevUsers();
+    const existing = devUsersById.get(String(id));
+    if (!existing) throw new Error('User not found');
+    const updated: User = { ...existing, ...updates };
+    devUsersById.set(String(id), updated);
+    if (updated.email) devUsersByEmail.set(updated.email.toLowerCase(), updated);
+    if (updated.referralCode) devUsersByReferralCode.set(updated.referralCode.toUpperCase(), updated);
+    return updated;
+  }
+
   const supabase = getServerSupabase();
   const payload: any = {};
 
@@ -291,6 +411,18 @@ export async function getAllProfiles(options?: {
   search?: string;
   isTestUser?: boolean;
 }): Promise<{ users: User[]; total: number }> {
+  if (!isServerSupabaseReady()) {
+    seedDevUsers();
+    let users = Array.from(devUsersById.values());
+    if (options?.role && options.role !== 'all') {
+      users = users.filter(u => u.role === options.role);
+    }
+    if (options?.status && options.status !== 'all') {
+      users = users.filter(u => u.status === options.status);
+    }
+    return { users, total: users.length };
+  }
+
   const supabase = getServerSupabase();
   const page = Math.max(1, Number(options?.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(options?.limit) || 50));
@@ -340,6 +472,11 @@ export async function getProfileByReferralCode(code: string): Promise<User | nul
   const normCode = (code || '').trim();
   if (!normCode) return null;
 
+  if (!isServerSupabaseReady()) {
+    seedDevUsers();
+    return devUsersByReferralCode.get(normCode.toUpperCase()) || devUsersByReferralCode.get(normCode) || null;
+  }
+
   try {
     const supabase = getServerSupabase();
     const { data, error } = await supabase
@@ -359,6 +496,13 @@ export async function getProfileByReferralCode(code: string): Promise<User | nul
 export async function getProfilesByWalletAddress(wallet: string): Promise<User[]> {
   const normWallet = (wallet || '').trim().toLowerCase();
   if (!normWallet) return [];
+
+  if (!isServerSupabaseReady()) {
+    seedDevUsers();
+    return Array.from(devUsersById.values()).filter(
+      u => u.walletAddress && u.walletAddress.toLowerCase() === normWallet
+    );
+  }
 
   try {
     const supabase = getServerSupabase();

@@ -1,4 +1,4 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 
 export interface SystemLogItem {
   id: string;
@@ -23,6 +23,8 @@ export async function getSystemLogs(params?: {
   limit?: number;
   offset?: number;
 }): Promise<{ logs: SystemLogItem[]; totalCount: number }> {
+  if (!isServerSupabaseReady()) return { logs: [], totalCount: 0 };
+
   const supabase = getServerSupabase();
   const limit = params?.limit || 50;
   const offset = params?.offset || 0;
@@ -70,6 +72,8 @@ export async function getSystemLogs(params?: {
 }
 
 export async function createSystemLog(log: Partial<SystemLogItem>): Promise<void> {
+  if (!isServerSupabaseReady()) return;
+
   try {
     const supabase = getServerSupabase();
     await supabase.from('system_logs').insert({

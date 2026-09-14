@@ -32,6 +32,8 @@ export function mapDbReferralReward(rw: any): ReferralReward {
 }
 
 export async function getReferralByReferredId(referredId: string): Promise<Referral | null> {
+  if (!isServerSupabaseReady()) return null;
+
   try {
     const supabase = getServerSupabase();
     const dbReferredId = await resolveUserIdForDb(referredId);
@@ -51,6 +53,8 @@ export async function getReferralByReferredId(referredId: string): Promise<Refer
 }
 
 export async function getReferralsByReferrerId(referrerId: string): Promise<Referral[]> {
+  if (!isServerSupabaseReady()) return [];
+
   try {
     const supabase = getServerSupabase();
     const dbReferrerId = await resolveUserIdForDb(referrerId);
@@ -74,6 +78,8 @@ export async function getReferralsByReferrerIdPaginated(
   page: number = 1,
   limit: number = 10
 ): Promise<{ referrals: Referral[]; total: number }> {
+  if (!isServerSupabaseReady()) return { referrals: [], total: 0 };
+
   try {
     const supabase = getServerSupabase();
     const dbReferrerId = await resolveUserIdForDb(referrerId);
@@ -100,6 +106,8 @@ export async function getReferralsByReferrerIdPaginated(
 }
 
 export async function getReferralsCountByReferrerId(referrerId: string): Promise<number> {
+  if (!isServerSupabaseReady()) return 0;
+
   try {
     const supabase = getServerSupabase();
     const dbReferrerId = await resolveUserIdForDb(referrerId);
@@ -225,6 +233,12 @@ export async function getReferralRewardByDepositAndLevel(
   depositId: string | number,
   rewardLevel: number
 ): Promise<ReferralReward | null> {
+  if (!isServerSupabaseReady()) {
+    return inMemoryReferralRewards.find(
+      r => String(r.depositId) === String(depositId) && r.rewardLevel === rewardLevel
+    ) || null;
+  }
+
   try {
     const supabase = getServerSupabase();
     const dbDepositId = !isNaN(Number(depositId)) ? Number(depositId) : depositId;

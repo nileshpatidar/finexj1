@@ -55,6 +55,18 @@ import { generateRequestId, logger } from './logger';
 import { AppError, Errors, centralErrorHandler } from './errors';
 import { createRateLimiter } from './rateLimit';
 import { config } from './config';
+import {
+  validateAmount,
+  validateBEP20Address,
+  validateTxHash,
+  validateId,
+  validatePagination,
+  validateDateString,
+  validateDateRange,
+  validateSafeUrl,
+  validateString,
+  sanitizeUserWithdrawal,
+} from './validation';
 
 export const app = express();
 
@@ -328,7 +340,7 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
       throw Errors.validation('Full name, email, and password are required.');
     }
 
-    if (password !== confirmPassword) {
+    if (confirmPassword !== undefined && password !== confirmPassword) {
       throw Errors.validation('Passwords do not match.');
     }
 
@@ -625,22 +637,19 @@ app.post(['/api/auth/update-profile', '/auth/update-profile'], authMiddleware, a
 
     const allowedUpdates: Partial<User> = {};
     if (typeof fullName === 'string' && fullName.trim()) {
-      allowedUpdates.fullName = fullName.trim();
+      allowedUpdates.fullName = validateString(fullName, 'Full name', { minLength: 2, maxLength: 100 });
     }
     if (typeof phone === 'string') {
-      allowedUpdates.phone = phone.trim();
+      allowedUpdates.phone = validateString(phone, 'Phone number', { maxLength: 30 });
     }
     if (typeof country === 'string' && country.trim()) {
-      allowedUpdates.country = country.trim();
+      allowedUpdates.country = validateString(country, 'Country', { maxLength: 60 });
     }
-    if (typeof profilePictureUrl === 'string') {
-      allowedUpdates.profilePictureUrl = profilePictureUrl.trim();
+    if (typeof profilePictureUrl === 'string' && profilePictureUrl.trim()) {
+      allowedUpdates.profilePictureUrl = validateSafeUrl(profilePictureUrl, 'Profile picture URL');
     }
     if (typeof walletAddress === 'string' && walletAddress.trim()) {
-      const cleanAddress = walletAddress.trim();
-      if (!isValidBEP20Address(cleanAddress)) {
-        throw Errors.validation('Invalid BEP-20 wallet address. Must be a valid 0x-prefixed 40-hex character BNB Smart Chain address.');
-      }
+      const cleanAddress = validateBEP20Address(walletAddress, 'Withdrawal wallet address');
 
       // Point #23: Require 2FA verification if 2FA is enabled on user's account, or password if not enabled
       if (user.twoFactorEnabled) {
@@ -960,16 +969,19 @@ app.post(['/api/user/deposits', '/user/deposits'], authMiddleware, financialRate
     const user: User = (req as any).user;
     const { txHash, amount, proofPhotoUrl, userNotes } = req.body;
 
-    if (!txHash || typeof txHash !== 'string' || !txHash.trim()) {
-      throw Errors.validation('BNB Smart Chain Transaction Hash (TxID) is required.');
-    }
+    const cleanTxHash = validateTxHash(txHash);
+    const validAmount = amount !== undefined && amount !== null && amount !== ''
+      ? validateAmount(amount, 'Deposit amount', { allowZero: false, maxDecimals: 4 })
+      : undefined;
+    const cleanProofUrl = proofPhotoUrl ? validateSafeUrl(proofPhotoUrl, 'Proof photo URL') : undefined;
+    const cleanUserNotes = userNotes ? validateString(userNotes, 'User notes', { maxLength: 1000 }) : undefined;
 
     const result = await processDepositAsync({
       userId: user.id,
-      txHash: txHash.trim(),
-      amount: amount ? Number(amount) : undefined,
-      proofPhotoUrl,
-      userNotes,
+      txHash: cleanTxHash,
+      amount: validAmount,
+      proofPhotoUrl: cleanProofUrl,
+      userNotes: cleanUserNotes,
       actorEmail: user.email,
     });
 
@@ -989,13 +1001,14 @@ app.post(['/api/user/deposits/:id/verify', '/user/deposits/:id/verify'], authMid
   try {
     const user: User = (req as any).user;
     const { id } = req.params;
-    const deposit = await getDepositById(id);
+    const validId = validateId(id, 'Deposit ID');
+    const deposit = await getDepositById(validId);
 
     if (!deposit || deposit.userId !== user.id) {
       throw Errors.notFound('DEPOSIT_NOT_FOUND', 'Deposit record not found.');
     }
 
-    const result = await verifyDepositOnChainAsync(id, user.id);
+    const result = await verifyDepositOnChainAsync(validId, user.id);
     const balance = await calculateUserBalanceAsync(user.id);
     res.json({ ...result, deposit: sanitizeUserDeposit(result.deposit), balance });
   } catch (err) {
@@ -1007,11 +1020,12 @@ app.post(['/api/user/deposits/:id/verify', '/user/deposits/:id/verify'], authMid
 app.post(['/api/blockchain/verify-tx', '/blockchain/verify-tx'], authMiddleware, async (req, res, next) => {
   try {
     const { txHash, claimedAmount } = req.body;
-    if (!txHash || typeof txHash !== 'string' || !txHash.trim()) {
-      throw Errors.validation('BNB Smart Chain Transaction Hash (TxID) is required.');
-    }
+    const cleanTxHash = validateTxHash(txHash);
+    const validAmount = claimedAmount !== undefined && claimedAmount !== null && claimedAmount !== ''
+      ? validateAmount(claimedAmount, 'Claimed amount', { allowZero: false, maxDecimals: 4 })
+      : undefined;
 
-    const result = await verifyBEP20Deposit(txHash.trim(), claimedAmount ? Number(claimedAmount) : undefined);
+    const result = await verifyBEP20Deposit(cleanTxHash, validAmount);
     res.json(result);
   } catch (err) {
     next(err);
@@ -1067,7 +1081,7 @@ app.get(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, async (r
     const user: User = (req as any).user;
     const withdrawals = await getWithdrawalsByUserId(user.id);
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ withdrawals, balance });
+    res.json({ withdrawals: withdrawals.map(sanitizeUserWithdrawal), balance });
   } catch (err) {
     next(err);
   }
@@ -1078,11 +1092,7 @@ app.post(['/api/user/withdrawals/preview', '/user/withdrawals/preview'], authMid
   try {
     const user: User = (req as any).user;
     const { requestedAmount } = req.body;
-    const amount = Number(requestedAmount);
-
-    if (isNaN(amount) || amount <= 0) {
-      throw Errors.validation('Please enter a valid withdrawal amount greater than 0 USDT.');
-    }
+    const amount = validateAmount(requestedAmount, 'Withdrawal amount', { allowZero: false, maxDecimals: 4 });
 
     const impact = await checkWithdrawalImpactAsync(user.id, amount);
     res.json({
@@ -1098,13 +1108,14 @@ app.post(['/api/user/withdrawals/preview', '/user/withdrawals/preview'], authMid
 app.post(['/api/user/withdrawals/request-otp', '/user/withdrawals/request-otp'], authMiddleware, financialRateLimiter, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const otpResult = await generateWithdrawalOtp(user.id, user.email, user.isTestUser === true);
+    const isTestBypass = process.env.NODE_ENV !== 'production' && user.isTestUser === true;
+    const otpResult = await generateWithdrawalOtp(user.id, user.email, isTestBypass);
 
     res.json({
       success: true,
       message: 'A 6-digit verification code has been dispatched to your registered email address.',
       expiresInSeconds: otpResult.expiresInSeconds,
-      ...(user.isTestUser && otpResult.devCode ? { testOtpCode: otpResult.devCode } : {}),
+      ...(isTestBypass && otpResult.devCode ? { testOtpCode: otpResult.devCode } : {}),
     });
   } catch (err) {
     next(err);
@@ -1133,6 +1144,9 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
       throw Errors.forbidden(`Your account is currently ${user.status}. Withdrawals are disabled.`);
     }
 
+    const amount = validateAmount(requestedAmount, 'Withdrawal amount', { allowZero: false, maxDecimals: 4 });
+    const validDestAddress = validateBEP20Address(destinationAddress, 'Destination address');
+
     if (network && !['BEP-20', 'BEP20', 'BSC', 'BNB Smart Chain'].includes(network.trim())) {
       throw Errors.validation('Unsupported network. Withdrawals are exclusively supported on BNB Smart Chain (BEP-20 USDT).');
     }
@@ -1156,20 +1170,19 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
       }
     }
 
-    if (idempotencyKey && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8 || idempotencyKey.trim().length > 128)) {
-      throw Errors.validation('Invalid idempotency key length. Must be between 8 and 128 characters.');
-    }
+    const cleanIdempotencyKey = idempotencyKey ? validateString(idempotencyKey, 'Idempotency key', { minLength: 8, maxLength: 128 }) : undefined;
+    const cleanUserNotes = userNotes ? validateString(userNotes, 'User notes', { maxLength: 1000 }) : undefined;
 
     const result = await createWithdrawalRequestAsync({
       userId: user.id, // Strictly derived from session, never from req.body
-      requestedAmount: Number(requestedAmount),
-      destinationAddress,
+      requestedAmount: amount,
+      destinationAddress: validDestAddress,
       otpCode: otpCode ? String(otpCode).trim() : undefined,
       confirmCompoundingImpact: Boolean(confirmCompoundingImpact),
       confirmLockBreak: Boolean(confirmLockBreak),
       confirmMinimumBreak: Boolean(confirmMinimumBreak),
-      idempotencyKey: idempotencyKey ? idempotencyKey.trim() : undefined,
-      userNotes,
+      idempotencyKey: cleanIdempotencyKey,
+      userNotes: cleanUserNotes,
       actorEmail: user.email,
     });
 
@@ -1195,7 +1208,7 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
     }
 
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ success: true, withdrawal: result.withdrawal, balance });
+    res.json({ success: true, withdrawal: sanitizeUserWithdrawal(result.withdrawal), balance });
   } catch (err) {
     next(err);
   }
@@ -1207,11 +1220,13 @@ app.post(['/api/user/withdrawals/:id/cancel', '/user/withdrawals/:id/cancel'], a
     const user: User = (req as any).user;
     const { id } = req.params;
     const { reason } = req.body;
+    const validId = validateId(id, 'Withdrawal ID');
+    const cleanReason = reason ? validateString(reason, 'Cancellation reason', { maxLength: 500 }) : undefined;
 
     const result = await cancelWithdrawalAsync(
       user.id,
-      id,
-      typeof reason === 'string' ? reason.trim() : undefined,
+      validId,
+      cleanReason,
       false
     );
 
@@ -1220,7 +1235,7 @@ app.post(['/api/user/withdrawals/:id/cancel', '/user/withdrawals/:id/cancel'], a
     }
 
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ success: true, withdrawal: result.withdrawal, balance });
+    res.json({ success: true, withdrawal: sanitizeUserWithdrawal(result.withdrawal), balance });
   } catch (err) {
     next(err);
   }
@@ -1770,7 +1785,7 @@ app.get(['/api/admin/deposits', '/admin/deposits'], authMiddleware, adminMiddlew
 
     const supabase = getServerSupabase();
     const settings = await getSettings();
-    const minDepositAmount = Number(settings.minimumDepositAmount) || 300;
+    const minDepositAmount = Number(settings.minimumDepositAmount);
 
     // If search text is provided, find matching user IDs to search both users and tx_hash
     let matchedUserIds: string[] | undefined = undefined;
@@ -1850,7 +1865,7 @@ app.get(['/api/admin/deposits/:id', '/admin/deposits/:id'], authMiddleware, admi
 
     const supabase = getServerSupabase();
     const settings = await getSettings();
-    const minDepositAmount = Number(settings.minimumDepositAmount) || 300;
+    const minDepositAmount = Number(settings.minimumDepositAmount);
 
     // Fetch user without sensitive credentials (no password, salt, 2fa secret)
     const user = await getProfileById(deposit.userId);
@@ -2229,16 +2244,18 @@ app.post(['/api/admin/withdrawals/:id/verify-payout', '/admin/withdrawals/:id/ve
     }
 
     const targetUser = await getProfileById(withdrawal.userId);
-    const isTestUser = targetUser?.isTestUser === true;
+    const isTestUser = process.env.NODE_ENV !== 'production' && targetUser?.isTestUser === true;
 
     if (isTestUser) {
+      const settings = await getSettings();
+      const reqConf = Number(settings.requiredConfirmations);
       return res.json({
         isValid: true,
         status: 'confirmed',
         amount: withdrawal.netAmount,
         expectedAmount: withdrawal.netAmount,
-        confirmations: 12,
-        requiredConfirmations: 12,
+        confirmations: reqConf,
+        requiredConfirmations: reqConf,
         txHash: cleanHash,
         isTestAccount: true,
         message: 'Simulated test account: Real blockchain payout is not required.',
@@ -2533,30 +2550,26 @@ app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware,
     const admin: User = (req as any).user;
     const { targetUserId, amount, reason, adjustmentType } = req.body;
 
-    if (!targetUserId || amount === undefined || amount === null || !reason) {
-      throw Errors.validation('targetUserId, amount, and reason are required.');
-    }
-
-    const adjustAmount = Number(amount);
-    if (isNaN(adjustAmount) || adjustAmount === 0) {
-      throw Errors.validation('Adjustment amount must be a non-zero number.');
-    }
-
-    if (typeof reason !== 'string' || reason.trim().length < 3) {
-      throw Errors.validation('A specific reason (minimum 3 characters) is mandatory for balance adjustments.');
-    }
+    const validTargetUserId = validateId(targetUserId, 'targetUserId');
+    const adjustAmount = validateAmount(amount, 'Adjustment amount', {
+      min: -100_000_000,
+      max: 100_000_000,
+      maxDecimals: 4,
+      allowZero: false,
+    });
+    const cleanReason = validateString(reason, 'Adjustment reason', { minLength: 3, maxLength: 500, required: true });
 
     const result = await adjustUserBalanceAtomicAsync({
       adminId: admin.id,
       adminEmail: admin.email,
       adminRole: admin.role,
-      targetUserId: String(targetUserId),
+      targetUserId: validTargetUserId,
       amount: adjustAmount,
-      reason: reason.trim(),
+      reason: cleanReason,
       adjustmentType: adjustmentType || (adjustAmount >= 0 ? 'credit' : 'debit'),
     });
 
-    const updatedBalance = await calculateUserBalanceAsync(String(targetUserId));
+    const updatedBalance = await calculateUserBalanceAsync(validTargetUserId);
     res.json({
       success: true,
       balance: updatedBalance,
@@ -2692,13 +2705,20 @@ app.post(['/api/admin/operational-fund/adjust', '/admin/operational-fund/adjust'
     const admin: User = (req as any).user;
     const { amount, direction, reason, reference } = req.body;
 
+    const validAmount = validateAmount(amount, 'Adjustment amount', { min: 0.01, max: 100_000_000, maxDecimals: 4, allowZero: false });
+    if (direction !== 'inflow' && direction !== 'outflow') {
+      throw Errors.validation("Adjustment direction must be either 'inflow' or 'outflow'.");
+    }
+    const cleanReason = validateString(reason, 'Adjustment reason', { minLength: 3, maxLength: 500, required: true });
+    const cleanReference = reference ? validateString(reference, 'Reference', { maxLength: 100 }) : undefined;
+
     const result = await adjustOperationalFundAsync({
       adminId: admin.id,
       adminEmail: admin.email,
-      amount: Number(amount),
+      amount: validAmount,
       direction,
-      reason,
-      reference,
+      reason: cleanReason,
+      reference: cleanReference,
     });
 
     if (!result.success) {
@@ -2710,7 +2730,7 @@ app.post(['/api/admin/operational-fund/adjust', '/admin/operational-fund/adjust'
       success: true,
       entry: result.entry,
       operationalFund: updatedSummary,
-      message: `Operational fund successfully adjusted (${direction}: ${amount} USDT).`,
+      message: `Operational fund successfully adjusted (${direction}: ${validAmount} USDT).`,
     });
   } catch (err) {
     next(err);

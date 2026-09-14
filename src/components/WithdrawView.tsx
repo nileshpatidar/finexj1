@@ -556,6 +556,15 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               </span>
             </div>
 
+            {previewImpact && typeof previewImpact.projectedRemainingPrincipal === 'number' && (
+              <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200 dark:border-slate-800">
+                <span className="font-semibold text-slate-600 dark:text-slate-400">Remaining Eligible Principal:</span>
+                <span className={`font-mono font-bold ${previewImpact.projectedRemainingPrincipal < (previewImpact.minimumDepositAmount ?? 300) ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                  ${previewImpact.projectedRemainingPrincipal.toFixed(2)} USDT
+                </span>
+              </div>
+            )}
+
             <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
               Note: 100% of the {authoritativeFeePct}% withdrawal fee belongs to FINEXJ operational reserves. No referral rewards are created from withdrawal fees.
             </p>
@@ -847,6 +856,14 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                   <span>Net to Receive:</span>
                   <span>${authoritativeNetAmt.toFixed(2)} USDT</span>
                 </div>
+                {previewImpact && typeof previewImpact.projectedRemainingPrincipal === 'number' && (
+                  <div className="flex justify-between text-[11px] pt-1 border-t border-slate-200 dark:border-slate-800">
+                    <span className="text-slate-500 dark:text-slate-400">Remaining Eligible Principal:</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      ${previewImpact.projectedRemainingPrincipal.toFixed(2)} USDT
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

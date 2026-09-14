@@ -90,7 +90,7 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
     }
 
     // 1. Mandatory Email OTP Verification
-    const isTestUser = user.isTestUser === true;
+    const isTestUser = process.env.NODE_ENV !== 'production' && user.isTestUser === true;
     if (!input.otpCode || !input.otpCode.trim()) {
       return {
         success: false,
@@ -313,7 +313,7 @@ export async function updateWithdrawalStatusAsync(
 
     // 3. Real BSC On-Chain Verification when marking as Paid
     const targetUser = await getProfileById(withdrawal.userId);
-    const isTestUser = targetUser?.isTestUser === true;
+    const isTestUser = process.env.NODE_ENV !== 'production' && targetUser?.isTestUser === true;
 
     if (newStatus === 'paid') {
       if (!normalizedTxHash) {

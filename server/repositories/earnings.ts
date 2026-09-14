@@ -1,8 +1,10 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { EarningEntry } from '../types';
 import { getDailyPerformances } from './performances';
 import { getDepositsByUserId } from './deposits';
 import { getAllProfiles, resolveUserIdForDb } from './profiles';
+
+const devEarnings: EarningEntry[] = [];
 
 export function mapDbEarningToEarning(e: any): EarningEntry {
   return {
@@ -37,6 +39,10 @@ export async function getEarningsByUserId(
   userId: string,
   options?: GetEarningsOptions
 ): Promise<EarningEntry[]> {
+  if (!isServerSupabaseReady()) {
+    return devEarnings.filter(e => String(e.userId) === String(userId));
+  }
+
   const supabase = getServerSupabase();
   let query = supabase.from('earnings').select('*');
   if (!isNaN(Number(userId))) {
@@ -97,6 +103,18 @@ export async function getPaginatedEarningsByUserId(
   const pageSize = Math.max(1, options?.pageSize ?? 30);
   const from = page * pageSize;
   const to = from + pageSize - 1;
+
+  if (!isServerSupabaseReady()) {
+    const userEarnings = devEarnings.filter(e => String(e.userId) === String(userId));
+    const paged = userEarnings.slice(from, to + 1);
+    return {
+      earnings: paged,
+      page,
+      pageSize,
+      hasMore: (from + paged.length) < userEarnings.length,
+      totalCount: userEarnings.length,
+    };
+  }
 
   const supabase = getServerSupabase();
   let query = supabase
@@ -159,6 +177,25 @@ export async function getPaginatedEarningsByUserId(
 
 export async function createEarning(entry: Partial<EarningEntry>): Promise<EarningEntry> {
   const targetDate = entry.performanceDate || new Date().toISOString().split('T')[0];
+
+  if (!isServerSupabaseReady()) {
+    const created: EarningEntry = {
+      id: String(Date.now()),
+      userId: String(entry.userId || '0'),
+      calculationId: String(entry.calculationId || '0'),
+      baseEligibleAmount: entry.baseEligibleAmount || 0,
+      applicableRate: entry.applicableRate || 0,
+      earningsAmount: entry.earningsAmount || 0,
+      performanceDate: targetDate,
+      createdAt: entry.createdAt || new Date().toISOString(),
+      status: entry.status || 'credited',
+      marketCondition: entry.marketCondition || ((entry.applicableRate || 0) >= 0 ? 'profit' : 'loss'),
+      note: entry.note,
+    };
+    devEarnings.push(created);
+    return created;
+  }
+
   const supabase = getServerSupabase();
   const resolvedUserId = await resolveUserIdForDb(entry.userId);
   const perfIdNum = entry.calculationId && !isNaN(Number(entry.calculationId))
@@ -240,6 +277,14 @@ export async function createEarning(entry: Partial<EarningEntry>): Promise<Earni
 }
 
 export async function deleteEarningsByDate(date: string): Promise<void> {
+  if (!isServerSupabaseReady()) {
+    const idx = devEarnings.findIndex(e => e.performanceDate === date);
+    if (idx !== -1) {
+      devEarnings.splice(idx, 1);
+    }
+    return;
+  }
+
   const supabase = getServerSupabase();
   const { error } = await supabase
     .from('earnings')
@@ -270,6 +315,10 @@ export async function createEarningsBatch(entries: Partial<EarningEntry>[]): Pro
 }
 
 export async function getAllEarnings(options?: GetEarningsOptions): Promise<EarningEntry[]> {
+  if (!isServerSupabaseReady()) {
+    return devEarnings;
+  }
+
   try {
     const supabase = getServerSupabase();
     let query = supabase

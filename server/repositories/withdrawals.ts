@@ -1,4 +1,4 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { Withdrawal, WithdrawalStatus } from '../types';
 import { resolveUserIdForDb } from './profiles';
 
@@ -324,6 +324,10 @@ export async function createWithdrawalAtomic(input: CreateWithdrawalAtomicInput)
   warningType?: 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
   error?: string;
 }> {
+  if (!isServerSupabaseReady()) {
+    return { success: false, error: 'Database service is running in local offline mode.' };
+  }
+
   try {
     const supabase = getServerSupabase();
     let numericUserId: number | null = null;
@@ -396,6 +400,10 @@ export async function processWithdrawalStatusAtomic(input: ProcessWithdrawalStat
   withdrawal?: Withdrawal;
   error?: string;
 }> {
+  if (!isServerSupabaseReady()) {
+    return { success: false, error: 'Database service is running in local offline mode.' };
+  }
+
   try {
     const supabase = getServerSupabase();
     let numericId: number | null = null;

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
+import { useSettings } from '../context/SettingsContext';
 import { UserBalanceSummary } from '../types';
 import {
   Lock,
@@ -27,7 +28,9 @@ export const FundLockModal: React.FC<FundLockModalProps> = ({
   balance,
   onLockUpdated,
 }) => {
-  const [selectedDays, setSelectedDays] = useState<number>(30);
+  const { depositLockPeriodDays } = useSettings();
+  const lockDays = depositLockPeriodDays || 30;
+  const [selectedDays, setSelectedDays] = useState<number>(lockDays);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -74,7 +77,7 @@ export const FundLockModal: React.FC<FundLockModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                30-Day Fund Lock & Yield Rule
+                {lockDays}-Day Fund Lock & Yield Rule
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Institutional Liquidity Governance & Capital Protection
@@ -120,7 +123,7 @@ export const FundLockModal: React.FC<FundLockModalProps> = ({
                   : 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20'
               }`}
             >
-              {isCurrentlyLocked ? 'Active 30-Day Lock' : 'Unlocked / Flexible'}
+              {isCurrentlyLocked ? `Active ${remainingDays}d Lock` : 'Unlocked / Flexible'}
             </span>
           </div>
 
@@ -156,9 +159,9 @@ export const FundLockModal: React.FC<FundLockModalProps> = ({
             <div className="flex items-start space-x-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
               <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
               <div>
-                <strong className="text-slate-900 dark:text-white">Automatic 30-Day Post-Withdrawal Re-Lock:</strong>
+                <strong className="text-slate-900 dark:text-white">Deposit & Voluntary Fund Lock Policy:</strong>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                  Whenever you submit a withdrawal request, any remaining fund balance is automatically re-locked for <strong>30 days</strong> to preserve liquidity depth and stabilize pool yield.
+                  Principal deposits enter a protected <strong>{lockDays}-day</strong> lock upon confirmation to ensure pool stability. Standard withdrawals do not trigger automatic re-locks on remaining balances, though users may voluntarily lock funds for yield prioritization.
                 </p>
               </div>
             </div>

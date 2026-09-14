@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import { api } from '../services/api';
 import {
   UserReferralSummary,
@@ -35,6 +36,8 @@ interface ReferralViewProps {
 
 export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
+  const { minimumDepositAmount } = useSettings();
+  const minDeposit = minimumDepositAmount || 300;
   // Summary state
   const [summary, setSummary] = useState<UserReferralSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
@@ -184,8 +187,8 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
-  // Authoritative referral code sourced from users.referral_code (via summary or authenticated user profile)
-  const effectiveReferralCode = summary?.referralCode || user?.referralCode || '';
+  // Authoritative referral code: only accessible if user is actively eligible
+  const effectiveReferralCode = summary?.isEligible ? (summary?.referralCode || user?.referralCode || '') : '';
 
   // Copy referral code
   const handleCopyCode = () => {
@@ -274,9 +277,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  {summary.hasConfirmedDeposit || summary.totalReferrals > 0
-                    ? 'Refer & Earn is currently locked because your eligible funds are below the required minimum.'
-                    : `Maintain at least ${summary.minimumRequiredPrincipal || 300} in eligible funds to unlock your referral code and start earning referral rewards.`}
+                  Maintain at least ${summary.minimumRequiredPrincipal || 300} in eligible funds to unlock your referral code and start earning referral rewards.
                 </p>
               </div>
             </div>
@@ -639,7 +640,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
                 No referrals yet
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                Share your authoritative referral code or link with other investors. When they complete a qualifying deposit (≥ 300 USDT), you will automatically receive a 5% Level 1 reward and 2% on their Level 2 team.
+                Share your authoritative referral code or link with other investors. When they complete a qualifying deposit (≥ {summary?.minimumRequiredPrincipal || minDeposit} USDT), you will automatically receive a 5% Level 1 reward and 2% on their Level 2 team.
               </p>
               <div className="pt-2">
                 <button

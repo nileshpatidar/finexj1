@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import { api } from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -22,6 +23,8 @@ interface ProfileViewProps {
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
   const { user, logout, logoutAll, refreshUser } = useAuth();
+  const { minimumDepositAmount } = useSettings();
+  const minDeposit = minimumDepositAmount || 300;
   const [copiedProfileRef, setCopiedProfileRef] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -195,7 +198,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
         </div>
 
         <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
-          Receive 5% Level 1 direct rewards and 2% Level 2 indirect rewards when your referred investors make qualifying deposits (≥ 300 USDT). Referral rewards are non-compounding cash.
+          Receive 5% Level 1 direct rewards and 2% Level 2 indirect rewards when your referred investors make qualifying deposits (≥ {minDeposit} USDT). Referral rewards are non-compounding cash.
         </p>
 
         {!user?.referralCode ? (
@@ -206,7 +209,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
                 <span>Refer & Earn is Locked</span>
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-400">
-                Maintain at least the required minimum eligible principal in your account to unlock your referral code.
+                Maintain at least {minDeposit} USDT in eligible funds in your account to unlock your referral code.
               </p>
             </div>
             {onNavigate && (

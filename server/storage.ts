@@ -12,8 +12,29 @@ export async function uploadDepositProof(
   base64OrBuffer: string,
   originalFilename: string = 'proof.jpg'
 ): Promise<string> {
+  if (!base64OrBuffer || typeof base64OrBuffer !== 'string') {
+    return '';
+  }
+
+  const trimmed = base64OrBuffer.trim();
+
+  // Reject dangerous schemes
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('file:') || lower.startsWith('vbscript:') || lower.startsWith('blob:')) {
+    throw new Error('Prohibited file/URL scheme.');
+  }
+
+  // Check maximum payload length (10MB base64)
+  if (trimmed.length > 10 * 1024 * 1024 * 1.37) {
+    throw new Error('File payload exceeds maximum limit of 10MB.');
+  }
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
   if (!isServerSupabaseReady()) {
-    return base64OrBuffer;
+    return trimmed;
   }
 
   const supabase = getServerSupabase();
@@ -21,18 +42,20 @@ export async function uploadDepositProof(
   let fileBuffer: Buffer;
   let contentType = 'image/jpeg';
 
-  if (base64OrBuffer.startsWith('data:')) {
-    const matches = base64OrBuffer.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+  if (trimmed.startsWith('data:')) {
+    const matches = trimmed.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
     if (matches && matches.length === 3) {
-      contentType = matches[1];
+      contentType = matches[1].toLowerCase();
+      // Ensure it is an allowed image MIME type
+      if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(contentType)) {
+        throw new Error('Unsupported image format. Only JPEG, PNG, and WebP are allowed.');
+      }
       fileBuffer = Buffer.from(matches[2], 'base64');
     } else {
-      fileBuffer = Buffer.from(base64OrBuffer, 'base64');
+      fileBuffer = Buffer.from(trimmed, 'base64');
     }
-  } else if (base64OrBuffer.startsWith('http://') || base64OrBuffer.startsWith('https://')) {
-    return base64OrBuffer;
   } else {
-    fileBuffer = Buffer.from(base64OrBuffer, 'base64');
+    fileBuffer = Buffer.from(trimmed, 'base64');
   }
 
   const cleanFilename = originalFilename.replace(/[^a-zA-Z0-9.-]/g, '_');

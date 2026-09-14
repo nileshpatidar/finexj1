@@ -1,4 +1,4 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 
 export interface AdminMessage {
   id: string;
@@ -14,6 +14,8 @@ export interface AdminMessage {
 }
 
 export async function getAdminMessagesForUser(userId: string): Promise<AdminMessage[]> {
+  if (!isServerSupabaseReady()) return [];
+
   const supabase = getServerSupabase();
   const { data, error } = await supabase
     .from('admin_messages')
@@ -41,6 +43,21 @@ export async function getAdminMessagesForUser(userId: string): Promise<AdminMess
 }
 
 export async function createAdminMessage(msg: Partial<AdminMessage>): Promise<AdminMessage> {
+  if (!isServerSupabaseReady()) {
+    return {
+      id: String(Date.now()),
+      userId: msg.userId || '0',
+      adminId: msg.adminId,
+      depositId: msg.depositId,
+      withdrawalId: msg.withdrawalId,
+      messageType: msg.messageType || 'General Message',
+      subject: msg.subject || 'Notification from FINEXJ Administration',
+      body: msg.body || '',
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
   const supabase = getServerSupabase();
   const payload: any = {
     user_id: msg.userId,
@@ -80,6 +97,8 @@ export async function createAdminMessage(msg: Partial<AdminMessage>): Promise<Ad
 }
 
 export async function markMessageRead(messageId: string, userId: string): Promise<boolean> {
+  if (!isServerSupabaseReady()) return true;
+
   const supabase = getServerSupabase();
   const { error } = await supabase
     .from('admin_messages')

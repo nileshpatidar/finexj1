@@ -146,27 +146,28 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const maintainsMinimumPrincipal = eligiblePrincipal >= minimumEligibleThreshold;
   const compoundingActive = maintainsMinimumPrincipal && settings?.compoundingEnabled !== false;
 
-  // 30-Day Lock and Maturity Status
+  // Fund Lock and Maturity Status
   const isFundLocked = Boolean(balance?.isFundLocked);
   const isAccountMatured = Boolean(balance?.is30DaysOld);
   const isAccountLocked = isFundLocked || !isAccountMatured;
+  const accountAgeRequirementDays = settings?.accountAgeRequirementDays ?? 30;
 
   let lockStatusLabel = 'UNLOCKED';
   let lockStatusBadgeClass = 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
   let unlockDateDisplay = 'Fully Matured (Eligible for Standard Withdrawals)';
 
   if (isFundLocked) {
-    lockStatusLabel = 'LOCKED (30-Day Re-lock)';
+    lockStatusLabel = 'LOCKED (Fund Lock Active)';
     lockStatusBadgeClass = 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60';
     unlockDateDisplay = balance?.fundLockUntil
       ? `${new Date(balance.fundLockUntil).toLocaleDateString()} (${balance.fundLockRemainingDays}d ${balance.fundLockRemainingHours}h remaining)`
-      : '30 Days from Last Withdrawal';
+      : 'Active Principal Lock Period';
   } else if (!isAccountMatured) {
-    lockStatusLabel = 'LOCKED (Initial 30d Age)';
+    lockStatusLabel = `LOCKED (${accountAgeRequirementDays}d Age Requirement)`;
     lockStatusBadgeClass = 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
     unlockDateDisplay = balance?.withdrawalEligibleDate
-      ? `${new Date(balance.withdrawalEligibleDate).toLocaleDateString()} (${balance.accountAgeDays}d / 30d completed)`
-      : '30 Days from Registration';
+      ? `${new Date(balance.withdrawalEligibleDate).toLocaleDateString()} (${balance.accountAgeDays}d / ${accountAgeRequirementDays}d completed)`
+      : `${accountAgeRequirementDays} Days from Registration`;
   }
 
   return (
@@ -305,7 +306,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>30-Day Liquidity & Maturity Governance</span>
+                <span>Liquidity & Maturity Governance</span>
                 <span
                   className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${lockStatusBadgeClass}`}
                 >
@@ -314,9 +315,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </h2>
               <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
                 {isFundLocked
-                  ? 'Fund re-lock is currently active following your recent withdrawal to protect portfolio liquidity.'
+                  ? 'Deposit or voluntary fund lock is currently active on your principal to protect portfolio liquidity.'
                   : !isAccountMatured
-                  ? `Your account is ${balance?.accountAgeDays || 0} days old. Institutional rules require 30 full days before principal withdrawals unlock.`
+                  ? `Your account is ${balance?.accountAgeDays || 0} days old. Institutional rules require ${accountAgeRequirementDays} full days before principal withdrawals unlock.`
                   : 'Account age requirement completed. Normal principal and yield withdrawal requests are fully unlocked.'}
               </p>
             </div>

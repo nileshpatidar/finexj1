@@ -85,7 +85,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [adjustAmount, setAdjustAmount] = useState('');
   const [adjustReason, setAdjustReason] = useState('');
 
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
   const loadAllAdminData = async () => {
+    if (!isAdmin) return;
     setIsLoading(true);
     try {
       const [dash, uList, dList, wList, pList, aList, sList] = await Promise.all([
@@ -112,8 +115,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   };
 
   useEffect(() => {
-    loadAllAdminData();
-  }, []);
+    if (isAdmin) {
+      loadAllAdminData();
+    }
+  }, [isAdmin]);
 
   const handleApplyPerformance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -270,6 +275,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
     if (depositFilter === 'all') return true;
     return d.status === depositFilter;
   });
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-md mx-auto my-12 p-8 rounded-3xl bg-white dark:bg-[#0F172A] border border-red-200 dark:border-red-900/50 shadow-xl text-center space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h2 className="text-base font-bold text-slate-900 dark:text-white">
+          Access Denied
+        </h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+          You do not have administrative privileges to access this area. All administrative access attempts are monitored and logged.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-24 text-xs">

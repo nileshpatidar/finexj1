@@ -36,6 +36,8 @@ DECLARE
   v_raw_min_setting TEXT;
   v_min_deposit NUMERIC(18, 4);
   v_is_qualifying BOOLEAN := false;
+  v_raw_conf_setting TEXT;
+  v_req_conf INTEGER := 12;
 
   -- Level 1 Referrer variables
   v_l1_referral_id INTEGER := NULL;
@@ -130,6 +132,16 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'Financial configuration error: minimumDepositAmount must be greater than 0. Transaction aborted.');
   END IF;
 
+  -- 6.5. Authoritative requiredConfirmations from system_settings
+  SELECT value INTO v_raw_conf_setting FROM system_settings WHERE key = 'requiredConfirmations';
+  IF v_raw_conf_setting IS NOT NULL AND TRIM(v_raw_conf_setting) != '' THEN
+    BEGIN
+      v_req_conf := v_raw_conf_setting::INTEGER;
+    EXCEPTION WHEN OTHERS THEN
+      v_req_conf := 12;
+    END;
+  END IF;
+
   -- 7. Update deposit record to confirmed status
   UPDATE deposits SET
     status = 'confirmed',
@@ -140,7 +152,7 @@ BEGIN
     from_address = COALESCE(p_from_address, from_address),
     block_number = COALESCE(p_block_number, block_number),
     token_contract = COALESCE(p_token_contract, token_contract),
-    confirmations = COALESCE(p_confirmations, GREATEST(COALESCE(confirmations, 0), 12)),
+    confirmations = COALESCE(p_confirmations, GREATEST(COALESCE(confirmations, 0), v_req_conf)),
     actual_amount = v_final_amount,
     amount = v_final_amount,
     updated_at = v_now

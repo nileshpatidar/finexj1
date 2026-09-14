@@ -25,8 +25,9 @@ export async function generateWithdrawalOtp(
   email: string,
   isTestUser: boolean = false
 ): Promise<{ success: boolean; message: string; expiresInSeconds: number; devCode?: string }> {
-  // Generate cryptographically secure 6-digit numeric OTP
-  const code = isTestUser ? '123456' : crypto.randomInt(100000, 999999).toString();
+  // Generate cryptographically secure 6-digit numeric OTP (Bypass strictly prohibited in production)
+  const isBypassAllowed = process.env.NODE_ENV !== 'production' && isTestUser;
+  const code = isBypassAllowed ? '123456' : crypto.randomInt(100000, 999999).toString();
   const expiresAt = Date.now() + OTP_EXPIRATION_MS;
 
   const key = `withdrawal_${userId}`;
@@ -53,8 +54,8 @@ export async function generateWithdrawalOtp(
     expiresInSeconds: Math.floor(OTP_EXPIRATION_MS / 1000),
   };
 
-  // Provide devCode in non-production or for test users
-  if (process.env.NODE_ENV !== 'production' || isTestUser) {
+  // Provide devCode in non-production test mode only; strictly excluded in production
+  if (isBypassAllowed) {
     response.devCode = code;
   }
 
@@ -70,8 +71,8 @@ export function verifyWithdrawalOtp(
   submittedCode: string,
   isTestUser: boolean = false
 ): { valid: boolean; error?: string } {
-  // Always accept test codes for verified test users
-  if (isTestUser && (submittedCode === '123456' || submittedCode === '000000')) {
+  // Static codes only acceptable in non-production for configured test users
+  if (process.env.NODE_ENV !== 'production' && isTestUser && (submittedCode === '123456' || submittedCode === '000000')) {
     return { valid: true };
   }
 

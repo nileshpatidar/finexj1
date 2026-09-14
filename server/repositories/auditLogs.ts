@@ -1,4 +1,4 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { AuditLog } from '../types';
 import { sanitizeLogData } from '../logger';
 
@@ -9,6 +9,8 @@ export async function getAuditLogs(options?: {
   actorId?: string;
   targetUserId?: string;
 }): Promise<AuditLog[]> {
+  if (!isServerSupabaseReady()) return [];
+
   const supabase = getServerSupabase();
   const limit = options?.limit || 50;
   const offset = options?.offset || 0;
@@ -52,6 +54,8 @@ export async function getAuditLogs(options?: {
 }
 
 export async function createAuditLog(log: Partial<AuditLog>): Promise<void> {
+  if (!isServerSupabaseReady()) return;
+
   try {
     const supabase = getServerSupabase();
     const sanitizedBefore = log.beforeValue ? sanitizeLogData(log.beforeValue) : null;

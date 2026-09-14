@@ -1,6 +1,8 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { LedgerEntry, LedgerType } from '../types';
 import { resolveUserIdForDb } from './profiles';
+
+const devLedgerEntries: LedgerEntry[] = [];
 
 export function mapDbLedgerToLedger(l: any): LedgerEntry {
   return {
@@ -17,6 +19,10 @@ export function mapDbLedgerToLedger(l: any): LedgerEntry {
 }
 
 export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> {
+  if (!isServerSupabaseReady()) {
+    return devLedgerEntries.filter(l => String(l.userId) === String(userId));
+  }
+
   const supabase = getServerSupabase();
   let query = supabase.from('ledger').select('*');
   if (!isNaN(Number(userId))) {
@@ -36,10 +42,27 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
 }
 
 export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<LedgerEntry> {
-  const supabase = getServerSupabase();
-  const resolvedUserId = await resolveUserIdForDb(entry.userId);
   const refId = entry.referenceId || `TX-${Date.now()}`;
   const entryType = (entry.type || 'deposit') as LedgerType;
+
+  if (!isServerSupabaseReady()) {
+    const created: LedgerEntry = {
+      id: String(Date.now()),
+      userId: String(entry.userId || '0'),
+      type: entryType,
+      amount: entry.amount || 0,
+      balanceAfter: entry.balanceAfter || 0,
+      referenceId: refId,
+      description: entry.description || 'Ledger transaction',
+      createdAt: entry.createdAt || new Date().toISOString(),
+      performedBy: entry.performedBy ? String(entry.performedBy) : undefined,
+    };
+    devLedgerEntries.push(created);
+    return created;
+  }
+
+  const supabase = getServerSupabase();
+  const resolvedUserId = await resolveUserIdForDb(entry.userId);
 
   // Safe deduplication: check if ledger entry already exists for this reference, user, and type
   if (entry.referenceId) {
@@ -89,6 +112,8 @@ export async function createLedgerEntry(entry: Partial<LedgerEntry>): Promise<Le
 }
 
 export async function deleteLedgerByReferenceAndTypes(referenceId: string, types: string[]): Promise<void> {
+  if (!isServerSupabaseReady()) return;
+
   try {
     const supabase = getServerSupabase();
     await supabase
@@ -102,6 +127,10 @@ export async function deleteLedgerByReferenceAndTypes(referenceId: string, types
 }
 
 export async function getAllLedger(): Promise<LedgerEntry[]> {
+  if (!isServerSupabaseReady()) {
+    return devLedgerEntries;
+  }
+
   try {
     const supabase = getServerSupabase();
     const { data, error } = await supabase

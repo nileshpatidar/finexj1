@@ -1,4 +1,4 @@
-import { getServerSupabase } from '../supabase';
+import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { FraudSignal, User } from '../types';
 import { getProfilesByWalletAddress, flagUserForReview, getProfileById } from '../repositories/profiles';
 import { createAuditLog } from '../repositories/auditLogs';
@@ -26,6 +26,8 @@ export function mapDbFraudSignal(f: any): FraudSignal {
  * Record a detected fraud or abuse signal into the database and security logs
  */
 export async function recordFraudSignal(signal: Partial<FraudSignal>): Promise<FraudSignal | null> {
+  if (!isServerSupabaseReady()) return null;
+
   try {
     const supabase = getServerSupabase();
     const payload = {
@@ -89,6 +91,10 @@ export async function checkWalletDuplication(
     return { isReused: false, matchingUserIds: [] };
   }
 
+  if (!isServerSupabaseReady()) {
+    return { isReused: false, matchingUserIds: [] };
+  }
+
   const normWallet = walletAddress.trim().toLowerCase();
 
   try {
@@ -133,6 +139,10 @@ export async function checkRapidWithdrawalCycle(
   userId: string,
   requestedAmount: number
 ): Promise<{ isRapidCycle: boolean; reason?: string }> {
+  if (!isServerSupabaseReady()) {
+    return { isRapidCycle: false };
+  }
+
   try {
     const supabase = getServerSupabase();
     const dbUserId = !isNaN(Number(userId)) ? Number(userId) : userId;
@@ -184,6 +194,10 @@ export async function getFraudSignals(options?: {
   limit?: number;
   offset?: number;
 }): Promise<{ signals: FraudSignal[]; total: number }> {
+  if (!isServerSupabaseReady()) {
+    return { signals: [], total: 0 };
+  }
+
   try {
     const supabase = getServerSupabase();
     const limit = options?.limit || 50;
@@ -224,6 +238,10 @@ export async function resolveFraudSignal(
   action: 'dismissed' | 'action_taken',
   notes?: string
 ): Promise<void> {
+  if (!isServerSupabaseReady()) {
+    return;
+  }
+
   const supabase = getServerSupabase();
   const dbSignalId = !isNaN(Number(signalId)) ? Number(signalId) : signalId;
 
