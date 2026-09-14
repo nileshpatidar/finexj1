@@ -7,6 +7,7 @@ import {
   PaginatedLevel1ReferralsResponse,
   PaginatedLevel2ReferralsResponse,
 } from '../types';
+import { HowFinexJWorksModal } from './HowFinexJWorksModal';
 import {
   Users,
   Copy,
@@ -14,20 +15,18 @@ import {
   Share2,
   RefreshCw,
   TrendingUp,
-  Award,
   AlertCircle,
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
-  Shield,
-  Clock,
-  CheckCircle2,
   HelpCircle,
-  ArrowRight,
-  Layers,
   ChevronLeft,
+  ChevronRight,
   Wallet,
   Lock,
+  CheckCircle2,
+  Info,
+  Layers,
+  UserCheck,
+  ArrowRight,
+  X,
 } from 'lucide-react';
 
 interface ReferralViewProps {
@@ -36,12 +35,20 @@ interface ReferralViewProps {
 
 export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
-  const { minimumDepositAmount } = useSettings();
+  const {
+    minimumDepositAmount,
+    referralRewardL1Percentage,
+    referralRewardL2Percentage,
+  } = useSettings();
   const minDeposit = minimumDepositAmount || 300;
-  // Summary state
+
+  // Summary state (authoritative backend values)
   const [summary, setSummary] = useState<UserReferralSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  // Active tab: 'level1' | 'level2'
+  const [activeTab, setActiveTab] = useState<'level1' | 'level2'>('level1');
 
   // Level 1 state (paginated)
   const [level1Data, setLevel1Data] = useState<PaginatedLevel1ReferralsResponse | null>(null);
@@ -49,26 +56,18 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
   const [isLoadingLevel1, setIsLoadingLevel1] = useState(false);
   const [level1Error, setLevel1Error] = useState<string | null>(null);
 
-  // Expanded Level 1 member IDs (for Level 2 accordions)
-  const [expandedL1Id, setExpandedL1Id] = useState<string | null>(null);
+  // Level 2 state (paginated)
+  const [level2Data, setLevel2Data] = useState<PaginatedLevel2ReferralsResponse | null>(null);
+  const [level2Page, setLevel2Page] = useState(1);
+  const [isLoadingLevel2, setIsLoadingLevel2] = useState(false);
+  const [level2Error, setLevel2Error] = useState<string | null>(null);
+  const [level2FilterL1, setLevel2FilterL1] = useState<{ id: string; name: string } | null>(null);
 
-  // Level 2 sub-team state mapped by Level 1 User ID
-  const [level2Map, setLevel2Map] = useState<
-    Record<
-      string,
-      {
-        data: PaginatedLevel2ReferralsResponse | null;
-        page: number;
-        isLoading: boolean;
-        error: string | null;
-      }
-    >
-  >({});
-
-  // Clipboard copy feedback
+  // Feedback states
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isFaqOpen, setIsFaqOpen] = useState(false);
 
   // 1. Fetch Authoritative Summary from Backend
   const fetchSummary = useCallback(async () => {
@@ -87,7 +86,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
     }
   }, []);
 
-  // 2. Fetch Level 1 Paginated List from Backend
+  // 2. Fetch Level 1 Referrals from Backend
   const fetchLevel1 = useCallback(async (page: number) => {
     try {
       setIsLoadingLevel1(true);
@@ -105,51 +104,25 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
     }
   }, []);
 
-  // 3. Fetch Level 2 for a specific Level 1 user
-  const fetchLevel2ForUser = useCallback(async (level1UserId: string, page: number = 1) => {
-    setLevel2Map(prev => ({
-      ...prev,
-      [level1UserId]: {
-        data: prev[level1UserId]?.data || null,
-        page,
-        isLoading: true,
-        error: null,
-      },
-    }));
-
+  // 3. Fetch Level 2 Referrals from Backend
+  const fetchLevel2 = useCallback(async (page: number, level1UserId?: string) => {
     try {
-      const res = await api.getLevel2Referrals({ level1UserId, page, limit: 5 });
+      setIsLoadingLevel2(true);
+      setLevel2Error(null);
+      const res = await api.getLevel2Referrals({
+        level1UserId,
+        page,
+        limit: 10,
+      });
       if (res.success && res.data) {
-        setLevel2Map(prev => ({
-          ...prev,
-          [level1UserId]: {
-            data: res.data,
-            page,
-            isLoading: false,
-            error: null,
-          },
-        }));
+        setLevel2Data(res.data);
       } else {
-        setLevel2Map(prev => ({
-          ...prev,
-          [level1UserId]: {
-            data: null,
-            page,
-            isLoading: false,
-            error: 'Failed to load Level 2 members.',
-          },
-        }));
+        setLevel2Error('Could not retrieve Level 2 referrals.');
       }
     } catch (err: any) {
-      setLevel2Map(prev => ({
-        ...prev,
-        [level1UserId]: {
-          data: null,
-          page,
-          isLoading: false,
-          error: err?.message || 'Error loading Level 2 members.',
-        },
-      }));
+      setLevel2Error(err?.message || 'Error fetching Level 2 referrals.');
+    } finally {
+      setIsLoadingLevel2(false);
     }
   }, []);
 
@@ -157,50 +130,63 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
   useEffect(() => {
     fetchSummary();
     fetchLevel1(1);
-  }, [fetchSummary, fetchLevel1]);
+    fetchLevel2(1);
+  }, [fetchSummary, fetchLevel1, fetchLevel2]);
 
-  // Handle page change for Level 1
+  // Handle page changes
   const handleLevel1PageChange = (newPage: number) => {
     setLevel1Page(newPage);
     fetchLevel1(newPage);
   };
 
-  // Toggle Level 1 member to show Level 2 sub-team
-  const toggleLevel1Expand = (l1UserId: string) => {
-    if (expandedL1Id === l1UserId) {
-      setExpandedL1Id(null);
-    } else {
-      setExpandedL1Id(l1UserId);
-      if (!level2Map[l1UserId]?.data) {
-        fetchLevel2ForUser(l1UserId, 1);
-      }
-    }
+  const handleLevel2PageChange = (newPage: number) => {
+    setLevel2Page(newPage);
+    fetchLevel2(newPage, level2FilterL1?.id);
+  };
+
+  // Filter Level 2 by specific Level 1 member
+  const handleFilterLevel2ByL1 = (l1Member: { id: string; name: string; surname: string }) => {
+    const fullName = `${l1Member.name} ${l1Member.surname}`.trim();
+    setLevel2FilterL1({ id: l1Member.id, name: fullName });
+    setLevel2Page(1);
+    setActiveTab('level2');
+    fetchLevel2(1, l1Member.id);
+  };
+
+  const handleClearLevel2Filter = () => {
+    setLevel2FilterL1(null);
+    setLevel2Page(1);
+    fetchLevel2(1);
   };
 
   // Full manual refresh
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await Promise.all([fetchSummary(), fetchLevel1(level1Page)]);
-    if (expandedL1Id) {
-      await fetchLevel2ForUser(expandedL1Id, level2Map[expandedL1Id]?.page || 1);
-    }
+    await Promise.all([
+      fetchSummary(),
+      fetchLevel1(level1Page),
+      fetchLevel2(level2Page, level2FilterL1?.id),
+    ]);
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
-  // Authoritative referral code: only accessible if user is actively eligible
-  const effectiveReferralCode = summary?.isEligible ? (summary?.referralCode || user?.referralCode || '') : '';
+  // Authoritative referral code: strictly from database referral_code.
+  // Never generate a fallback referral code from user ID.
+  const rawReferralCode = summary?.referralCode || user?.referralCode || '';
+  const isReferralActive = Boolean(summary?.isEligible && rawReferralCode);
+  const displayReferralCode = isReferralActive ? rawReferralCode : 'Referral code unavailable';
 
   // Copy referral code
   const handleCopyCode = () => {
-    if (!effectiveReferralCode) return;
-    navigator.clipboard.writeText(effectiveReferralCode);
+    if (!isReferralActive || !rawReferralCode) return;
+    navigator.clipboard.writeText(rawReferralCode);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Construct full referral URL using authoritative code
-  const referralUrl = effectiveReferralCode
-    ? `${window.location.origin}/register?ref=${encodeURIComponent(effectiveReferralCode)}`
+  // Construct full referral URL using existing structure
+  const referralUrl = isReferralActive && rawReferralCode
+    ? `${window.location.origin}/register?ref=${encodeURIComponent(rawReferralCode)}`
     : '';
 
   // Copy referral link
@@ -211,14 +197,14 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  // Native share dialog if supported
+  // Share referral link
   const handleShare = async () => {
     if (!referralUrl) return;
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Join FINEXJ Digital Asset Fund',
-          text: `Register on FINEXJ using my referral code ${effectiveReferralCode} to access institutional digital asset management:`,
+          title: 'FinexJ Referral',
+          text: `Join FinexJ using my referral code: ${rawReferralCode}`,
           url: referralUrl,
         });
       } catch {
@@ -231,645 +217,647 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-24">
-      {/* Top Header & Refresh */}
+      {/* Top Header & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
             <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            Referral Network & Rewards
+            <span>Referrals</span>
           </h1>
           <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-            2-Tier institutional reward architecture (5% Direct / 2% Indirect)
+            Two-level referral structure: Level 1 ({referralRewardL1Percentage}%) and Level 2 ({referralRewardL2Percentage}%)
           </p>
         </div>
 
-        <button
-          onClick={handleRefresh}
-          disabled={isRefreshing || isLoadingSummary}
-          className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-full bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-xs transition cursor-pointer self-start sm:self-auto disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isRefreshing ? 'animate-spin' : ''}`} />
-          <span>{isRefreshing ? 'Updating...' : 'Refresh Data'}</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => setIsFaqOpen(true)}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-full bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition cursor-pointer"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            <span>How It Works</span>
+          </button>
+
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing || isLoadingSummary}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-full bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-xs transition cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'Updating...' : 'Refresh'}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Authoritative Referral Eligibility Status Card */}
+      {/* Error alert if summary fails */}
+      {summaryError && (
+        <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300 text-xs flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{summaryError}</span>
+          </div>
+          <button
+            onClick={fetchSummary}
+            className="px-2.5 py-1 bg-red-600 text-white rounded-lg font-semibold text-[11px] cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Eligibility / Locked Status Notice */}
       {isLoadingSummary ? (
-        <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm animate-pulse space-y-3">
-          <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/4"></div>
-          <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded w-3/4"></div>
+        <div className="p-5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs animate-pulse space-y-2">
+          <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/3"></div>
+          <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded w-2/3"></div>
         </div>
       ) : summary && !summary.isEligible ? (
-        /* COMPACT LOCKED STATE (Requirement 1) */
-        <div id="referral-locked-container" className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-start space-x-3.5">
-              <div className="p-2.5 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5">
-                <Lock className="w-5 h-5" />
+        <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5">
+                <Lock className="w-4 h-4" />
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                    Refer & Earn is Locked
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Referral Program Locked
                   </h2>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wide">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wide">
                     Locked
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Maintain at least ${summary.minimumRequiredPrincipal || 300} in eligible funds to unlock your referral code and start earning referral rewards.
+                  Maintain at least ${(summary.minimumRequiredPrincipal || minDeposit).toFixed(2)} USDT in eligible funds to unlock your referral code and rewards.
                 </p>
               </div>
             </div>
 
             {onNavigate && (
               <button
-                id="deposit-to-unlock-btn"
                 onClick={() => onNavigate('deposit')}
-                className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition cursor-pointer flex-shrink-0 self-start sm:self-auto"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition cursor-pointer flex-shrink-0 self-start sm:self-auto"
               >
-                <Wallet className="w-4 h-4" />
+                <Wallet className="w-3.5 h-3.5" />
                 <span>Deposit to Unlock</span>
               </button>
             )}
           </div>
 
-          <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
             <span>
-              Maintained Eligible Principal: <strong className="text-slate-800 dark:text-slate-200 font-mono">${(summary.maintainedEligiblePrincipal || 0).toFixed(2)}</strong> / ${(summary.minimumRequiredPrincipal || 300).toFixed(2)} USDT
-            </span>
-            <span className="text-[11px] text-slate-400">
-              Personal confirmed deposits minus withdrawals
+              Current Eligible Deposit: <strong className="text-slate-800 dark:text-slate-200 font-mono">${(summary.maintainedEligiblePrincipal || 0).toFixed(2)}</strong> / ${(summary.minimumRequiredPrincipal || minDeposit).toFixed(2)} USDT
             </span>
           </div>
         </div>
       ) : summary?.isEligible ? (
-        <>
-          <div className="p-5 sm:p-6 rounded-3xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center space-x-2.5">
-                <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
-                  <CheckCircle2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-sm sm:text-base font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-2">
-                    <span>Refer & Earn Program: Active & Eligible</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-600 text-white tracking-wide uppercase">
-                      Qualified
-                    </span>
-                  </h2>
-                  <p className="text-xs text-emerald-800 dark:text-emerald-300/90 mt-0.5">
-                    Your personal maintained deposit satisfies the minimum required threshold of ${summary.minimumRequiredPrincipal} USDT.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 text-xs bg-white dark:bg-emerald-950/50 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 self-start sm:self-auto">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Maintained Principal</span>
-                  <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
-                    ${(summary.maintainedEligiblePrincipal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
-                  </span>
-                </div>
-                <div className="h-7 w-px bg-slate-200 dark:bg-slate-700"></div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Reward Rates</span>
-                  <span className="font-extrabold text-slate-900 dark:text-white">5% L1 / 2% L2</span>
-                </div>
-              </div>
+        <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60 shadow-xs flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 flex-shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                Referral Program Active
+              </p>
+              <p className="text-[11px] text-emerald-800 dark:text-emerald-300/80">
+                Your account meets the minimum deposit requirement of ${(summary.minimumRequiredPrincipal || minDeposit).toFixed(2)} USDT.
+              </p>
             </div>
           </div>
-
-          {/* Referral Code & Link Sharing Card */}
-          <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-3">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Award className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  Your Invitation Credentials
-                </h2>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Share your authoritative code with new investors to receive credited rewards upon qualifying deposits.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold text-blue-700 dark:text-blue-300">
-                  <Shield className="w-3 h-3" />
-                  2-Level Depth Limit
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* My Referral Code */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 space-y-1.5">
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  My Referral Code
-                </span>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-base sm:text-lg font-mono font-black text-slate-900 dark:text-white tracking-widest">
-                    {isLoadingSummary && !effectiveReferralCode ? (
-                      <span className="text-slate-400 text-sm font-normal">Loading...</span>
-                    ) : (
-                      effectiveReferralCode || 'Referral code unavailable'
-                    )}
-                  </span>
-                  <button
-                    onClick={handleCopyCode}
-                    disabled={!effectiveReferralCode}
-                    className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      copiedCode
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
-                    }`}
-                  >
-                    {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedCode ? 'Copied' : 'Copy Code'}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* My Referral Link */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 space-y-1.5">
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  My Referral Link
-                </span>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate max-w-[200px] sm:max-w-[240px]">
-                    {isLoadingSummary ? 'Loading link...' : referralUrl || 'https://finexj.com/register?ref=...'}
-                  </span>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <button
-                      onClick={handleCopyLink}
-                      disabled={!referralUrl}
-                      className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                        copiedLink
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
-                      }`}
-                    >
-                      {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedLink ? 'Copied' : 'Copy Link'}</span>
-                    </button>
-                    <button
-                      onClick={handleShare}
-                      disabled={!referralUrl}
-                      title="Share invitation link"
-                      className="p-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition cursor-pointer"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Summary Stats Grid (Authoritative Backend Calculated) */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {/* TOTAL REFERRALS */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                <span className="text-xs font-semibold uppercase tracking-wider">Total Referrals</span>
-                <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-                {isLoadingSummary ? (
-                  <span className="text-slate-300 text-sm">...</span>
-                ) : (
-                  summary?.totalReferrals || 0
-                )}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Level 1 & Level 2 Total</p>
-            </div>
-
-            {/* LEVEL 1 REFERRALS */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                <span className="text-xs font-semibold uppercase tracking-wider">Level 1 Referrals</span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                  5% Direct
-                </span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-                {isLoadingSummary ? (
-                  <span className="text-slate-300 text-sm">...</span>
-                ) : (
-                  summary?.level1Referrals || 0
-                )}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Directly Invited Investors</p>
-            </div>
-
-            {/* LEVEL 2 REFERRALS */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                <span className="text-xs font-semibold uppercase tracking-wider">Level 2 Referrals</span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                  2% Indirect
-                </span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-                {isLoadingSummary ? (
-                  <span className="text-slate-300 text-sm">...</span>
-                ) : (
-                  summary?.level2Referrals || 0
-                )}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Invited by Level 1 Team</p>
-            </div>
-
-            {/* TOTAL REFERRAL INCOME */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                <span className="text-xs font-semibold uppercase tracking-wider">Total Referral Income</span>
-                <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                {isLoadingSummary ? (
-                  <span className="text-slate-300 text-sm">...</span>
-                ) : (
-                  `${(summary?.totalReferralIncome || 0).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })} USDT`
-                )}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Cumulative Earned Rewards</p>
-            </div>
-
-            {/* LEVEL 1 INCOME */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                <span className="text-xs font-semibold uppercase tracking-wider">Level 1 Income</span>
-                <Award className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
-                {isLoadingSummary ? (
-                  <span className="text-slate-300 text-sm">...</span>
-                ) : (
-                  `${(summary?.level1Income || 0).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })} USDT`
-                )}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Direct 5% Tier Income</p>
-            </div>
-
-            {/* LEVEL 2 INCOME */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1.5">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                <span className="text-xs font-semibold uppercase tracking-wider">Level 2 Income</span>
-                <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                {isLoadingSummary ? (
-                  <span className="text-slate-300 text-sm">...</span>
-                ) : (
-                  `${(summary?.level2Income || 0).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })} USDT`
-                )}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Indirect 2% Tier Income</p>
-            </div>
-          </div>
-        </>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white tracking-wide uppercase flex-shrink-0">
+            Active
+          </span>
+        </div>
       ) : null}
 
-      {/* STRICT FINANCIAL COMPLIANCE NOTICE: REFERRAL INCOME VS COMPOUNDING PRINCIPAL */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 text-xs space-y-2">
-        <div className="flex items-center space-x-2 text-blue-900 dark:text-blue-300 font-bold text-sm">
-          <Shield className="w-4 h-4 text-blue-600 flex-shrink-0" />
-          <span>Financial Policy: Strict Separation of Referral Income from Compounding Principal</span>
+      {/* SECTION 1: MY REFERRAL CODE & LINK CARDS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* My Referral Code */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs space-y-2">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold uppercase tracking-wider">My Referral Code</span>
+            <UserCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-base sm:text-lg font-mono font-bold text-slate-900 dark:text-white tracking-wider truncate">
+              {isLoadingSummary ? (
+                <span className="text-slate-400 text-sm font-normal">Loading...</span>
+              ) : (
+                displayReferralCode
+              )}
+            </span>
+
+            <button
+              onClick={handleCopyCode}
+              disabled={!isReferralActive}
+              className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex-shrink-0 ${
+                !isReferralActive
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                  : copiedCode
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
+              }`}
+            >
+              {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedCode ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
-          <div className="space-y-1">
-            <p className="font-semibold text-slate-800 dark:text-slate-200">
-              1. Non-Compounding Rule:
+
+        {/* My Referral Link */}
+        <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs space-y-2">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold uppercase tracking-wider">My Referral Link</span>
+            <Share2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate max-w-[200px] sm:max-w-[230px]">
+              {isLoadingSummary
+                ? 'Loading link...'
+                : referralUrl || 'Referral link unavailable'}
+            </span>
+
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={handleCopyLink}
+                disabled={!isReferralActive}
+                className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  !isReferralActive
+                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                    : copiedLink
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
+                }`}
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+              </button>
+
+              <button
+                onClick={handleShare}
+                disabled={!isReferralActive}
+                title="Share Referral Link"
+                className={`p-1.5 rounded-xl transition cursor-pointer ${
+                  !isReferralActive
+                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                    : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Share2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 2: REFERRAL METRICS SUMMARY (Existing backend values) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+            Referral Summary
+          </h2>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Total Referrals: <strong className="text-slate-800 dark:text-slate-200">{summary?.totalReferrals || 0}</strong>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          {/* Level 1 referrals */}
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs space-y-1.5">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold uppercase tracking-wider">Level 1 Referrals</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                Level 1 — {referralRewardL1Percentage}%
+              </span>
+            </div>
+            <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+              {isLoadingSummary ? '...' : summary?.level1Referrals || 0}
             </p>
-            <p>
-              Referral income does <span className="font-bold underline">NOT</span> participate in daily compounding.
-              Daily earnings are calculated solely from verified qualifying deposit principal (currently{' '}
-              <span className="font-semibold text-slate-900 dark:text-white">
-                ${(summary?.maintainedEligiblePrincipal || summary?.eligibleDepositPrincipal || 0).toLocaleString(undefined, {
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Users you referred directly.
+            </p>
+          </div>
+
+          {/* Level 2 referrals */}
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs space-y-1.5">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold uppercase tracking-wider">Level 2 Referrals</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                Level 2 — {referralRewardL2Percentage}%
+              </span>
+            </div>
+            <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+              {isLoadingSummary ? '...' : summary?.level2Referrals || 0}
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Users referred by your Level 1 referrals.
+            </p>
+          </div>
+
+          {/* Total Referral Rewards */}
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs space-y-1.5 col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold uppercase tracking-wider">Total Referral Rewards</span>
+              <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <p className="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+              {isLoadingSummary ? (
+                '...'
+              ) : (
+                `${(summary?.totalReferralIncome || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
-                })} USDT
-              </span>
-              ). Referral income is credited as separate cash.
+                })} USDT`
+              )}
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Combined earnings across both levels
             </p>
           </div>
-          <div className="space-y-1">
-            <p className="font-semibold text-slate-800 dark:text-slate-200">
-              2. Qualifying Deposit Rule:
+
+          {/* Level 1 referral rewards */}
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs space-y-1.5">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold uppercase tracking-wider">Level 1 Referral Rewards</span>
+              <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{referralRewardL1Percentage}%</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-blue-600 dark:text-blue-400">
+              {isLoadingSummary ? (
+                '...'
+              ) : (
+                `${(summary?.level1Income || 0).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} USDT`
+              )}
             </p>
-            <p>
-              Referral rewards are one-time distributions triggered exclusively when a referred user confirms a qualifying deposit of{' '}
-              <span className="font-semibold text-slate-900 dark:text-white">≥ ${summary?.minimumRequiredPrincipal || 300} USDT</span>. Referral income is not generated from withdrawals, and withdrawal fees are retained entirely by the reserve fund.
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Earned from direct referrals
             </p>
           </div>
-          <div className="space-y-1">
-            <p className="font-semibold text-slate-800 dark:text-slate-200">
-              3. Referrer Eligibility Rule:
+
+          {/* Level 2 referral rewards */}
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs space-y-1.5">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold uppercase tracking-wider">Level 2 Referral Rewards</span>
+              <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">{referralRewardL2Percentage}%</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-indigo-600 dark:text-indigo-400">
+              {isLoadingSummary ? (
+                '...'
+              ) : (
+                `${(summary?.level2Income || 0).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} USDT`
+              )}
             </p>
-            <p>
-              A user must personally deposit and maintain at least{' '}
-              <span className="font-semibold text-slate-900 dark:text-white">≥ ${summary?.minimumRequiredPrincipal || 300} USDT</span> in eligible funds. If a user withdraws below this threshold, Refer & Earn eligibility becomes inactive until funds are replenished.
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Earned from indirect referrals
             </p>
           </div>
         </div>
       </div>
 
-      {/* LEVEL-WISE REFERRALS SECTION */}
+      {/* SECTION 3: REFERRAL REWARD EXPLANATION (Requirement 5) */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-blue-50/50 dark:bg-slate-900/60 border border-blue-100 dark:border-slate-800 text-xs space-y-2">
+        <div className="flex items-center space-x-2 text-slate-900 dark:text-white font-bold">
+          <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+          <span>Referral Reward Program</span>
+        </div>
+        <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+          Referral rewards are separate from investment earnings. Eligible referral rewards are calculated according to the current referral program rules.
+        </p>
+        <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+          Referral rewards do not compound with your investment balance.
+        </p>
+      </div>
+
+      {/* SECTION 4: REFERRAL ACTIVITY TABS (Level 1 and Level 2) */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              Level 1 Direct Referrals
+            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Layers className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>Referral Activity</span>
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Expand an individual Level 1 investor to view their Level 2 team members. Maximum displayed depth is 2 levels.
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Two levels only: Level 1 direct referrals and Level 2 indirect referrals
             </p>
           </div>
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-            {level1Data?.totalCount || 0} Total L1
-          </span>
-        </div>
 
-        {/* Level 1 Content */}
-        {isLoadingLevel1 && !level1Data ? (
-          <div className="p-8 text-center bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-slate-800 animate-pulse">
-            <p className="text-xs text-slate-400 font-medium">Loading Level 1 referrals from secure database...</p>
-          </div>
-        ) : level1Error ? (
-          <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 text-xs flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{level1Error}</span>
-            </div>
+          {/* Tab buttons */}
+          <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 self-start sm:self-auto">
             <button
-              onClick={() => fetchLevel1(level1Page)}
-              className="px-2.5 py-1 bg-red-600 text-white rounded-lg font-semibold text-[11px] cursor-pointer"
+              onClick={() => setActiveTab('level1')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                activeTab === 'level1'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
             >
-              Retry
+              Level 1 ({summary?.level1Referrals || 0})
+            </button>
+            <button
+              onClick={() => setActiveTab('level2')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                activeTab === 'level2'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Level 2 ({summary?.level2Referrals || 0})
             </button>
           </div>
-        ) : !level1Data || level1Data.items.length === 0 ? (
-          /* EMPTY STATE */
-          summary && !summary.isEligible ? (
-            <div className="p-8 text-center rounded-3xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2">
-              <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
-                <Lock className="w-5 h-5" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                Refer & Earn Network Locked
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                Maintain at least ${summary?.minimumRequiredPrincipal || 300} in eligible funds to unlock your referral network and invitation credentials.
-              </p>
+        </div>
+
+        {/* Level 2 Filter Pill (if user filtered by specific Level 1 member) */}
+        {activeTab === 'level2' && level2FilterL1 && (
+          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200">
+            <span>
+              Filtered by Level 1 member: <strong>{level2FilterL1.name}</strong>
+            </span>
+            <button
+              onClick={handleClearLevel2Filter}
+              className="inline-flex items-center space-x-1 px-2 py-1 rounded-md bg-blue-200/60 dark:bg-blue-900/60 hover:bg-blue-200 text-blue-900 dark:text-blue-100 font-semibold text-[11px] cursor-pointer"
+            >
+              <X className="w-3 h-3" />
+              <span>Show All Level 2</span>
+            </button>
+          </div>
+        )}
+
+        {/* TAB 1: LEVEL 1 REFERRALS */}
+        {activeTab === 'level1' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>Users you referred directly. (Level 1 — {referralRewardL1Percentage}%)</span>
+              <span>{level1Data?.totalCount || 0} Total</span>
             </div>
-          ) : (
-            <div className="p-8 sm:p-10 text-center rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
-                <Users className="w-6 h-6" />
+
+            {isLoadingLevel1 && !level1Data ? (
+              <div className="p-8 text-center bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-slate-800 animate-pulse">
+                <p className="text-xs text-slate-400">Loading Level 1 referrals...</p>
               </div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                No referrals yet
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                Share your authoritative referral code or link with other investors. When they complete a qualifying deposit (≥ {summary?.minimumRequiredPrincipal || minDeposit} USDT), you will automatically receive a 5% Level 1 reward and 2% on their Level 2 team.
-              </p>
-              <div className="pt-2">
+            ) : level1Error ? (
+              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 text-xs flex items-center justify-between">
+                <span>{level1Error}</span>
                 <button
-                  onClick={handleCopyLink}
-                  className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition cursor-pointer"
+                  onClick={() => fetchLevel1(level1Page)}
+                  className="px-2.5 py-1 bg-red-600 text-white rounded-lg font-semibold text-[11px] cursor-pointer"
                 >
-                  {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiedLink ? 'Link Copied' : 'Copy Referral Link'}</span>
+                  Retry
                 </button>
               </div>
-            </div>
-          )
-        ) : (
-          /* Level 1 List */
-          <div className="space-y-3">
-            {summary && !summary.isEligible && (
-              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
-                <Lock className="w-4 h-4 flex-shrink-0" />
-                <span>Historical Referral Network: Rewards are paused while your account maintains less than the minimum required funds.</span>
+            ) : !level1Data || level1Data.items.length === 0 ? (
+              <div className="p-8 text-center rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
+                  <Users className="w-5 h-5" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  No Level 1 referrals yet
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                  Users you refer directly with your referral link or code will appear here.
+                </p>
               </div>
-            )}
-            {level1Data.items.map(l1Member => {
-              const isExpanded = expandedL1Id === l1Member.id;
-              const subTeam = level2Map[l1Member.id];
+            ) : (
+              <div className="space-y-2.5">
+                {level1Data.items.map(l1Member => {
+                  const initials = `${l1Member.name.charAt(0)}${l1Member.surname.charAt(0)}`.toUpperCase();
+                  const formattedDate = l1Member.joinedAt
+                    ? new Date(l1Member.joinedAt).toLocaleDateString()
+                    : '';
 
-              return (
-                <div
-                  key={l1Member.id}
-                  className="rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs transition"
-                >
-                  {/* Level 1 Member Header Row */}
-                  <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center space-x-3 min-w-0">
-                      <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
-                        {l1Member.name.charAt(0)}
-                        {l1Member.surname.charAt(0)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
-                            {l1Member.surname}, {l1Member.name}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                              l1Member.status === 'Active'
-                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60'
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                            }`}
-                          >
-                            {l1Member.status}
-                          </span>
+                  return (
+                    <div
+                      key={l1Member.id}
+                      className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+                          {initials || 'U'}
                         </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-2 mt-0.5">
-                          <span>Joined: {new Date(l1Member.joinedAt).toLocaleDateString()}</span>
-                          <span>•</span>
-                          <span>{l1Member.level2Count} Level 2 members</span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between sm:justify-end space-x-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800/60">
-                      {/* Qualification status badge */}
-                      <div className="text-right">
-                        {l1Member.isQualified ? (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>Qualified</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
-                            <Clock className="w-3 h-3" />
-                            <span>Pending Deposit</span>
-                          </span>
-                        )}
-                        <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                          Reward: +${l1Member.rewardEarned.toFixed(2)} USDT
-                        </p>
-                      </div>
-
-                      {/* Expand / Collapse Button for Level 2 */}
-                      <button
-                        onClick={() => toggleLevel1Expand(l1Member.id)}
-                        className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                          isExpanded
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        <span>Level 2 Team ({l1Member.level2Count})</span>
-                        {isExpanded ? (
-                          <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Level 2 Sub-Accordion (Hierarchical Level-wise view) */}
-                  {isExpanded && (
-                    <div className="bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                          <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                          Level 2 Members under {l1Member.name} {l1Member.surname}
-                        </span>
-                        <span className="text-[11px] text-slate-500 font-medium">
-                          Eligible 2% reward tier
-                        </span>
-                      </div>
-
-                      {subTeam?.isLoading ? (
-                        <div className="py-4 text-center">
-                          <p className="text-xs text-slate-400">Loading Level 2 members...</p>
-                        </div>
-                      ) : subTeam?.error ? (
-                        <div className="p-3 bg-red-50 dark:bg-red-950/40 text-red-600 text-xs rounded-xl flex items-center justify-between">
-                          <span>{subTeam.error}</span>
-                          <button
-                            onClick={() => fetchLevel2ForUser(l1Member.id, 1)}
-                            className="px-2 py-1 bg-red-600 text-white rounded font-bold text-[10px]"
-                          >
-                            Retry
-                          </button>
-                        </div>
-                      ) : !subTeam?.data || subTeam.data.items.length === 0 ? (
-                        <div className="p-4 text-center bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
-                          <p className="text-xs text-slate-500">
-                            No Level 2 members registered under this referral yet.
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                              {l1Member.name} {l1Member.surname}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                l1Member.status === 'Active'
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {l1Member.status}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-2 mt-0.5">
+                            {formattedDate && <span>Joined: {formattedDate}</span>}
+                            {formattedDate && <span>•</span>}
+                            <span>{l1Member.level2Count} Level 2 referral{l1Member.level2Count === 1 ? '' : 's'}</span>
                           </p>
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {subTeam.data.items.map(l2Member => (
-                            <div
-                              key={l2Member.id}
-                              className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 flex items-center justify-between text-xs"
-                            >
-                              <div className="flex items-center space-x-2.5">
-                                <span className="text-slate-400 font-mono text-xs">└──</span>
-                                <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[11px]">
-                                  {l2Member.name.charAt(0)}
-                                </div>
-                                <div>
-                                  <p className="font-bold text-slate-900 dark:text-white">
-                                    {l2Member.surname}, {l2Member.name}
-                                  </p>
-                                  <p className="text-[10px] text-slate-500">
-                                    Joined {new Date(l2Member.joinedAt).toLocaleDateString()}
-                                  </p>
-                                </div>
-                              </div>
+                      </div>
 
-                              <div className="text-right">
-                                {l2Member.isQualified ? (
-                                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
-                                    Qualified
-                                  </span>
-                                ) : (
-                                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
-                                    Pending
-                                  </span>
-                                )}
-                                <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-0.5">
-                                  +${l2Member.rewardEarned.toFixed(2)} USDT
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-
-                          {/* Level 2 Pagination if > 1 page */}
-                          {subTeam.data.totalPages > 1 && (
-                            <div className="flex items-center justify-between pt-2">
-                              <button
-                                disabled={subTeam.page <= 1}
-                                onClick={() => fetchLevel2ForUser(l1Member.id, subTeam.page - 1)}
-                                className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-40"
-                              >
-                                Prev L2
-                              </button>
-                              <span className="text-[11px] text-slate-500">
-                                Page {subTeam.page} of {subTeam.data.totalPages}
-                              </span>
-                              <button
-                                disabled={subTeam.page >= subTeam.data.totalPages}
-                                onClick={() => fetchLevel2ForUser(l1Member.id, subTeam.page + 1)}
-                                className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-40"
-                              >
-                                Next L2
-                              </button>
-                            </div>
+                      <div className="flex items-center justify-between sm:justify-end space-x-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
+                        <div className="text-right">
+                          {l1Member.isQualified ? (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Qualified</span>
+                            </span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
+                              Pending Deposit
+                            </span>
                           )}
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                            Reward: +${l1Member.rewardEarned.toFixed(2)} USDT
+                          </p>
                         </div>
-                      )}
+
+                        {l1Member.level2Count > 0 && (
+                          <button
+                            onClick={() => handleFilterLevel2ByL1(l1Member)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition cursor-pointer"
+                          >
+                            <span>Level 2 ({l1Member.level2Count})</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  )}
+                  );
+                })}
+
+                {/* Pagination Controls */}
+                {level1Data.totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-3 px-1">
+                    <button
+                      disabled={level1Page <= 1}
+                      onClick={() => handleLevel1PageChange(level1Page - 1)}
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Previous</span>
+                    </button>
+
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                      Page {level1Page} of {level1Data.totalPages}
+                    </span>
+
+                    <button
+                      disabled={level1Page >= level1Data.totalPages}
+                      onClick={() => handleLevel1PageChange(level1Page + 1)}
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: LEVEL 2 REFERRALS */}
+        {activeTab === 'level2' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>Users referred by your Level 1 referrals. (Level 2 — {referralRewardL2Percentage}%)</span>
+              <span>{level2Data?.totalCount || 0} Total</span>
+            </div>
+
+            {isLoadingLevel2 && !level2Data ? (
+              <div className="p-8 text-center bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-slate-800 animate-pulse">
+                <p className="text-xs text-slate-400">Loading Level 2 referrals...</p>
+              </div>
+            ) : level2Error ? (
+              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 text-xs flex items-center justify-between">
+                <span>{level2Error}</span>
+                <button
+                  onClick={() => fetchLevel2(level2Page, level2FilterL1?.id)}
+                  className="px-2.5 py-1 bg-red-600 text-white rounded-lg font-semibold text-[11px] cursor-pointer"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : !level2Data || level2Data.items.length === 0 ? (
+              <div className="p-8 text-center rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto">
+                  <Layers className="w-5 h-5" />
                 </div>
-              );
-            })}
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  No Level 2 referrals yet
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                  When your Level 1 referrals invite others, those members will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {level2Data.items.map(l2Member => {
+                  const initials = `${l2Member.name.charAt(0)}${l2Member.surname.charAt(0)}`.toUpperCase();
+                  const formattedDate = l2Member.joinedAt
+                    ? new Date(l2Member.joinedAt).toLocaleDateString()
+                    : '';
 
-            {/* Level 1 Pagination Controls */}
-            {level1Data.totalPages > 1 && (
-              <div className="flex items-center justify-between pt-3 px-1">
-                <button
-                  disabled={level1Page <= 1}
-                  onClick={() => handleLevel1PageChange(level1Page - 1)}
-                  className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>Previous</span>
-                </button>
+                  return (
+                    <div
+                      key={l2Member.id}
+                      className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+                          {initials || 'U'}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                              {l2Member.name} {l2Member.surname}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                l2Member.status === 'Active'
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {l2Member.status}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-2 mt-0.5">
+                            {formattedDate && <span>Joined: {formattedDate}</span>}
+                            {formattedDate && <span>•</span>}
+                            <span>Referred by: {l2Member.level1ReferrerName}</span>
+                          </p>
+                        </div>
+                      </div>
 
-                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Page {level1Page} of {level1Data.totalPages} ({level1Data.totalCount} members)
-                </span>
+                      <div className="flex items-center justify-between sm:justify-end space-x-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
+                        <div className="text-right">
+                          {l2Member.isQualified ? (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Qualified</span>
+                            </span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
+                              Pending Deposit
+                            </span>
+                          )}
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                            Reward: +${l2Member.rewardEarned.toFixed(2)} USDT
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
 
-                <button
-                  disabled={level1Page >= level1Data.totalPages}
-                  onClick={() => handleLevel1PageChange(level1Page + 1)}
-                  className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition"
-                >
-                  <span>Next</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
+                {/* Pagination Controls */}
+                {level2Data.totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-3 px-1">
+                    <button
+                      disabled={level2Page <= 1}
+                      onClick={() => handleLevel2PageChange(level2Page - 1)}
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Previous</span>
+                    </button>
+
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                      Page {level2Page} of {level2Data.totalPages}
+                    </span>
+
+                    <button
+                      disabled={level2Page >= level2Data.totalPages}
+                      onClick={() => handleLevel2PageChange(level2Page + 1)}
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* How FinexJ Works FAQ Modal (includes Q13 for 2-level referral structure) */}
+      <HowFinexJWorksModal
+        isOpen={isFaqOpen}
+        onClose={() => setIsFaqOpen(false)}
+      />
     </div>
   );
 };

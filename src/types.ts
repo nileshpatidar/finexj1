@@ -483,6 +483,8 @@ export interface AppSettings {
   withdrawalFeePercentage: number;
   accountAgeRequirementDays: number;
   depositLockPeriodDays: number;
+  referralRewardL1Percentage?: number;
+  referralRewardL2Percentage?: number;
   telegramSupportUrl: string;
   operationalWalletAddress?: string;
   compoundingEnabled?: boolean;

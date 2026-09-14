@@ -11,6 +11,8 @@ interface SettingsContextType {
   accountAgeRequirementDays: number;
   depositLockPeriodDays: number;
   minimumDepositAmount: number;
+  referralRewardL1Percentage: number;
+  referralRewardL2Percentage: number;
   loginEnabled: boolean;
   registrationEnabled: boolean;
   maintenanceMode: boolean;
@@ -28,6 +30,8 @@ const SettingsContext = createContext<SettingsContextType>({
   accountAgeRequirementDays: 30,
   depositLockPeriodDays: 30,
   minimumDepositAmount: 0,
+  referralRewardL1Percentage: 5,
+  referralRewardL2Percentage: 2,
   loginEnabled: true,
   registrationEnabled: true,
   maintenanceMode: false,
@@ -72,6 +76,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const accountAgeRequirementDays = settings?.accountAgeRequirementDays ?? 30;
   const depositLockPeriodDays = settings?.depositLockPeriodDays ?? 30;
   const minimumDepositAmount = settings?.minimumDepositAmount ?? 0;
+  const referralRewardL1Percentage = settings?.referralRewardL1Percentage ?? 5;
+  const referralRewardL2Percentage = settings?.referralRewardL2Percentage ?? 2;
   const loginEnabled = settings ? settings.loginEnabled !== false : true;
   const registrationEnabled = settings ? settings.registrationEnabled !== false : true;
   const maintenanceMode = Boolean(settings?.maintenanceMode);
@@ -90,6 +96,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         accountAgeRequirementDays,
         depositLockPeriodDays,
         minimumDepositAmount,
+        referralRewardL1Percentage,
+        referralRewardL2Percentage,
         loginEnabled,
         registrationEnabled,
         maintenanceMode,

@@ -23,7 +23,7 @@ interface ProfileViewProps {
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
   const { user, logout, logoutAll, refreshUser } = useAuth();
-  const { minimumDepositAmount } = useSettings();
+  const { minimumDepositAmount, referralRewardL1Percentage, referralRewardL2Percentage } = useSettings();
   const minDeposit = minimumDepositAmount || 300;
   const [copiedProfileRef, setCopiedProfileRef] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -198,7 +198,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
         </div>
 
         <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
-          Receive 5% Level 1 direct rewards and 2% Level 2 indirect rewards when your referred investors make qualifying deposits (≥ {minDeposit} USDT). Referral rewards are non-compounding cash.
+          Receive {referralRewardL1Percentage}% Level 1 direct rewards and {referralRewardL2Percentage}% Level 2 indirect rewards when your referred investors make qualifying deposits (≥ {minDeposit} USDT). Referral rewards are non-compounding cash.
         </p>
 
         {!user?.referralCode ? (

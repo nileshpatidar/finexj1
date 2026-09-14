@@ -131,7 +131,7 @@ export const EarningsView: React.FC = () => {
           className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 text-xs font-bold transition cursor-pointer"
         >
           <HelpCircle className="w-3.5 h-3.5" />
-          <span>Earning Plan</span>
+          <span>How It Works</span>
         </button>
       </div>
 

@@ -410,11 +410,11 @@ export const TransactionsView: React.FC = () => {
             } else if (isReferralL1) {
               badgeBg = 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20';
               iconColor = 'text-purple-600 dark:text-purple-400';
-              typeTitle = 'Referral L1 Reward (5%)';
+              typeTitle = 'Referral Level 1 Reward';
             } else if (isReferralL2) {
               badgeBg = 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20';
               iconColor = 'text-indigo-600 dark:text-indigo-400';
-              typeTitle = 'Referral L2 Reward (2%)';
+              typeTitle = 'Referral Level 2 Reward';
             }
 
             // Authoritative Status styling

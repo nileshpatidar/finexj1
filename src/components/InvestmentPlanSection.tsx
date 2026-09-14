@@ -53,7 +53,7 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
               onClick={onOpenDetailedModal}
               className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-blue-50 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-slate-700 text-blue-600 dark:text-blue-400 text-xs font-bold border border-blue-200 dark:border-slate-700 transition cursor-pointer"
             >
-              <span>Full Strategy Guide</span>
+              <span>How FinexJ Works</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           )}
