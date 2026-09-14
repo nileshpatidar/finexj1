@@ -574,7 +574,7 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
                 <th className="py-3 px-4">User</th>
                 <th className="py-3 px-4">Withdrawal ID</th>
                 <th className="py-3 px-4 text-right">Gross Amount</th>
-                <th className="py-3 px-4 text-right">Fee (9%)</th>
+                <th className="py-3 px-4 text-right">Fee</th>
                 <th className="py-3 px-4 text-right font-bold text-slate-900 dark:text-white">Net Payout</th>
                 <th className="py-3 px-4">Destination BEP-20</th>
                 <th className="py-3 px-4">Status</th>
@@ -651,9 +651,9 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
                         ${Number(wd.requestedAmount).toFixed(2)}
                       </td>
 
-                      {/* 9% Fee */}
+                      {/* Fee */}
                       <td className="py-3 px-4 text-right text-rose-600 dark:text-rose-400 font-medium">
-                        -${Number(wd.feeAmount || wd.requestedAmount * 0.09).toFixed(2)}
+                        -${Number(wd.feeAmount ?? (wd.feePercentage !== undefined ? (wd.requestedAmount * wd.feePercentage) / 100 : wd.requestedAmount * 0.09)).toFixed(2)}
                       </td>
 
                       {/* Net Payout */}
@@ -920,10 +920,10 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
 
                     <div className="p-3.5 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/60">
                       <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 block mb-1">
-                        Authoritative Fee (9%)
+                        Authoritative Fee ({withdrawalDetail.withdrawal.feePercentage ?? 9}%)
                       </span>
                       <span className="text-base font-bold text-rose-600 dark:text-rose-400">
-                        ${Number(withdrawalDetail.withdrawal.feeAmount || withdrawalDetail.withdrawal.requestedAmount * 0.09).toFixed(2)}
+                        ${Number(withdrawalDetail.withdrawal.feeAmount ?? (withdrawalDetail.withdrawal.feePercentage !== undefined ? (withdrawalDetail.withdrawal.requestedAmount * withdrawalDetail.withdrawal.feePercentage) / 100 : withdrawalDetail.withdrawal.requestedAmount * 0.09)).toFixed(2)}
                       </span>
                       <span className="text-[10px] text-rose-500/80 block mt-0.5">100% FINEXJ Revenue</span>
                     </div>
@@ -1393,9 +1393,9 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
                   </span>
                 </div>
                 <div className="flex justify-between text-rose-500">
-                  <span>Authoritative Fee (9%):</span>
+                  <span>Authoritative Fee ({payModalWithdrawal.feePercentage ?? 9}%):</span>
                   <span className="font-semibold">
-                    -${Number(payModalWithdrawal.feeAmount || payModalWithdrawal.requestedAmount * 0.09).toFixed(2)} USDT
+                    -${Number(payModalWithdrawal.feeAmount ?? (payModalWithdrawal.feePercentage !== undefined ? (payModalWithdrawal.requestedAmount * payModalWithdrawal.feePercentage) / 100 : payModalWithdrawal.requestedAmount * 0.09)).toFixed(2)} USDT
                   </span>
                 </div>
                 <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1.5 text-emerald-600 dark:text-emerald-400 font-bold text-sm">

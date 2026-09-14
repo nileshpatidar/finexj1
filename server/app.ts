@@ -19,9 +19,9 @@ import { getDepositsByUserId, getAllDeposits, getDepositById } from './repositor
 import { getWithdrawalsByUserId, getAllWithdrawals, getWithdrawalById } from './repositories/withdrawals';
 import { getEarningsByUserId, getAllEarnings, getPaginatedEarningsByUserId } from './repositories/earnings';
 import { getDailyPerformances, isValidDateString } from './repositories/performances';
-import { getLedgerByUserId, getAllLedger, createLedgerEntry } from './repositories/ledger';
+import { getLedgerByUserId, getAllLedger, getLedgerCount, createLedgerEntry } from './repositories/ledger';
 import { getSettings, updateSettings } from './repositories/settings';
-import { getAuditLogs, createAuditLog } from './repositories/auditLogs';
+import { getAuditLogs, getAuditLogsCount, createAuditLog } from './repositories/auditLogs';
 import { getSystemLogs } from './repositories/systemLogs';
 import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
 import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync, checkWithdrawalImpactAsync } from './services/balanceService';
@@ -1361,9 +1361,9 @@ app.get(['/api/admin/dashboard', '/admin/dashboard'], authMiddleware, adminMiddl
 
     // 2. Un-truncated repository fallback using DecimalSafe arithmetic
     const [{ users }, { deposits }, { withdrawals }, earnings] = await Promise.all([
-      getAllProfiles(),
-      getAllDeposits(),
-      getAllWithdrawals(),
+      getAllProfiles({ limit: 100000 }),
+      getAllDeposits({ limit: 100000 }),
+      getAllWithdrawals({ limit: 100000 }),
       getAllEarnings(),
     ]);
 
@@ -2494,12 +2494,12 @@ app.get(['/api/admin/system-health', '/admin/system-health'], authMiddleware, ad
 // Admin Health Stats
 app.get(['/api/admin/health/stats', '/admin/health/stats'], authMiddleware, adminMiddleware(), async (req, res, next) => {
   try {
-    const [{ total: totalUsers }, { total: totalDeposits }, { total: totalWithdrawals }, ledger, auditLogs, settings] = await Promise.all([
+    const [{ total: totalUsers }, { total: totalDeposits }, { total: totalWithdrawals }, totalLedgerRecords, totalAuditLogs, settings] = await Promise.all([
       getAllProfiles({ limit: 1 }),
       getAllDeposits({ limit: 1 }),
       getAllWithdrawals({ limit: 1 }),
-      getAllLedger(),
-      getAuditLogs({ limit: 50 }),
+      getLedgerCount(),
+      getAuditLogsCount(),
       getSettings(),
     ]);
 
@@ -2507,8 +2507,8 @@ app.get(['/api/admin/health/stats', '/admin/health/stats'], authMiddleware, admi
       totalUsers,
       totalDeposits,
       totalWithdrawals,
-      totalLedgerRecords: ledger.length,
-      totalAuditLogs: auditLogs.length,
+      totalLedgerRecords,
+      totalAuditLogs,
       totalSystemLogs: 0,
       totalDepositProofs: totalDeposits,
       errorsToday: 0,

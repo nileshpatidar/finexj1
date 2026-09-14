@@ -126,6 +126,27 @@ export async function deleteLedgerByReferenceAndTypes(referenceId: string, types
   }
 }
 
+export async function getLedgerCount(): Promise<number> {
+  if (!isServerSupabaseReady()) {
+    return devLedgerEntries.length;
+  }
+
+  try {
+    const supabase = getServerSupabase();
+    const { count, error } = await supabase
+      .from('ledger')
+      .select('*', { count: 'exact', head: true });
+
+    if (error || count === null) {
+      return 0;
+    }
+
+    return count;
+  } catch (err: any) {
+    return 0;
+  }
+}
+
 export async function getAllLedger(): Promise<LedgerEntry[]> {
   if (!isServerSupabaseReady()) {
     return devLedgerEntries;

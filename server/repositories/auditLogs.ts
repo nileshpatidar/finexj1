@@ -53,6 +53,25 @@ export async function getAuditLogs(options?: {
   }));
 }
 
+export async function getAuditLogsCount(): Promise<number> {
+  if (!isServerSupabaseReady()) return 0;
+
+  try {
+    const supabase = getServerSupabase();
+    const { count, error } = await supabase
+      .from('audit_logs')
+      .select('*', { count: 'exact', head: true });
+
+    if (error || count === null) {
+      return 0;
+    }
+
+    return count;
+  } catch (err: any) {
+    return 0;
+  }
+}
+
 export async function createAuditLog(log: Partial<AuditLog>): Promise<void> {
   if (!isServerSupabaseReady()) return;
 

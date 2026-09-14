@@ -227,16 +227,12 @@ export async function getReferralRewardsByDepositId(depositId: string | number):
   }
 }
 
-const inMemoryReferralRewards: ReferralReward[] = [];
-
 export async function getReferralRewardByDepositAndLevel(
   depositId: string | number,
   rewardLevel: number
 ): Promise<ReferralReward | null> {
   if (!isServerSupabaseReady()) {
-    return inMemoryReferralRewards.find(
-      r => String(r.depositId) === String(depositId) && r.rewardLevel === rewardLevel
-    ) || null;
+    return null;
   }
 
   try {
@@ -255,14 +251,7 @@ export async function getReferralRewardByDepositAndLevel(
     console.warn(`[Supabase Exception] getReferralRewardByDepositAndLevel(${depositId}, ${rewardLevel}):`, err?.message);
   }
 
-  if (config.isProduction) {
-    return null;
-  }
-
-  const inMem = inMemoryReferralRewards.find(
-    r => String(r.depositId) === String(depositId) && r.rewardLevel === rewardLevel
-  );
-  return inMem || null;
+  return null;
 }
 
 export class DuplicateReferralRewardError extends Error {
@@ -320,27 +309,7 @@ export async function createReferralReward(reward: Partial<ReferralReward>): Pro
       throw new DuplicateReferralRewardError(dbDepositId, rewardLevel);
     }
 
-    if (config.isProduction) {
-      throw new Error(`[CRITICAL] Database error inserting referral reward: ${error.message}. In-memory fallback is disabled in production.`);
-    }
-    
-    // In-memory fallback if Supabase DB is offline or in mock container environment
-    const fallbackReward: ReferralReward = {
-      id: `rw_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      referralId: reward.referralId ? String(reward.referralId) : undefined,
-      referrerId: String(dbReferrerId),
-      referredId: String(dbReferredId),
-      depositId: String(dbDepositId),
-      amount: reward.amount || 0,
-      percentage: reward.percentage || 0,
-      reference: payload.reference,
-      status: reward.status || 'credited',
-      rewardLevel,
-      notes: reward.notes,
-      createdAt: payload.created_at,
-    };
-    inMemoryReferralRewards.push(fallbackReward);
-    return fallbackReward;
+    throw new Error(`[CRITICAL] Database error inserting referral reward: ${error.message}`);
   }
 
   return mapDbReferralReward(data);

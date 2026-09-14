@@ -150,7 +150,7 @@ export const InvestmentPlanModal: React.FC<InvestmentPlanModalProps> = ({
                       <span>Deposit & Blockchain Confirmation</span>
                     </div>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                      Transfer minimum $300 USDT (BEP-20) to the platform address. Once confirmed on Binance Smart Chain, your deposit is officially registered.
+                      Transfer minimum ${minimumDepositAmount} USDT (BEP-20) to the platform address. Once confirmed on Binance Smart Chain, your deposit is officially registered.
                     </p>
                   </div>
 
@@ -160,7 +160,7 @@ export const InvestmentPlanModal: React.FC<InvestmentPlanModalProps> = ({
                       <span>Active Capital Deployment</span>
                     </div>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                      Your principal enters the trading pool with a 30-day liquidity stabilization lock. Funds actively generate performance allocations from day one.
+                      Your principal enters the trading pool with a {depositLockPeriodDays}-day liquidity stabilization lock. Funds actively generate performance allocations from day one.
                     </p>
                   </div>
 
