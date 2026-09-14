@@ -755,7 +755,7 @@ export async function verifyBEP20PayoutTx(
   const totalTransferred = matchingTransfers.reduce((acc, t) => acc + t.amount, 0);
   const primarySender = matchingTransfers[0].fromAddress || normalizeAddress(txData.from);
 
-  // 10. Verify Transferred Amount vs Expected Net Amount (allowing 0.0001 precision tolerance)
+  // 10. Verify Transferred Amount vs Expected Net Amount (allowing micro-precision tolerance)
   const minRequiredAmount = Number(expectedMinNetAmount || 0);
   if (minRequiredAmount > 0 && totalTransferred < minRequiredAmount - 0.0001) {
     return {
@@ -772,6 +772,24 @@ export async function verifyBEP20PayoutTx(
       status: 'invalid',
       errorCode: 'INSUFFICIENT_AMOUNT',
       errorMessage: `Transferred USDT amount ($${totalTransferred.toFixed(2)}) is less than the required net payout amount ($${minRequiredAmount.toFixed(2)} USDT).`,
+    };
+  }
+
+  if (minRequiredAmount > 0 && totalTransferred > minRequiredAmount + 0.05) {
+    return {
+      isValid: false,
+      amount: totalTransferred,
+      expectedAmount: minRequiredAmount,
+      fromAddress: primarySender,
+      toAddress: normalizedRecipient,
+      tokenContract: configuredContract,
+      confirmations,
+      requiredConfirmations,
+      txHash: normalizedHash,
+      blockNumber: txBlockNumber,
+      status: 'invalid',
+      errorCode: 'EXCESSIVE_AMOUNT',
+      errorMessage: `Transferred USDT amount ($${totalTransferred.toFixed(2)}) exceeds the expected net payout amount ($${minRequiredAmount.toFixed(2)} USDT). Must match expected net payout.`,
     };
   }
 

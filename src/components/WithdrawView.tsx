@@ -931,13 +931,36 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
           <div className="space-y-3">
             {withdrawals.map(wd => {
               const statusColor =
-                wd.status === 'paid'
+                wd.status === 'paid' || wd.status === 'completed'
                   ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                  : wd.status === 'payment_verified'
+                  ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20'
+                  : wd.status === 'payment_submitted'
+                  ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20'
+                  : wd.status === 'manual_payment_pending'
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
                   : wd.status === 'approved' || wd.status === 'processing'
                   ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
                   : wd.status === 'rejected'
                   ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20'
-                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20';
+                  : 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20';
+
+              const statusLabel =
+                wd.status === 'paid' || wd.status === 'completed'
+                  ? 'COMPLETED (ON-CHAIN)'
+                  : wd.status === 'payment_verified'
+                  ? 'BLOCKCHAIN VERIFIED'
+                  : wd.status === 'payment_submitted'
+                  ? 'PAYMENT SUBMITTED'
+                  : wd.status === 'manual_payment_pending'
+                  ? 'AWAITING MANUAL PAYMENT'
+                  : wd.status === 'under_review'
+                  ? 'UNDER REVIEW'
+                  : wd.status === 'approved'
+                  ? 'APPROVED'
+                  : wd.status === 'processing'
+                  ? 'PROCESSING PAYOUT'
+                  : wd.status.replace(/_/g, ' ').toUpperCase();
 
               return (
                 <div
@@ -950,7 +973,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                         ${Number(wd.requestedAmount || 0).toFixed(2)} USDT
                       </span>
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider ${statusColor}`}>
-                        {wd.status === 'paid' ? 'PAID (ON-CHAIN)' : wd.status.replace('_', ' ')}
+                        {statusLabel}
                       </span>
                     </div>
 

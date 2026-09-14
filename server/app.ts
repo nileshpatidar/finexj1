@@ -2275,6 +2275,91 @@ app.post(['/api/admin/withdrawals/:id/verify-payout', '/admin/withdrawals/:id/ve
   }
 });
 
+// Admin Submit Manual Payout Details (Step 53 Safe Manual Payout Mode)
+app.post(['/api/admin/withdrawals/:id/submit-payout', '/admin/withdrawals/:id/submit-payout'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { id } = req.params;
+    const { txHash, amount, destinationAddress, network, paymentTimestamp, adminNotes } = req.body;
+
+    if (!txHash || typeof txHash !== 'string' || !txHash.trim()) {
+      throw Errors.validation('BNB Smart Chain Payout Transaction Hash (TxID) is required.');
+    }
+
+    const cleanHash = txHash.trim();
+    if (!isValidTxHash(cleanHash)) {
+      throw Errors.validation('Invalid transaction hash format. Must be a 66-character hex string starting with 0x.');
+    }
+
+    const withdrawal = await getWithdrawalById(id);
+    if (!withdrawal) {
+      throw Errors.notFound('WITHDRAWAL_NOT_FOUND', 'Withdrawal record not found.');
+    }
+
+    // Step 53 - Section 7: Destination Address Verification
+    if (destinationAddress && typeof destinationAddress === 'string') {
+      const submittedDest = destinationAddress.trim().toLowerCase();
+      const expectedDest = withdrawal.destinationAddress.trim().toLowerCase();
+      if (submittedDest !== expectedDest) {
+        await createAuditLog({
+          action: 'PAYOUT_DESTINATION_MISMATCH',
+          actorId: admin.id,
+          actorRole: 'admin',
+          targetUserId: withdrawal.userId,
+          referenceId: String(withdrawal.reference || withdrawal.id),
+          beforeValue: { destinationAddress: withdrawal.destinationAddress },
+          afterValue: { submittedDestinationAddress: destinationAddress },
+          reason: `SECURITY ALERT: Admin submitted destination (${destinationAddress}) does not match withdrawal destination (${withdrawal.destinationAddress}).`,
+          timestamp: new Date().toISOString(),
+        });
+        throw Errors.validation(`Destination wallet mismatch. Payout must be sent to registered withdrawal address: ${withdrawal.destinationAddress}`);
+      }
+    }
+
+    // Step 53 - Section 6: Amount Verification Check
+    if (amount !== undefined && amount !== null) {
+      const submittedAmount = Number(amount);
+      const expectedAmount = Number(withdrawal.netAmount);
+      if (isNaN(submittedAmount) || Math.abs(submittedAmount - expectedAmount) > 0.05) {
+        await createAuditLog({
+          action: 'PAYOUT_AMOUNT_MISMATCH',
+          actorId: admin.id,
+          actorRole: 'admin',
+          targetUserId: withdrawal.userId,
+          referenceId: String(withdrawal.reference || withdrawal.id),
+          beforeValue: { netAmount: expectedAmount },
+          afterValue: { submittedAmount },
+          reason: `SECURITY ALERT: Admin submitted payout amount ($${submittedAmount}) does not match required net payout ($${expectedAmount} USDT).`,
+          timestamp: new Date().toISOString(),
+        });
+        throw Errors.validation(`Payout amount mismatch. Submitted $${submittedAmount} does not match required net payout of $${expectedAmount.toFixed(2)} USDT.`);
+      }
+    }
+
+    // Step 53 - Section 5: Network verification if provided
+    if (network && typeof network === 'string') {
+      const net = network.trim().toLowerCase();
+      if (!['bep20', 'bep-20', 'bsc', 'bnb smart chain', '56'].includes(net)) {
+        throw Errors.validation('Invalid network. Payouts must be executed on BNB Smart Chain (BEP-20).');
+      }
+    }
+
+    const note = adminNotes || `Admin manual payout verified and completed (Tx: ${cleanHash})`;
+    const result = await updateWithdrawalStatusAsync(admin.id, id, 'paid', cleanHash, note);
+    if (!result.success) {
+      throw Errors.validation(result.error || 'Failed to finalize manual payout.');
+    }
+
+    res.json({
+      success: true,
+      message: 'Withdrawal payout successfully verified and finalized.',
+      withdrawal: result.withdrawal,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Admin process withdrawal
 app.post(['/api/admin/withdrawals/:id/action', '/admin/withdrawals/:id/action'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin']), async (req, res, next) => {
   try {
@@ -2284,13 +2369,15 @@ app.post(['/api/admin/withdrawals/:id/action', '/admin/withdrawals/:id/action'],
 
     const normalizedAction = (action === 'approve' || action === 'approved') ? 'approved' :
       (action === 'reject' || action === 'rejected') ? 'rejected' :
-      (action === 'pay' || action === 'paid' || action === 'completed') ? 'paid' :
+      (action === 'pay' || action === 'paid' || action === 'complete' || action === 'completed') ? 'paid' :
       (action === 'process' || action === 'processing') ? 'processing' :
+      (action === 'manual_payment_pending') ? 'manual_payment_pending' :
+      (action === 'payment_submitted') ? 'payment_submitted' :
       (action === 'cancel' || action === 'cancelled') ? 'cancelled' :
       action;
 
-    if (!['approved', 'rejected', 'paid', 'processing', 'cancelled'].includes(normalizedAction)) {
-      throw Errors.validation('Invalid withdrawal action. Must be paid, approved, processing, rejected, or cancelled.');
+    if (!['approved', 'rejected', 'paid', 'processing', 'manual_payment_pending', 'payment_submitted', 'cancelled'].includes(normalizedAction)) {
+      throw Errors.validation('Invalid withdrawal action. Must be paid, approved, processing, manual_payment_pending, payment_submitted, rejected, or cancelled.');
     }
 
     const note = adminNotes || reason;

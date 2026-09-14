@@ -316,6 +316,27 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
             Processing Payout
           </span>
         );
+      case 'manual_payment_pending':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+            <Clock className="w-3 h-3" />
+            Awaiting Manual Payment
+          </span>
+        );
+      case 'payment_submitted':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+            <Send className="w-3 h-3" />
+            Payment Submitted
+          </span>
+        );
+      case 'payment_verified':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
+            <CheckCircle2 className="w-3 h-3" />
+            Payment Verified
+          </span>
+        );
       case 'rejected':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
@@ -602,7 +623,7 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
               ) : (
                 withdrawals.map(wd => {
                   const isTestUser = Boolean(wd.isTestUser);
-                  const isPending = wd.status === 'pending' || wd.status === 'under_review' || wd.status === 'approved' || wd.status === 'processing';
+                  const isPending = wd.status === 'pending' || wd.status === 'under_review' || wd.status === 'approved' || wd.status === 'processing' || wd.status === 'manual_payment_pending' || wd.status === 'payment_submitted' || wd.status === 'payment_verified';
 
                   return (
                     <tr

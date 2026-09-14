@@ -62,7 +62,19 @@ export interface Deposit {
   notes?: string;
 }
 
-export type WithdrawalStatus = 'pending' | 'under_review' | 'approved' | 'processing' | 'paid' | 'rejected' | 'cancelled';
+export type WithdrawalStatus = 
+  | 'pending' 
+  | 'under_review' 
+  | 'approved' 
+  | 'processing' 
+  | 'manual_payment_pending' 
+  | 'payment_submitted' 
+  | 'payment_verified' 
+  | 'paid' 
+  | 'completed' 
+  | 'complete' 
+  | 'rejected' 
+  | 'cancelled';
 
 export interface Withdrawal {
   id: string;

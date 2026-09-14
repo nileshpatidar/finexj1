@@ -291,20 +291,25 @@ export async function updateWithdrawalStatusAsync(
       return { success: false, error: 'Cannot modify a cancelled withdrawal.' };
     }
 
+    const targetStatus = (newStatus === 'completed' || newStatus === 'complete') ? 'paid' : newStatus;
+
     // Rejection reason is required (Requirement 10)
-    if (newStatus === 'rejected' && (!adminNotes || !adminNotes.trim())) {
+    if (targetStatus === 'rejected' && (!adminNotes || !adminNotes.trim())) {
       return { success: false, error: 'A specific rejection reason is required to reject a withdrawal request.' };
     }
 
     const validNextStates: Record<string, string[]> = {
-      pending: ['approved', 'processing', 'paid', 'rejected', 'under_review', 'cancelled'],
-      under_review: ['approved', 'processing', 'paid', 'rejected', 'cancelled'],
-      approved: ['processing', 'paid', 'rejected', 'cancelled'],
-      processing: ['paid', 'rejected', 'cancelled'],
+      pending: ['approved', 'processing', 'manual_payment_pending', 'payment_submitted', 'payment_verified', 'paid', 'completed', 'rejected', 'under_review', 'cancelled'],
+      under_review: ['approved', 'processing', 'manual_payment_pending', 'payment_submitted', 'payment_verified', 'paid', 'completed', 'rejected', 'cancelled'],
+      approved: ['processing', 'manual_payment_pending', 'payment_submitted', 'payment_verified', 'paid', 'completed', 'rejected', 'cancelled'],
+      manual_payment_pending: ['payment_submitted', 'payment_verified', 'paid', 'completed', 'processing', 'rejected', 'cancelled'],
+      processing: ['manual_payment_pending', 'payment_submitted', 'payment_verified', 'paid', 'completed', 'rejected', 'cancelled'],
+      payment_submitted: ['payment_verified', 'paid', 'completed', 'manual_payment_pending', 'rejected', 'cancelled'],
+      payment_verified: ['paid', 'completed', 'rejected', 'cancelled'],
     };
 
     const allowed = validNextStates[currentStatus] || [];
-    if (!allowed.includes(newStatus)) {
+    if (!allowed.includes(newStatus) && !allowed.includes(targetStatus)) {
       return {
         success: false,
         error: `Invalid status transition from '${currentStatus}' to '${newStatus}'.`,
@@ -315,7 +320,7 @@ export async function updateWithdrawalStatusAsync(
     const targetUser = await getProfileById(withdrawal.userId);
     const isTestUser = process.env.NODE_ENV !== 'production' && targetUser?.isTestUser === true;
 
-    if (newStatus === 'paid') {
+    if (targetStatus === 'paid') {
       if (!normalizedTxHash) {
         return {
           success: false,
@@ -393,14 +398,14 @@ export async function updateWithdrawalStatusAsync(
       adminId,
       adminRole: 'admin',
       withdrawalId: withdrawal.id,
-      newStatus,
+      newStatus: targetStatus,
       txHash: normalizedTxHash,
       adminNotes,
     });
 
     if (atomicResult.success && atomicResult.withdrawal) {
       // Ensure ledger refund is recorded for cancelled status if database RPC ran an older migration without it
-      if (newStatus === 'cancelled') {
+      if (targetStatus === 'cancelled') {
         try {
           const userLedger = await getLedgerByUserId(withdrawal.userId);
           const hasCancelLedger = userLedger.some(
@@ -423,6 +428,34 @@ export async function updateWithdrawalStatusAsync(
           console.warn('[Ledger Notice] cancellation refund entry skipped:', ledgerErr?.message);
         }
       }
+
+      // Step 53 - Section 12: Mandatory Audit Log on status change
+      try {
+        await createAuditLog({
+          action: `WITHDRAWAL_${targetStatus.toUpperCase()}`,
+          actorId: adminId,
+          actorRole: 'admin',
+          targetUserId: withdrawal.userId,
+          referenceId: String(withdrawal.reference || withdrawal.id),
+          beforeValue: {
+            status: currentStatus,
+            expectedAmount: withdrawal.netAmount,
+            destinationAddress: withdrawal.destinationAddress,
+          },
+          afterValue: {
+            status: targetStatus,
+            txHash: normalizedTxHash || withdrawal.txHash,
+            verifiedAmount: targetStatus === 'paid' ? withdrawal.netAmount : undefined,
+            destinationAddress: withdrawal.destinationAddress,
+            verificationResult: targetStatus === 'paid' ? 'VERIFIED_ON_CHAIN' : undefined,
+          },
+          reason: adminNotes || `Admin manual payout action transitioned withdrawal #${withdrawal.id} from ${currentStatus} to ${targetStatus}${isTestUser ? ' (Test Account)' : ''}`,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (auditErr: any) {
+        console.warn('[Audit Notice] audit log skipped:', auditErr?.message);
+      }
+
       return { success: true, withdrawal: atomicResult.withdrawal };
     }
 
@@ -433,12 +466,12 @@ export async function updateWithdrawalStatusAsync(
     // 5. ACID-Compliant Repository Fallback (Only if atomic RPC is not yet registered in environment)
     const now = new Date();
     const updated = await updateWithdrawal(withdrawal.id, {
-      status: newStatus,
+      status: targetStatus,
       txHash: normalizedTxHash || withdrawal.txHash,
       adminNotes,
       reviewedAt: now.toISOString(),
       reviewedBy: adminId,
-      paidAt: newStatus === 'paid' ? now.toISOString() : undefined,
+      paidAt: targetStatus === 'paid' ? now.toISOString() : undefined,
     });
 
     // Accounting, Ledgers, & Audit Logging Fallback
@@ -519,14 +552,24 @@ export async function updateWithdrawalStatusAsync(
 
     try {
       await createAuditLog({
-        action: `WITHDRAWAL_${newStatus.toUpperCase()}`,
+        action: `WITHDRAWAL_${targetStatus.toUpperCase()}`,
         actorId: adminId,
         actorRole: 'admin',
         targetUserId: withdrawal.userId,
-        referenceId: withdrawal.reference || withdrawal.id,
-        beforeValue: { status: currentStatus },
-        afterValue: { status: newStatus, txHash: normalizedTxHash || withdrawal.txHash },
-        reason: adminNotes || `Admin updated withdrawal status from ${currentStatus} to ${newStatus}${isTestUser ? ' (Test Account)' : ''}`,
+        referenceId: String(withdrawal.reference || withdrawal.id),
+        beforeValue: {
+          status: currentStatus,
+          expectedAmount: withdrawal.netAmount,
+          destinationAddress: withdrawal.destinationAddress,
+        },
+        afterValue: {
+          status: targetStatus,
+          txHash: normalizedTxHash || withdrawal.txHash,
+          verifiedAmount: targetStatus === 'paid' ? withdrawal.netAmount : undefined,
+          destinationAddress: withdrawal.destinationAddress,
+          verificationResult: targetStatus === 'paid' ? 'VERIFIED_ON_CHAIN' : undefined,
+        },
+        reason: adminNotes || `Admin manual payout action transitioned withdrawal #${withdrawal.id} from ${currentStatus} to ${targetStatus}${isTestUser ? ' (Test Account)' : ''}`,
         timestamp: now.toISOString(),
       });
     } catch (auditErr: any) {

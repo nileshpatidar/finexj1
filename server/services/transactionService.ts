@@ -35,11 +35,15 @@ export interface UserTransactionItem {
     | 'under_review'
     | 'approved'
     | 'processing'
+    | 'manual_payment_pending'
+    | 'payment_submitted'
+    | 'payment_verified'
     | 'rejected'
     | 'failed'
     | 'cancelled'
     | 'credited'
-    | 'completed';
+    | 'completed'
+    | 'complete';
   createdAt: string;
   confirmedAt?: string;
   paidAt?: string;
