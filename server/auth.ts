@@ -136,6 +136,7 @@ export function createSessionToken(user: User, sessionVersion: number = 1): stri
 
 export async function verifySessionTokenAsync(token: string): Promise<{ userId: string; role: UserRole } | null> {
   if (!token) return null;
+  if (isTokenRevoked(token)) return null;
 
   // 1. Check if token is a Supabase Auth JWT (standard 3-segment JWT)
   if (!token.startsWith('fx_') && token.includes('.')) {
@@ -192,8 +193,42 @@ export async function verifySessionTokenAsync(token: string): Promise<{ userId: 
   return null;
 }
 
-export function revokeSessionToken(_token: string): void {
-  // Stateless token invalidation can be extended with a Redis/Supabase blacklist if needed
+// In-memory revoked tokens store with TTL cleanup
+const revokedTokens = new Map<string, number>();
+
+export function revokeSessionToken(token: string): void {
+  if (!token) return;
+  try {
+    let exp = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    if (token.startsWith('fx_')) {
+      const parts = token.slice(3).split('.');
+      if (parts.length === 2) {
+        const payload: TokenPayload = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+        if (payload.exp) exp = payload.exp;
+      }
+    }
+    revokedTokens.set(token, exp);
+
+    if (revokedTokens.size > 5000) {
+      const now = Date.now();
+      for (const [t, expiry] of revokedTokens.entries()) {
+        if (expiry <= now) revokedTokens.delete(t);
+      }
+    }
+  } catch {
+    revokedTokens.set(token, Date.now() + 30 * 24 * 60 * 60 * 1000);
+  }
+}
+
+export function isTokenRevoked(token: string): boolean {
+  if (!token) return true;
+  const expiry = revokedTokens.get(token);
+  if (!expiry) return false;
+  if (Date.now() > expiry) {
+    revokedTokens.delete(token);
+    return false;
+  }
+  return true;
 }
 
 export async function forceLogoutAllUsersAsync(): Promise<number> {

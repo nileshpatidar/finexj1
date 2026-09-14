@@ -61,7 +61,7 @@ END $$;
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS deposits (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   amount NUMERIC(18, 4) NOT NULL,
   actual_amount NUMERIC(18, 4),
   currency TEXT NOT NULL DEFAULT 'USDT',
@@ -122,7 +122,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS withdrawals (
   id SERIAL PRIMARY KEY,
   reference TEXT UNIQUE,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   requested_amount NUMERIC(18, 4) NOT NULL,
   amount NUMERIC(18, 4) NOT NULL,
   fee_percentage NUMERIC(8, 4) NOT NULL DEFAULT 9.0000, -- Canonical 9% withdrawal fee
@@ -231,7 +231,7 @@ FROM daily_performances;
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS earnings (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   daily_performance_id INTEGER REFERENCES daily_performances(id) ON DELETE SET NULL,
   calculation_id TEXT,
   date TEXT NOT NULL,
@@ -266,7 +266,7 @@ END $$;
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS ledger (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   type TEXT NOT NULL, -- 'deposit' | 'withdrawal_request' | 'withdrawal_paid' | 'withdrawal_rejected' | 'daily_earnings' | 'daily_loss' | 'admin_adjustment' | 'refund'
   amount NUMERIC(18, 4) NOT NULL,
   balance_after NUMERIC(18, 4) NOT NULL DEFAULT 0,
@@ -428,7 +428,55 @@ ON CONFLICT (key) DO UPDATE SET
   updated_at = NOW();
 
 -- ==============================================================================
--- Enable Row Level Security (RLS) & Policies
+-- Immutability Triggers (Append-Only Journals)
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION prevent_ledger_tampering()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Security Invariant Violation: The double-entry ledger is an append-only journal. Modifying or deleting ledger records is strictly prohibited.';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_immutable_ledger ON ledger;
+CREATE TRIGGER trg_immutable_ledger
+  BEFORE UPDATE OR DELETE ON ledger
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_ledger_tampering();
+
+CREATE OR REPLACE FUNCTION prevent_audit_log_tampering()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Security Invariant Violation: Audit logs are immutable and tamper-evident. Modifying or deleting audit records is strictly prohibited.';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_immutable_audit_logs ON audit_logs;
+CREATE TRIGGER trg_immutable_audit_logs
+  BEFORE UPDATE OR DELETE ON audit_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_audit_log_tampering();
+
+CREATE OR REPLACE FUNCTION prevent_operational_ledger_tampering()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Security Invariant Violation: The operational fund ledger is an append-only financial journal. Modifying or deleting entries is strictly prohibited.';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_immutable_op_ledger ON finexj_operational_ledger;
+CREATE TRIGGER trg_immutable_op_ledger
+  BEFORE UPDATE OR DELETE ON finexj_operational_ledger
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_operational_ledger_tampering();
+
+-- ==============================================================================
+-- Enable Row Level Security (RLS) & Hardened Policies
 -- ==============================================================================
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deposits ENABLE ROW LEVEL SECURITY;
@@ -440,60 +488,95 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE admin_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE referrals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE referral_rewards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fraud_signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE finexj_operational_ledger ENABLE ROW LEVEL SECURITY;
 
--- Permissive service role and public access policies for application backend
-DO $$
-BEGIN
-  -- users
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'users' AND policyname = 'Allow all access to users') THEN
-    CREATE POLICY "Allow all access to users" ON users FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+-- Service role full access
+CREATE POLICY "service_role_all_users" ON users FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_deposits" ON deposits FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_withdrawals" ON withdrawals FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_daily_performances" ON daily_performances FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_earnings" ON earnings FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_ledger" ON ledger FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_audit_logs" ON audit_logs FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_system_logs" ON system_logs FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_admin_messages" ON admin_messages FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_system_settings" ON system_settings FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_referrals" ON referrals FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_referral_rewards" ON referral_rewards FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_fraud_signals" ON fraud_signals FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_finexj_operational_ledger" ON finexj_operational_ledger FOR ALL TO service_role USING (true) WITH CHECK (true);
 
-  -- deposits
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'deposits' AND policyname = 'Allow all access to deposits') THEN
-    CREATE POLICY "Allow all access to deposits" ON deposits FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+-- User-isolated policies for authenticated clients
+CREATE POLICY "users_select_isolated" ON users FOR SELECT TO authenticated
+  USING (
+    email = (auth.jwt() ->> 'email')
+    OR id::text = (auth.jwt() ->> 'sub')
+    OR (auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin')
+  );
 
-  -- withdrawals
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'withdrawals' AND policyname = 'Allow all access to withdrawals') THEN
-    CREATE POLICY "Allow all access to withdrawals" ON withdrawals FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+CREATE POLICY "deposits_select_isolated" ON deposits FOR SELECT TO authenticated
+  USING (
+    user_id = (SELECT id FROM users WHERE email = (auth.jwt() ->> 'email') OR id::text = (auth.jwt() ->> 'sub'))
+    OR (auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin')
+  );
 
-  -- daily_performances
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'daily_performances' AND policyname = 'Allow all access to daily_performances') THEN
-    CREATE POLICY "Allow all access to daily_performances" ON daily_performances FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+CREATE POLICY "deposits_insert_own_pending" ON deposits FOR INSERT TO authenticated
+  WITH CHECK (
+    user_id = (SELECT id FROM users WHERE email = (auth.jwt() ->> 'email') OR id::text = (auth.jwt() ->> 'sub'))
+    AND status = 'pending'
+  );
 
-  -- earnings
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'earnings' AND policyname = 'Allow all access to earnings') THEN
-    CREATE POLICY "Allow all access to earnings" ON earnings FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+CREATE POLICY "withdrawals_select_isolated" ON withdrawals FOR SELECT TO authenticated
+  USING (
+    user_id = (SELECT id FROM users WHERE email = (auth.jwt() ->> 'email') OR id::text = (auth.jwt() ->> 'sub'))
+    OR (auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin')
+  );
 
-  -- ledger
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'ledger' AND policyname = 'Allow all access to ledger') THEN
-    CREATE POLICY "Allow all access to ledger" ON ledger FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+CREATE POLICY "earnings_select_isolated" ON earnings FOR SELECT TO authenticated
+  USING (
+    user_id = (SELECT id FROM users WHERE email = (auth.jwt() ->> 'email') OR id::text = (auth.jwt() ->> 'sub'))
+    OR (auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin')
+  );
 
-  -- audit_logs
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'audit_logs' AND policyname = 'Allow all access to audit_logs') THEN
-    CREATE POLICY "Allow all access to audit_logs" ON audit_logs FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+CREATE POLICY "ledger_select_isolated" ON ledger FOR SELECT TO authenticated
+  USING (
+    user_id = (SELECT id FROM users WHERE email = (auth.jwt() ->> 'email') OR id::text = (auth.jwt() ->> 'sub'))
+    OR (auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin')
+  );
 
-  -- system_logs
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'system_logs' AND policyname = 'Allow all access to system_logs') THEN
-    CREATE POLICY "Allow all access to system_logs" ON system_logs FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+CREATE POLICY "daily_performances_select_public" ON daily_performances FOR SELECT TO authenticated, anon
+  USING (true);
 
-  -- admin_messages
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'admin_messages' AND policyname = 'Allow all access to admin_messages') THEN
-    CREATE POLICY "Allow all access to admin_messages" ON admin_messages FOR ALL USING (true) WITH CHECK (true);
-  END IF;
+CREATE POLICY "system_settings_select_public" ON system_settings FOR SELECT TO authenticated, anon
+  USING (true);
 
-  -- system_settings
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'system_settings' AND policyname = 'Allow all access to system_settings') THEN
-    CREATE POLICY "Allow all access to system_settings" ON system_settings FOR ALL USING (true) WITH CHECK (true);
-  END IF;
-END $$;
+CREATE POLICY "referrals_select_isolated" ON referrals FOR SELECT TO authenticated
+  USING (
+    referrer_id = (SELECT id FROM users WHERE email = (auth.jwt() ->> 'email') OR id::text = (auth.jwt() ->> 'sub'))
+    OR referred_id = (SELECT id FROM users WHERE email = (auth.jwt() ->> 'email') OR id::text = (auth.jwt() ->> 'sub'))
+    OR (auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin')
+  );
+
+CREATE POLICY "referral_rewards_select_isolated" ON referral_rewards FOR SELECT TO authenticated
+  USING (
+    referrer_id = (SELECT id FROM users WHERE email = (auth.jwt() ->> 'email') OR id::text = (auth.jwt() ->> 'sub'))
+    OR (auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin')
+  );
+
+CREATE POLICY "audit_logs_select_admin" ON audit_logs FOR SELECT TO authenticated
+  USING ((auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin'));
+
+CREATE POLICY "system_logs_select_admin" ON system_logs FOR SELECT TO authenticated
+  USING ((auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin'));
+
+CREATE POLICY "operational_ledger_select_admin" ON finexj_operational_ledger FOR SELECT TO authenticated
+  USING ((auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin'));
+
+CREATE POLICY "fraud_signals_select_admin" ON fraud_signals FOR SELECT TO authenticated
+  USING ((auth.jwt() ->> 'role') IN ('super_admin', 'finance_admin', 'support_admin', 'readonly_admin'));
 
 -- ==============================================================================
 -- 11. Atomic Financial Functions (PostgreSQL Transactions)

@@ -21,7 +21,7 @@
 - **Scope**: Entire database cluster state, tables, stored functions, indexes, and constraints.
 
 ### C. Logical Schema & Data Backups
-- **Tool**: Standard PostgreSQL `pg_dump` and versioned migration files located in `/supabase/migrations/` (`001` through `018`).
+- **Tool**: Standard PostgreSQL `pg_dump` and versioned migration files located in `/supabase/migrations/` (`001` through `021`).
 - **Configuration**: Version-controlled idempotent schema definitions ensuring zero-loss schema reconstitution.
 
 ---
@@ -49,6 +49,9 @@
    # ... sequential migrations through:
    psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/017_finexj_withdrawal_cancellation_and_perf_eligibility.sql
    psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/018_finexj_daily_compounding_base.sql
+   psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/019_finexj_referral_eligibility_hardening.sql
+   psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/020_finexj_confirm_deposit_eligibility_alignment.sql
+   psql -h <SUPABASE_DB_HOST> -U postgres -d postgres -f supabase/migrations/021_finexj_database_rls_rpc_security_audit.sql
    ```
 3. Restore table data from logical backup dump:
    ```bash
@@ -76,7 +79,7 @@ Before reopening user traffic, verify financial and relational integrity:
 ## 5. Verification Status: Documented vs Actually Tested
 
 - **Documented**: Cloud provider Point-in-Time Recovery (PITR) procedures, WAL streaming, and cloud console physical restores are documented architectural standards requiring live Supabase infrastructure console access during a disaster recovery drill.
-- **Actually Tested**: Schema migration chain idempotency (`001` through `018`), mathematical daily compounding formula, referral rewards segregation, double-entry ledger balance conservation, and API validation layers have been verified in the codebase.
+- **Actually Tested**: Schema migration chain idempotency (`001` through `021`), mathematical daily compounding formula, referral rewards segregation, double-entry ledger balance conservation, and API validation layers have been verified in the codebase.
 
 ---
 

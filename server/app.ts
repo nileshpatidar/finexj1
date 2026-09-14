@@ -642,7 +642,7 @@ app.post(['/api/auth/update-profile', '/auth/update-profile'], authMiddleware, a
         throw Errors.validation('Invalid BEP-20 wallet address. Must be a valid 0x-prefixed 40-hex character BNB Smart Chain address.');
       }
 
-      // Point #23: Require 2FA verification if 2FA is enabled on user's account
+      // Point #23: Require 2FA verification if 2FA is enabled on user's account, or password if not enabled
       if (user.twoFactorEnabled) {
         if (!twoFactorCode || typeof twoFactorCode !== 'string') {
           throw Errors.validation('2FA verification code is required to update your withdrawal wallet address.');
@@ -650,6 +650,15 @@ app.post(['/api/auth/update-profile', '/auth/update-profile'], authMiddleware, a
         const is2FAValid = verify2FACode(user.twoFactorSecret || '', twoFactorCode.trim());
         if (!is2FAValid) {
           throw Errors.validation('Invalid 2FA verification code. Please try again.');
+        }
+      } else {
+        const { password } = req.body;
+        if (!password || typeof password !== 'string') {
+          throw Errors.validation('Account password is required to update your withdrawal wallet address.');
+        }
+        const isPassValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
+        if (!isPassValid) {
+          throw Errors.invalidCredentials('Incorrect password.');
         }
       }
 
@@ -691,15 +700,7 @@ app.post(['/api/user/wallet', '/user/wallet'], authMiddleware, async (req, res, 
       throw Errors.validation('Invalid BEP-20 wallet address format. Must be a 0x-prefixed 40-hex character BNB Smart Chain address.');
     }
 
-    // Password verification if provided
-    if (password) {
-      const isPassValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
-      if (!isPassValid) {
-        throw Errors.invalidCredentials('Incorrect password.');
-      }
-    }
-
-    // 2FA verification if enabled
+    // Sensitive Action Protection: Updating withdrawal wallet requires 2FA if enabled, or account password if 2FA not enabled
     if (user.twoFactorEnabled) {
       if (!twoFactorCode || typeof twoFactorCode !== 'string') {
         throw Errors.validation('2FA verification code is required to update your withdrawal wallet address.');
@@ -707,6 +708,14 @@ app.post(['/api/user/wallet', '/user/wallet'], authMiddleware, async (req, res, 
       const is2FAValid = verify2FACode(user.twoFactorSecret || '', twoFactorCode.trim());
       if (!is2FAValid) {
         throw Errors.validation('Invalid 2FA verification code. Please try again.');
+      }
+    } else {
+      if (!password || typeof password !== 'string') {
+        throw Errors.validation('Account password is required to update your withdrawal wallet address.');
+      }
+      const isPassValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
+      if (!isPassValid) {
+        throw Errors.invalidCredentials('Incorrect password.');
       }
     }
 
@@ -771,7 +780,16 @@ app.post(['/api/auth/change-password', '/auth/change-password'], authMiddleware,
       reason: 'User successfully updated password.',
     });
 
-    res.json({ success: true, message: 'Password updated successfully.' });
+    // Session Security: Invalidate old session token and issue a rotated session token
+    const oldToken = (req as any).token;
+    if (oldToken) {
+      revokeSessionToken(oldToken);
+    }
+    const settings = await getSettings();
+    const newToken = createSessionToken(user, settings.sessionVersion || 1);
+    setSessionCookie(res, newToken);
+
+    res.json({ success: true, token: newToken, message: 'Password updated successfully.' });
   } catch (err) {
     next(err);
   }
@@ -788,7 +806,7 @@ app.post(['/api/auth/2fa/generate', '/auth/2fa/generate'], authMiddleware, (req,
 app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
-    const { enable, secret, code } = req.body;
+    const { enable, secret, code, password } = req.body;
 
     if (enable) {
       if (!code || !secret) {
@@ -801,6 +819,19 @@ app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (re
       await updateProfile(user.id, { twoFactorEnabled: true, twoFactorSecret: secret });
       res.json({ success: true, twoFactorEnabled: true });
     } else {
+      // 2FA Security: Disabling 2FA requires verifying either the current TOTP code or account password
+      if (user.twoFactorEnabled) {
+        let isVerified = false;
+        if (code && typeof code === 'string') {
+          isVerified = verify2FACode(user.twoFactorSecret || '', code.trim());
+        }
+        if (!isVerified && password && typeof password === 'string') {
+          isVerified = verifyPassword(password, user.passwordHash, user.passwordSalt);
+        }
+        if (!isVerified) {
+          throw Errors.validation('Valid 2FA verification code or account password is required to disable two-factor authentication.');
+        }
+      }
       await updateProfile(user.id, { twoFactorEnabled: false, twoFactorSecret: undefined });
       res.json({ success: true, twoFactorEnabled: false });
     }

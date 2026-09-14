@@ -1,6 +1,7 @@
 import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { Referral, ReferralReward } from '../types';
 import { resolveUserIdForDb } from './profiles';
+import { config } from '../config';
 
 export function mapDbReferral(r: any): Referral {
   return {
@@ -240,6 +241,10 @@ export async function getReferralRewardByDepositAndLevel(
     console.warn(`[Supabase Exception] getReferralRewardByDepositAndLevel(${depositId}, ${rewardLevel}):`, err?.message);
   }
 
+  if (config.isProduction) {
+    return null;
+  }
+
   const inMem = inMemoryReferralRewards.find(
     r => String(r.depositId) === String(depositId) && r.rewardLevel === rewardLevel
   );
@@ -299,6 +304,10 @@ export async function createReferralReward(reward: Partial<ReferralReward>): Pro
     if (error.code === '23505' || error.message.includes('unique') || error.message.includes('uq_referral_reward')) {
       console.warn(`[Supabase Duplicate Reward Caught]: Deposit #${dbDepositId} Level ${rewardLevel}`);
       throw new DuplicateReferralRewardError(dbDepositId, rewardLevel);
+    }
+
+    if (config.isProduction) {
+      throw new Error(`[CRITICAL] Database error inserting referral reward: ${error.message}. In-memory fallback is disabled in production.`);
     }
     
     // In-memory fallback if Supabase DB is offline or in mock container environment

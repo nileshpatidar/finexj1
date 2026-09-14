@@ -32,6 +32,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
 
   // 2FA Setup
   const [show2FASetup, setShow2FASetup] = useState(false);
+  const [showDisable2FA, setShowDisable2FA] = useState(false);
+  const [disable2FACode, setDisable2FACode] = useState('');
   const [secretData, setSecretData] = useState<{ secret: string; otpAuthUrl: string } | null>(null);
   const [twoFactorInputCode, setTwoFactorInputCode] = useState('');
   const [twoFactorMessage, setTwoFactorMessage] = useState<string | null>(null);
@@ -54,15 +56,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
     try {
       setTwoFactorError(null);
       setTwoFactorMessage(null);
+      const codeToSend = enable ? twoFactorInputCode : disable2FACode;
       const res = await api.toggle2FA({
         enable,
         secret: secretData?.secret,
-        code: twoFactorInputCode,
+        code: codeToSend,
       });
       if (res.success) {
         setTwoFactorMessage(enable ? '2FA Authenticator enabled successfully!' : '2FA Authenticator disabled.');
         setShow2FASetup(false);
+        setShowDisable2FA(false);
         setTwoFactorInputCode('');
+        setDisable2FACode('');
         await refreshUser();
       }
     } catch (err) {
@@ -362,13 +367,55 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate }) => {
             )}
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => handleToggle2FA(false)}
-            className="py-2 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 font-bold transition cursor-pointer"
-          >
-            Disable 2FA Authenticator
-          </button>
+          <div>
+            {!showDisable2FA ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDisable2FA(true);
+                  setTwoFactorError(null);
+                  setTwoFactorMessage(null);
+                }}
+                className="py-2 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 font-bold transition cursor-pointer"
+              >
+                Disable 2FA Authenticator
+              </button>
+            ) : (
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3 max-w-md">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Enter your 6-digit Authenticator code to confirm disabling 2FA:
+                </p>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={disable2FACode}
+                    onChange={e => setDisable2FACode(e.target.value)}
+                    placeholder="123456"
+                    className="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono tracking-widest text-center font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleToggle2FA(false)}
+                    disabled={disable2FACode.length !== 6}
+                    className="py-2 px-4 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold transition cursor-pointer"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDisable2FA(false);
+                      setDisable2FACode('');
+                    }}
+                    className="py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
