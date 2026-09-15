@@ -32,7 +32,7 @@ const AppContent: React.FC = () => {
   const [isLoadingDashboard, setIsLoadingDashboard] = useState<boolean>(true);
   const [isSupportOpen, setIsSupportOpen] = useState<boolean>(false);
 
-  // Synchronize view strictly with user role
+  // Synchronize view strictly with user role and purge data on logout
   useEffect(() => {
     if (user) {
       if (user.role !== 'user') {
@@ -40,6 +40,8 @@ const AppContent: React.FC = () => {
       } else if (currentView === 'admin') {
         setCurrentView('home');
       }
+    } else {
+      setDashboardData(null);
     }
   }, [user]);
 
@@ -147,7 +149,9 @@ const AppContent: React.FC = () => {
 
             {currentView === 'referrals' && <ReferralView onNavigate={setCurrentView} />}
 
-            {currentView === 'profile' && <ProfileView onNavigate={setCurrentView} />}
+            {currentView === 'profile' && (
+              <ProfileView onNavigate={setCurrentView} balance={dashboardData?.balance} />
+            )}
           </>
         )}
       </main>

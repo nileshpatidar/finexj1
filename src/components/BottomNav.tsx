@@ -5,7 +5,6 @@ import {
   TrendingUp,
   ArrowUpFromLine,
   User,
-  History,
   Users,
 } from 'lucide-react';
 
@@ -21,13 +20,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onNavigate })
     { id: 'earnings', label: 'Earnings', icon: TrendingUp },
     { id: 'referrals', label: 'Referrals', icon: Users },
     { id: 'withdraw', label: 'Withdraw', icon: ArrowUpFromLine },
-    { id: 'transactions', label: 'Activity', icon: History },
     { id: 'profile', label: 'Profile', icon: User },
   ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800/80 py-1.5 px-2 sm:px-3 shadow-lg transition-colors duration-200">
-      <div className="max-w-lg mx-auto grid grid-cols-7 gap-0.5 sm:gap-1">
+      <div className="max-w-lg mx-auto grid grid-cols-6 gap-1">
         {navItems.map(item => {
           const Icon = item.icon;
           const isActive = currentView === item.id;

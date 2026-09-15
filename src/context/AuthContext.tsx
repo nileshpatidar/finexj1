@@ -73,7 +73,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Ignore
     }
+    try {
+      sessionStorage.clear();
+    } catch {
+      // Ignore
+    }
     setUser(null);
+    window.location.href = '/';
   };
 
   const logoutAll = async () => {
@@ -82,7 +88,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Ignore
     }
+    try {
+      sessionStorage.clear();
+    } catch {
+      // Ignore
+    }
     setUser(null);
+    window.location.href = '/';
   };
 
   return (

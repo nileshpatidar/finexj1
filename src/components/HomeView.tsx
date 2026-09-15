@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { DashboardResponse, UserReferralSummary, WithdrawalItem } from '../types';
 import { InvestmentPlanSection } from './InvestmentPlanSection';
 import { InvestmentPlanModal } from './InvestmentPlanModal';
-import { FundLockModal } from './FundLockModal';
-import { useMarketTicker } from '../context/MarketTickerContext';
+import { CopyTradingAnnouncementModal } from './CopyTradingAnnouncementModal';
 import { api } from '../services/api';
 import {
   TrendingUp,
@@ -11,7 +10,6 @@ import {
   ArrowUpFromLine,
   Wallet,
   Lock,
-  Unlock,
   CheckCircle2,
   AlertTriangle,
   Clock,
@@ -23,8 +21,9 @@ import {
   RefreshCw,
   ShieldCheck,
   Layers,
-  BadgeDollarSign,
-  Info,
+  Sparkles,
+  X,
+  ArrowRight,
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -43,19 +42,47 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onRefresh,
 }) => {
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
-  const [isFundLockModalOpen, setIsFundLockModalOpen] = useState(false);
+  const [isCopyTradingModalOpen, setIsCopyTradingModalOpen] = useState(false);
+  const [showCopyTradingBanner, setShowCopyTradingBanner] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const {
-    ticker,
-    isLoading: isTickerLoading,
-    formatBtcPrice,
-    formatGoldPrice,
-    format24hChange,
-  } = useMarketTicker();
 
   // Fallback state if referralSummary or activePendingWithdrawal not embedded in data
   const [localReferralSummary, setLocalReferralSummary] = useState<UserReferralSummary | null>(null);
   const [localPendingWithdrawal, setLocalPendingWithdrawal] = useState<WithdrawalItem | null>(null);
+
+  const balance = data?.balance;
+  const user = data?.user;
+  const recent = data?.recentActivity || [];
+  const settings = data?.settings;
+
+  // First-time login detection for Institutional Copy Trading announcement
+  useEffect(() => {
+    if (user?.id) {
+      const storageKey = `finexj_copy_trading_dismissed_${user.id}`;
+      try {
+        const dismissed = localStorage.getItem(storageKey);
+        if (!dismissed) {
+          // First-time login: show the announcement
+          setShowCopyTradingBanner(true);
+          setIsCopyTradingModalOpen(true);
+        }
+      } catch {
+        // Fallback if localStorage unavailable
+      }
+    }
+  }, [user?.id]);
+
+  const handleDismissCopyTrading = () => {
+    if (user?.id) {
+      try {
+        localStorage.setItem(`finexj_copy_trading_dismissed_${user.id}`, 'true');
+      } catch {
+        // Ignore
+      }
+    }
+    setShowCopyTradingBanner(false);
+    setIsCopyTradingModalOpen(false);
+  };
 
   // Revalidate secondary data if not provided directly in dashboard payload
   useEffect(() => {
@@ -115,21 +142,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
   if (isLoading && !data) {
     return (
       <div id="dashboard-loading-skeleton" className="space-y-4 max-w-4xl mx-auto animate-pulse">
-        <div className="h-48 bg-slate-200 dark:bg-slate-800 rounded-3xl"></div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {[...Array(6)].map((_, i) => (
+        <div className="h-44 bg-slate-200 dark:bg-slate-800 rounded-3xl"></div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {[...Array(3)].map((_, i) => (
             <div key={i} className="h-24 bg-slate-200 dark:bg-slate-800 rounded-2xl"></div>
           ))}
         </div>
       </div>
     );
   }
-
-  const balance = data?.balance;
-  const user = data?.user;
-  const market = data?.marketPrices;
-  const recent = data?.recentActivity || [];
-  const settings = data?.settings;
 
   // Active Pending Withdrawal (authoritative backend data)
   const pendingWithdrawal = data?.activePendingWithdrawal ?? localPendingWithdrawal;
@@ -140,444 +161,273 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const l2Income = referralSummary?.level2Income ?? 0;
   const totalReferralIncome = referralSummary?.totalReferralIncome ?? balance?.referralEarnings ?? 0;
 
-  // Minimum Eligible Principal Threshold (configurable from backend settings, expected $300)
+  // Minimum Eligible Principal Threshold
   const minimumEligibleThreshold = settings?.minimumDepositAmount ?? 300;
   const eligiblePrincipal = balance?.activeCompoundingPrincipal ?? 0;
   const maintainsMinimumPrincipal = eligiblePrincipal >= minimumEligibleThreshold;
   const compoundingActive = maintainsMinimumPrincipal && settings?.compoundingEnabled !== false;
 
-  // Fund Lock and Maturity Status
-  const isFundLocked = Boolean(balance?.isFundLocked);
-  const isAccountMatured = Boolean(balance?.is30DaysOld);
-  const isAccountLocked = isFundLocked || !isAccountMatured;
-  const accountAgeRequirementDays = settings?.accountAgeRequirementDays ?? 30;
-
-  let lockStatusLabel = 'UNLOCKED';
-  let lockStatusBadgeClass = 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
-  let unlockDateDisplay = 'Fully Matured (Eligible for Standard Withdrawals)';
-
-  if (isFundLocked) {
-    lockStatusLabel = 'LOCKED (Fund Lock Active)';
-    lockStatusBadgeClass = 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60';
-    unlockDateDisplay = balance?.fundLockUntil
-      ? `${new Date(balance.fundLockUntil).toLocaleDateString()} (${balance.fundLockRemainingDays}d ${balance.fundLockRemainingHours}h remaining)`
-      : 'Active Principal Lock Period';
-  } else if (!isAccountMatured) {
-    lockStatusLabel = `LOCKED (${accountAgeRequirementDays}d Age Requirement)`;
-    lockStatusBadgeClass = 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
-    unlockDateDisplay = balance?.withdrawalEligibleDate
-      ? `${new Date(balance.withdrawalEligibleDate).toLocaleDateString()} (${balance.accountAgeDays}d / ${accountAgeRequirementDays}d completed)`
-      : `${accountAgeRequirementDays} Days from Registration`;
-  }
-
   return (
-    <div id="user-dashboard-accounting" className="space-y-6 max-w-4xl mx-auto pb-24">
-      {/* Top Header & Fast Revalidation Controls */}
-      <div id="dashboard-header-bar" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div id="user-dashboard-accounting" className="space-y-4 sm:space-y-5 max-w-4xl mx-auto pb-24 text-xs">
+      {/* 1. Header Bar: Compact greeting + Quick actions */}
+      <div id="dashboard-header-bar" className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+          <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
             Welcome, {user?.fullName?.split(' ')[0] || 'Investor'}
           </h1>
-          <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-            FINEXJ Institutional Fund & Yield Accounting
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Institutional Fund & Yield Accounting
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Refresh Revalidate Button */}
+        <div className="flex items-center space-x-1.5 sm:space-x-2">
+          {/* Institutional Copy Trading Pill */}
+          <button
+            id="copy-trading-pill-btn"
+            onClick={() => setIsCopyTradingModalOpen(true)}
+            title="Institutional Copy Trading (Planned Feature)"
+            className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-[11px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 rounded-full transition shadow-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 cursor-pointer"
+          >
+            <Sparkles className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+            <span className="hidden sm:inline">Copy Trading</span>
+            <span className="text-[10px] uppercase text-blue-500 font-extrabold">(Planned)</span>
+          </button>
+
+          {/* Sync / Refresh Button */}
           <button
             id="dashboard-refresh-btn"
             onClick={handleManualRefresh}
             disabled={isRefreshing}
-            title="Refresh authoritative balances from backend"
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-full transition shadow-xs cursor-pointer disabled:opacity-60"
+            title="Refresh authoritative balances"
+            className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-[11px] font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-full transition shadow-xs cursor-pointer disabled:opacity-60"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-blue-600 dark:text-blue-400 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>{isRefreshing ? 'Updating...' : 'Sync'}</span>
+            <RefreshCw className={`w-3 h-3 text-blue-600 dark:text-blue-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'Syncing' : 'Sync'}</span>
           </button>
 
-          {/* 30-Day Lock Rule Details Modal Button */}
-          <button
-            id="fund-lock-rules-btn"
-            onClick={() => setIsFundLockModalOpen(true)}
-            className={`inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border transition cursor-pointer ${lockStatusBadgeClass}`}
-          >
-            {isAccountLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-            <span>{lockStatusLabel}</span>
-          </button>
-
-          {/* Earning Plan Explanatory Modal */}
+          {/* How It Works Modal Button */}
           <button
             id="earning-plan-info-btn"
             onClick={() => setIsPlanModalOpen(true)}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-full transition shadow-xs cursor-pointer"
+            className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-[11px] font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-full transition shadow-xs cursor-pointer"
           >
-            <HelpCircle className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            <span>How It Works</span>
+            <HelpCircle className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+            <span>FAQ</span>
           </button>
         </div>
       </div>
 
-      {/* REQUIREMENT 8: PENDING WITHDRAWAL STATUS BANNER */}
+      {/* Active Pending Withdrawal Status Card (If pending) */}
       {pendingWithdrawal && (
         <div
           id="pending-withdrawal-card"
-          className="p-4 sm:p-5 rounded-3xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 shadow-sm space-y-3"
+          className="p-3.5 sm:p-4 rounded-2xl bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 shadow-xs space-y-2.5"
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
-                <Clock className="w-4 h-4 animate-pulse" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
+                <Clock className="w-3.5 h-3.5 animate-pulse" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Pending Withdrawal Request</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60">
-                    {pendingWithdrawal.status.replace('_', ' ')}
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Ref: <span className="font-mono">{pendingWithdrawal.reference || pendingWithdrawal.id.slice(0, 8)}</span> • Reserved from available balance
-                </p>
+                <span className="font-bold text-slate-900 dark:text-white text-xs">
+                  Pending Withdrawal: ${pendingWithdrawal.requestedAmount.toFixed(2)} USDT
+                </span>
+                <span className="ml-2 px-2 py-0.2 rounded-full text-[10px] font-extrabold uppercase bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60">
+                  {pendingWithdrawal.status.replace('_', ' ')}
+                </span>
               </div>
             </div>
             <button
               onClick={() => onNavigate('withdraw')}
-              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline self-start sm:self-auto cursor-pointer"
+              className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
             >
-              View Withdrawal Queue →
+              Queue →
             </button>
           </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-2xl bg-white dark:bg-[#0F172A] border border-blue-100 dark:border-blue-900/50 text-xs">
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Requested Amount</span>
-              <p className="font-bold text-slate-900 dark:text-white mt-0.5">
-                ${pendingWithdrawal.requestedAmount.toFixed(2)} USDT
-              </p>
-            </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
-                Fee ({pendingWithdrawal.feePercentage}%)
-              </span>
-              <p className="font-semibold text-slate-700 dark:text-slate-300 mt-0.5">
-                ${pendingWithdrawal.feeAmount.toFixed(2)} USDT
-              </p>
-            </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Net Payout</span>
-              <p className="font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                ${pendingWithdrawal.netAmount.toFixed(2)} USDT
-              </p>
-            </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Backend Status</span>
-              <p className="font-bold text-amber-600 dark:text-amber-400 mt-0.5 flex items-center space-x-1">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block"></span>
-                <span>In Verification</span>
-              </p>
-            </div>
-          </div>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 italic">
-            * Note: System marks payout complete only after verified blockchain settlement.
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Net payout of <span className="font-bold text-blue-600 dark:text-blue-400">${pendingWithdrawal.netAmount.toFixed(2)} USDT</span> reserved from your liquid balance pending final blockchain settlement.
           </p>
         </div>
       )}
 
-      {/* REQUIREMENT 4: 30-DAY LOCK STATUS BANNER */}
-      <div
-        id="lock-status-card"
-        className={`p-4 sm:p-5 rounded-3xl border shadow-sm space-y-3 ${
-          isAccountLocked
-            ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60'
-            : 'bg-blue-50/60 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800/60'
-        }`}
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-start space-x-3">
-            <div
-              className={`w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0 font-bold ${
-                isAccountLocked
-                  ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                  : 'bg-blue-500/20 text-blue-700 dark:text-blue-300'
-              }`}
-            >
-              {isAccountLocked ? <Lock className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>Liquidity & Maturity Governance</span>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${lockStatusBadgeClass}`}
-                >
-                  {isAccountLocked ? 'Locked' : 'Unlocked'}
-                </span>
-              </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
-                {isFundLocked
-                  ? 'Deposit or voluntary fund lock is currently active on your principal to protect portfolio liquidity.'
-                  : !isAccountMatured
-                  ? `Your account is ${balance?.accountAgeDays || 0} days old. Institutional rules require ${accountAgeRequirementDays} full days before principal withdrawals unlock.`
-                  : 'Account age requirement completed. Normal principal and yield withdrawal requests are fully unlocked.'}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setIsFundLockModalOpen(true)}
-            className="px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl transition flex-shrink-0 cursor-pointer shadow-xs self-start sm:self-auto"
-          >
-            Policy Details
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 text-xs">
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Lock State</span>
-            <p className={`font-bold mt-0.5 ${isAccountLocked ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`}>
-              {isAccountLocked ? 'Principal & Yields Locked' : 'Full Withdrawal Quota Unlocked'}
-            </p>
-          </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Unlock Date</span>
-            <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">
-              {unlockDateDisplay}
-            </p>
-          </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Yield Accrual</span>
-            <p className="font-bold text-blue-600 dark:text-blue-400 mt-0.5 flex items-center space-x-1">
-              <Zap className="w-3 h-3" />
-              <span>{compoundingActive ? 'Active & Compounding' : 'Yields Paused'}</span>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* REQUIREMENT 1 & 7: MAIN HERO BALANCE & WITHDRAWABLE LIQUIDITY CARD */}
+      {/* 2. TOP ACCOUNT HERO CARD — MOBILE-FIRST FIRST VIEWPORT */}
       <div
         id="main-balance-hero"
-        className="relative overflow-hidden rounded-3xl bg-[#0F172A] border border-slate-800 p-6 sm:p-8 shadow-xl shadow-slate-900/20 text-white"
+        className="relative overflow-hidden rounded-3xl bg-[#0F172A] border border-slate-800 p-5 sm:p-6 shadow-xl shadow-slate-900/25 text-white"
       >
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-blue-600/20 blur-3xl pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 rounded-full bg-indigo-600/20 blur-3xl pointer-events-none"></div>
+        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-56 h-56 rounded-full bg-blue-600/20 blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-56 h-56 rounded-full bg-indigo-600/20 blur-3xl pointer-events-none"></div>
 
-        <div className="relative z-10 space-y-6">
+        <div className="relative z-10 space-y-4 sm:space-y-5">
+          {/* Top Label */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse"></span>
-              <span className="text-xs uppercase font-bold tracking-wider text-slate-300">
+              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+              <span className="text-[11px] uppercase font-bold tracking-wider text-slate-300">
                 Total Available Balance
               </span>
             </div>
-            <span className="px-2.5 py-0.5 text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-full">
+            <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-full">
               USDT (BEP-20)
             </span>
           </div>
 
+          {/* Primary Balance Figure */}
           <div>
             <div className="flex items-baseline space-x-2">
-              <span id="hero-available-balance" className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white">
+              <span id="hero-available-balance" className="text-3xl sm:text-4xl font-black tracking-tight text-white">
                 ${(balance?.availableBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
-              <span className="text-base font-bold text-slate-400">USDT</span>
+              <span className="text-sm font-bold text-slate-400">USDT</span>
             </div>
-            <p className="text-xs text-slate-400 mt-1 font-medium">
-              Net balance across all confirmed deposits, credited yields, referral bonuses, and pending deductions.
-            </p>
           </div>
 
-          {/* REQUIREMENT 7: Clear Withdrawable Balance vs Locked Funds Distinction */}
+          {/* Core Liquidity Pillar Cards: Total Deposits & Withdrawable Amount */}
           <div
             id="liquidity-pillars-card"
-            className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm text-xs"
+            className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm"
           >
+            {/* 1. Total Deposits */}
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-400">Total Balance</span>
-              <p id="liquidity-total-balance" className="text-base font-extrabold text-white mt-0.5">
-                ${(balance?.availableBalance || 0).toFixed(2)}
+              <span className="text-[10px] uppercase font-bold text-slate-400">Total Deposits</span>
+              <p id="liquidity-total-deposits" className="text-sm sm:text-base font-extrabold text-white mt-0.5">
+                ${(balance?.totalDeposited || 0).toFixed(2)}
               </p>
-              <span className="text-[10px] text-slate-400">Gross Available</span>
+              <span className="text-[10px] text-slate-400">Confirmed inbound</span>
             </div>
 
-            <div className="border-t sm:border-t-0 sm:border-l border-white/10 pt-2 sm:pt-0 sm:pl-3">
-              <span className="text-[10px] uppercase font-bold text-amber-300 flex items-center gap-1">
-                <Lock className="w-3 h-3" />
-                <span>Locked Amount</span>
-              </span>
-              <p id="liquidity-locked-balance" className="text-base font-extrabold text-amber-300 mt-0.5">
-                ${(balance?.lockedBalance || 0).toFixed(2)}
-              </p>
-              <span className="text-[10px] text-slate-400">30d Lock / Policy</span>
-            </div>
-
-            <div className="border-t sm:border-t-0 sm:border-l border-white/10 pt-2 sm:pt-0 sm:pl-3">
+            {/* 2. Withdrawable Amount */}
+            <div className="border-l border-white/10 pl-2.5 sm:pl-3">
               <span className="text-[10px] uppercase font-bold text-blue-300 flex items-center gap-1">
                 <Wallet className="w-3 h-3" />
-                <span>Withdrawable Amount</span>
+                <span>Withdrawable</span>
               </span>
-              <p id="liquidity-withdrawable-balance" className="text-base font-extrabold text-blue-300 mt-0.5">
+              <p id="liquidity-withdrawable-balance" className="text-sm sm:text-base font-extrabold text-blue-300 mt-0.5">
                 ${(balance?.eligibleForWithdrawal || 0).toFixed(2)}
               </p>
-              <span className="text-[10px] text-slate-400">Immediately Liquid</span>
+              <span className="text-[10px] text-slate-400">Available now</span>
+            </div>
+
+            {/* 3. Locked Amount (if any) or Net Principal */}
+            <div className="col-span-2 sm:col-span-1 border-t sm:border-t-0 sm:border-l border-white/10 pt-2 sm:pt-0 sm:pl-3">
+              {balance?.lockedBalance && balance.lockedBalance > 0 ? (
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-amber-300 flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    <span>Locked Balance</span>
+                  </span>
+                  <p id="liquidity-locked-balance" className="text-sm sm:text-base font-extrabold text-amber-300 mt-0.5">
+                    ${balance.lockedBalance.toFixed(2)}
+                  </p>
+                  <span className="text-[10px] text-slate-400">Under 30d lock</span>
+                </div>
+              ) : (
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-emerald-300 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" />
+                    <span>Compounding Base</span>
+                  </span>
+                  <p className="text-sm sm:text-base font-extrabold text-emerald-300 mt-0.5">
+                    ${(balance?.activeCompoundingPrincipal || 0).toFixed(2)}
+                  </p>
+                  <span className="text-[10px] text-slate-400">Active earning fund</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Quick Action Buttons */}
-          <div className="grid grid-cols-2 gap-3 pt-1">
+          {/* Action Buttons: Clear Deposit & Withdraw */}
+          <div className="grid grid-cols-2 gap-2.5 pt-0.5">
             <button
               id="hero-deposit-btn"
               onClick={() => onNavigate('deposit')}
-              className="flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
+              className="flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs sm:text-sm shadow-md shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
             >
               <ArrowDownToLine className="w-4 h-4" />
-              <span>Deposit USDT</span>
+              <span>Deposit</span>
             </button>
             <button
               id="hero-withdraw-btn"
               onClick={() => onNavigate('withdraw')}
-              className="flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm border border-slate-700 transition-all active:scale-[0.98] cursor-pointer"
+              className="flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/25 text-white font-bold text-xs sm:text-sm border border-white/15 transition-all active:scale-[0.98] cursor-pointer"
             >
               <ArrowUpFromLine className="w-4 h-4" />
-              <span>Withdraw Funds</span>
+              <span>Withdraw</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Authoritative Earnings & Principal Breakdown (No duplicate Total/Locked/Withdrawable cards) */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            <span>Financial Breakdown</span>
-          </h2>
-          <span className="text-[10px] text-slate-400">Backend Verified</span>
-        </div>
+      {/* 3. Institutional Copy Trading Announcement Banner (Dismissible, compliant wording) */}
+      {showCopyTradingBanner && (
+        <div
+          id="copy-trading-teaser-card"
+          className="relative overflow-hidden p-4 rounded-2xl bg-gradient-to-r from-blue-900/60 via-indigo-900/50 to-slate-900 border border-blue-500/30 text-white shadow-sm space-y-2.5"
+        >
+          <button
+            onClick={handleDismissCopyTrading}
+            className="absolute top-3 right-3 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            title="Dismiss announcement"
+          >
+            <X className="w-4 h-4" />
+          </button>
 
-        <div id="balance-summary-grid" className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {/* 1. Eligible Compounding Principal */}
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Compounding Principal</span>
-              <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <p id="metric-eligible-principal" className="text-lg font-extrabold text-slate-900 dark:text-white">
-              ${(balance?.activeCompoundingPrincipal || 0).toFixed(2)}
-            </p>
-            <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">Active earning base</p>
+          <div className="flex items-center space-x-2 pr-6">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-blue-500/20 text-blue-300 border border-blue-400/30 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-blue-300" />
+              <span>Coming Soon • Planned Feature</span>
+            </span>
           </div>
 
-          {/* 2. Cumulative Daily Earnings */}
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Cumulative Yield</span>
-              <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <p id="metric-daily-earnings" className="text-lg font-extrabold text-blue-600 dark:text-blue-400">
-              +${(balance?.totalEarnings || 0).toFixed(2)}
-            </p>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">Trading returns</p>
-          </div>
-
-          {/* 3. Referral Income */}
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-xs font-semibold">Referral Rewards</span>
-              <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-            </div>
-            <p id="metric-referral-income" className="text-lg font-extrabold text-purple-600 dark:text-purple-400">
-              +${totalReferralIncome.toFixed(2)}
-            </p>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">Non-compounding reward</p>
-          </div>
-        </div>
-      </div>
-
-      {/* REQUIREMENT 2 & 5: ELIGIBLE PRINCIPAL SEPARATION & MINIMUM THRESHOLD STATUS */}
-      <div
-        id="principal-accounting-section"
-        className="p-5 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              <span>Eligible Principal & Compounding Integrity</span>
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Strict accounting separation: Only genuine confirmed deposits minus completed withdrawals form compounding principal.
+            <h3 className="text-sm font-bold text-white">
+              Institutional Copy Trading
+            </h3>
+            <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+              FinexJ is planning an institutional copy trading environment targeting automated strategy mirroring with custom risk controls. Feature is under planned development and subject to platform availability.
             </p>
           </div>
-          {/* REQUIREMENT 5: Minimum Eligible Principal Indicator */}
-          <div className="self-start sm:self-auto">
-            {maintainsMinimumPrincipal ? (
-              <span
-                id="min-principal-status-active"
-                className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60"
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/10">
+            <span className="text-[10px] text-slate-400 italic">
+              * Risk Disclosure: Digital asset trading carries significant capital risk. Past performance does not guarantee future results.
+            </span>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setIsCopyTradingModalOpen(true)}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] transition flex items-center space-x-1 cursor-pointer"
               >
-                <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                <span>Threshold Maintained (≥ ${minimumEligibleThreshold} USDT)</span>
-              </span>
-            ) : (
-              <span
-                id="min-principal-status-inactive"
-                className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60"
+                <span>Read Full Disclosure</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+              <button
+                onClick={handleDismissCopyTrading}
+                className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 text-[11px] font-medium transition cursor-pointer"
               >
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                <span>Below Minimum Threshold (&lt; ${minimumEligibleThreshold} USDT)</span>
-              </span>
-            )}
+                Dismiss
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 text-xs">
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Total Confirmed Deposits</span>
-            <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
-              ${(balance?.totalDeposited || 0).toFixed(2)} USDT
-            </p>
-            <span className="text-[10px] text-slate-400">Gross inbound capital</span>
-          </div>
-
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Total Paid Withdrawals</span>
-            <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
-              ${(balance?.totalWithdrawn || 0).toFixed(2)} USDT
-            </p>
-            <span className="text-[10px] text-slate-400">Deducted from principal</span>
-          </div>
-
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Net Compounding Principal</span>
-            <p id="separated-compounding-principal" className="text-sm font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-              ${eligiblePrincipal.toFixed(2)} USDT
-            </p>
-            <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">Yield Base</span>
-          </div>
-        </div>
-
-        {/* Explicit Non-Compounding Notice */}
-        <div className="flex items-start space-x-2.5 p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/40 text-xs text-blue-900 dark:text-blue-200">
-          <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-          <p className="leading-relaxed">
-            <span className="font-bold">FINEXJ Compounding Rule:</span> Daily yield rates apply exclusively to your active compounding principal (${eligiblePrincipal.toFixed(2)} USDT). Referral rewards (${totalReferralIncome.toFixed(2)} USDT) and administrative bonuses are never compounded or rolled into the principal fund.
-          </p>
-        </div>
-      </div>
-
-      {/* REQUIREMENT 3 & 6: SPLIT ROW: DAILY EARNINGS STATUS & REFERRAL REWARDS */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* REQUIREMENT 3: DAILY EARNINGS SECTION */}
+      {/* 4. Financial Breakdown & Summaries (Compact 2-column or stacked grid) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 sm:gap-4">
+        {/* Daily Institutional Yields Card */}
         <div
           id="daily-earnings-section"
-          className="p-5 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-3.5 flex flex-col justify-between"
+          className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 flex flex-col justify-between"
         >
-          <div>
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span>Daily Institutional Yields</span>
-              </h3>
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Daily Yield Accrual
+                </h2>
+              </div>
               <span
                 id="daily-earning-status-badge"
                 className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
@@ -586,31 +436,32 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
                 }`}
               >
-                {compoundingActive ? 'Earning Active' : 'Earning Paused'}
+                {compoundingActive ? 'Earning Active' : 'Below $300 Min'}
               </span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
               {compoundingActive
-                ? `Daily performance distributed automatically based on prevailing institutional market returns.`
-                : `Account principal ($${eligiblePrincipal.toFixed(2)}) is below the $${minimumEligibleThreshold} minimum to accrue daily yield.`}
+                ? `Daily yields accrue exclusively on active compounding principal ($${eligiblePrincipal.toFixed(2)} USDT).`
+                : `Active compounding principal ($${eligiblePrincipal.toFixed(2)} USDT) requires at least $${minimumEligibleThreshold} USDT to accrue daily performance.`}
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 text-xs">
+          <div className="grid grid-cols-2 gap-2.5 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs">
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Today's Earnings</span>
-              <p id="today-earnings-amount" className="text-base font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Today's Yield</span>
+              <p id="today-earnings-amount" className="text-sm sm:text-base font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
                 +${(data?.todayEarnings || 0).toFixed(2)} USDT
               </p>
               <span className="text-[10px] text-slate-400">Credited today</span>
             </div>
 
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Accumulated Daily Yield</span>
-              <p id="accumulated-daily-earnings" className="text-base font-extrabold text-slate-900 dark:text-white mt-0.5">
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Accumulated Total</span>
+              <p id="accumulated-daily-earnings" className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white mt-0.5">
                 +${(balance?.totalEarnings || 0).toFixed(2)} USDT
               </p>
-              <span className="text-[10px] text-slate-400">Lifetime credited</span>
+              <span className="text-[10px] text-slate-400">Lifetime yields</span>
             </div>
           </div>
 
@@ -623,27 +474,29 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </button>
         </div>
 
-        {/* REQUIREMENT 6: REFERRAL INCOME (L1, L2, TOTAL) */}
+        {/* Referral Program Summary Card */}
         <div
           id="referral-income-section"
-          className="p-5 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-3.5 flex flex-col justify-between"
+          className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 flex flex-col justify-between"
         >
           {referralSummary && !referralSummary.isEligible ? (
-            /* Compact Locked State in HomeView */
+            /* Compact Locked Referral State */
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                  <span>Refer & Earn is Locked</span>
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wide">
+                <div className="flex items-center space-x-2">
+                  <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Refer & Earn (Locked)
+                  </h2>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 uppercase">
                   Locked
                 </span>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                {referralSummary.hasConfirmedDeposit || (referralSummary.totalReferrals || 0) > 0
-                  ? 'Refer & Earn is currently locked because your eligible funds are below the required minimum.'
-                  : `Maintain at least ${referralSummary.minimumRequiredPrincipal || 300} in eligible funds to unlock your referral code and start earning referral rewards.`}
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                Maintain at least {referralSummary.minimumRequiredPrincipal || 300} USDT in eligible funds to activate your referral code and earn 5% Level 1 & 2% Level 2 direct commissions.
               </p>
               <div className="pt-1 flex items-center justify-between gap-2">
                 <button
@@ -664,51 +517,48 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
           ) : (
             <>
-              <div>
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                    <span>Referral Income Accounting</span>
-                  </h3>
-                  <div className="flex items-center gap-1.5">
-                    {referralSummary?.isEligible !== undefined && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                        Eligible
-                      </span>
-                    )}
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
-                      5% L1 / 2% L2
-                    </span>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-7 h-7 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Referral Rewards
+                    </h2>
                   </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
+                    5% L1 / 2% L2
+                  </span>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Direct commission earned upon confirmed qualifying deposits (≥ $300). Separate from compounding funds.
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Earn direct rewards from qualifying deposits (≥ $300). Separated from compounding principal.
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-2.5 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 text-xs">
+              <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 1 (5%)</span>
-                  <p id="referral-l1-income" className="text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
+                  <p id="referral-l1-income" className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
                     ${l1Income.toFixed(2)}
                   </p>
-                  <span className="text-[10px] text-slate-400">Direct partners</span>
+                  <span className="text-[10px] text-slate-400">Direct</span>
                 </div>
 
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 2 (2%)</span>
-                  <p id="referral-l2-income" className="text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
+                  <p id="referral-l2-income" className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
                     ${l2Income.toFixed(2)}
                   </p>
-                  <span className="text-[10px] text-slate-400">Sub-network</span>
+                  <span className="text-[10px] text-slate-400">Sub-team</span>
                 </div>
 
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400">Total Referral</span>
-                  <p id="referral-total-income" className="text-sm font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
+                  <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400">Total</span>
+                  <p id="referral-total-income" className="text-xs sm:text-sm font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
                     ${totalReferralIncome.toFixed(2)}
                   </p>
-                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">Liquid & Free</span>
+                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">Liquid</span>
                 </div>
               </div>
 
@@ -716,7 +566,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 onClick={() => onNavigate('referrals')}
                 className="w-full py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/60 transition flex items-center justify-center space-x-1 cursor-pointer"
               >
-                <span>Open Referral Network Dashboard</span>
+                <span>Referral Network Dashboard</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </>
@@ -724,60 +574,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* Dynamic Live Market Reference Cards (Informational Display Only) */}
-      <div id="market-reference-cards" className="grid grid-cols-2 gap-3">
-        {/* Bitcoin Reference */}
-        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
-          <div>
-            <div className="flex items-center space-x-1.5">
-              <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Bitcoin Reference</p>
-              {ticker?.btc?.change24h !== null && ticker?.btc?.change24h !== undefined && (
-                <span className={`text-[10px] ${format24hChange(ticker.btc.change24h).className}`}>
-                  {format24hChange(ticker.btc.change24h).text}
-                </span>
-              )}
-            </div>
-            <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-0.5">
-              {isTickerLoading && !ticker
-                ? '——'
-                : formatBtcPrice(ticker?.btc?.price ?? market?.btcUsd)}
-            </p>
-          </div>
-          <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-blue-400 border border-blue-100 dark:border-slate-700">
-            BTC/USD
-          </span>
-        </div>
-
-        {/* Gold Reference */}
-        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
-          <div>
-            <div className="flex items-center space-x-1.5">
-              <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Gold Reference</p>
-              {ticker?.gold?.change24h !== null && ticker?.gold?.change24h !== undefined && (
-                <span className={`text-[10px] ${format24hChange(ticker.gold.change24h).className}`}>
-                  {format24hChange(ticker.gold.change24h).text}
-                </span>
-              )}
-            </div>
-            <p className="text-sm sm:text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-              {isTickerLoading && !ticker
-                ? '——'
-                : formatGoldPrice(ticker?.gold?.price ?? market?.goldUsd)}
-            </p>
-          </div>
-          <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-50 dark:bg-slate-800 text-amber-700 dark:text-amber-400 border border-amber-100 dark:border-slate-700">
-            XAU/USD
-          </span>
-        </div>
-      </div>
-
-      {/* Managed Fund & Earning Plan Presentation */}
+      {/* 5. Managed Fund Plan Presentation */}
       <InvestmentPlanSection onOpenDetailedModal={() => setIsPlanModalOpen(true)} />
 
-      {/* Recent Activity List */}
-      <div id="recent-activity-section" className="space-y-3">
+      {/* 6. Recent Ledger Activity List */}
+      <div id="recent-activity-section" className="space-y-2.5">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
             Recent Ledger Activity
           </h2>
           <button
@@ -790,12 +593,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
 
         {recent.length === 0 ? (
-          <div className="p-8 text-center rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs">
+          <div className="p-6 text-center rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs">
             No recent transactions recorded yet.
           </div>
         ) : (
           <div className="space-y-2">
-            {recent.map(item => {
+            {recent.slice(0, 4).map(item => {
               const isEarning = item.type === 'daily_earnings';
               const isLoss = item.type === 'daily_loss';
               const isDeposit = item.type === 'deposit';
@@ -813,11 +616,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="p-4 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs shadow-xs"
+                  className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs shadow-xs"
                 >
                   <div className="flex items-center space-x-3">
                     <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold ${
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold ${
                         isDeposit
                           ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           : isEarning
@@ -831,25 +634,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
                           : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
                       }`}
                     >
-                      {isDeposit && <ArrowDownToLine className="w-4 h-4" />}
-                      {isEarning && <TrendingUp className="w-4 h-4" />}
-                      {isLoss && <TrendingUp className="w-4 h-4 rotate-180 text-rose-500" />}
-                      {isWithdrawal && <ArrowUpFromLine className="w-4 h-4" />}
-                      {item.type === 'admin_adjustment' && <Wallet className="w-4 h-4" />}
+                      {isDeposit && <ArrowDownToLine className="w-3.5 h-3.5" />}
+                      {isEarning && <TrendingUp className="w-3.5 h-3.5" />}
+                      {isLoss && <TrendingUp className="w-3.5 h-3.5 rotate-180 text-rose-500" />}
+                      {isWithdrawal && <ArrowUpFromLine className="w-3.5 h-3.5" />}
+                      {item.type === 'admin_adjustment' && <Wallet className="w-3.5 h-3.5" />}
                     </div>
                     <div>
                       <p className="font-semibold text-slate-900 dark:text-white">
                         {item.description}
                       </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {new Date(item.createdAt).toLocaleString()}
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {new Date(item.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                   </div>
 
                   <div className="text-right">
                     <span
-                      className={`font-bold text-sm ${
+                      className={`font-bold text-xs sm:text-sm ${
                         isEarning || isDeposit
                           ? 'text-blue-600 dark:text-blue-400'
                           : isPaidWithdrawal
@@ -862,7 +665,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       {isEarning || isDeposit ? '+' : isLoss || isWithdrawal ? '-' : ''}${displayAmount.toFixed(2)}
                     </span>
                     <p className="text-[10px] text-slate-400">
-                      {isPaidWithdrawal ? 'PAID (USDT)' : 'USDT'}
+                      {isPaidWithdrawal ? 'PAID' : 'USDT'}
                     </p>
                   </div>
                 </div>
@@ -872,37 +675,36 @@ export const HomeView: React.FC<HomeViewProps> = ({
         )}
       </div>
 
-      {/* Live Telegram Support Quick Banner */}
-      <div id="support-quick-banner" className="p-5 rounded-2xl bg-gradient-to-r from-blue-900 to-indigo-900 border border-blue-700 text-white flex items-center justify-between shadow-md">
-        <div className="flex items-center space-x-3.5">
-          <div className="w-10 h-10 rounded-xl bg-white/10 text-white flex items-center justify-center">
-            <Headphones className="w-5 h-5" />
+      {/* 7. Official Telegram Support Quick Banner */}
+      <div id="support-quick-banner" className="p-4 rounded-2xl bg-gradient-to-r from-blue-900 to-indigo-900 border border-blue-700 text-white flex items-center justify-between shadow-xs">
+        <div className="flex items-center space-x-3">
+          <div className="w-9 h-9 rounded-xl bg-white/10 text-white flex items-center justify-center">
+            <Headphones className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-xs font-bold text-white">Official Telegram Live Support</p>
-            <p className="text-[11px] text-blue-200">Available 24/7 for deposit & withdrawal inquiries</p>
+            <p className="text-xs font-bold text-white">Official Live Telegram Support</p>
+            <p className="text-[11px] text-blue-200">24/7 assistance for deposits & withdrawals</p>
           </div>
         </div>
         <button
           onClick={onOpenSupport}
-          className="px-4 py-2 rounded-xl bg-white hover:bg-blue-50 text-blue-900 font-bold text-xs transition cursor-pointer shadow-xs"
+          className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-blue-50 text-blue-900 font-bold text-xs transition cursor-pointer shadow-xs"
         >
-          Contact Now
+          Contact
         </button>
       </div>
 
-      {/* Detailed Investment & Earning Plan Modal */}
+      {/* Detailed Investment Plan Modal */}
       <InvestmentPlanModal
         isOpen={isPlanModalOpen}
         onClose={() => setIsPlanModalOpen(false)}
       />
 
-      {/* 30-Day Fund Lock & Yield Governance Modal */}
-      <FundLockModal
-        isOpen={isFundLockModalOpen}
-        onClose={() => setIsFundLockModalOpen(false)}
-        balance={balance || null}
-        onLockUpdated={handleManualRefresh}
+      {/* Institutional Copy Trading Announcement Modal */}
+      <CopyTradingAnnouncementModal
+        isOpen={isCopyTradingModalOpen}
+        onClose={() => setIsCopyTradingModalOpen(false)}
+        onDismissForever={handleDismissCopyTrading}
       />
     </div>
   );
