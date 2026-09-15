@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { api } from '../services/api';
-import { DepositItem, AppSettings } from '../types';
+import { DepositItem, AppSettings, mapToUserDepositStatus } from '../types';
 import {
   ArrowDownToLine,
   Copy,
@@ -139,18 +139,21 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
     try {
       const res = await api.verifyUserDeposit(depId);
       if (res.success) {
-        if (res.deposit?.status === 'confirmed') {
-          setSuccessMessage(res.message || 'Deposit successfully verified on BNB Smart Chain and credited!');
+        const userStatus = mapToUserDepositStatus(res.deposit?.status);
+        if (userStatus === 'confirmed') {
+          setSuccessMessage('Deposit confirmed and credited to your account.');
           onDepositConfirmed();
+        } else if (userStatus === 'failed') {
+          setErrorMessage('Deposit verification failed.');
         } else {
-          setSuccessMessage(res.message || `Current BSC confirmations: ${res.confirmations || 0}/${res.requiredConfirmations || 12}`);
+          setSuccessMessage('Your deposit is being verified. Balance will be updated after verification is completed.');
         }
         await loadData();
       } else {
-        setErrorMessage(res.error || 'Verification on BNB Smart Chain did not succeed.');
+        setErrorMessage('Deposit verification failed.');
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to query BNB Smart Chain RPC.');
+      setErrorMessage('Deposit verification failed.');
     } finally {
       setVerifyingDepositId(null);
     }
@@ -194,29 +197,31 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
       });
 
       if (res.success && res.deposit) {
-        const isConfirmed = res.deposit.status === 'confirmed';
-        const depAmt = Number(res.deposit.amount || numAmount);
-        setSuccessMessage(
-          isConfirmed
-            ? `Deposit of $${depAmt.toFixed(2)} USDT verified on BNB Smart Chain and credited to your account!`
-            : `Deposit of $${depAmt.toFixed(2)} USDT registered on BSC. Awaiting network confirmations (${res.deposit.confirmations || 0}/${res.deposit.requiredConfirmations || 12}).`
-        );
+        const userStatus = mapToUserDepositStatus(res.deposit.status);
+        if (userStatus === 'confirmed') {
+          setSuccessMessage('Deposit confirmed and credited to your account.');
+          onDepositConfirmed();
+        } else if (userStatus === 'failed') {
+          setErrorMessage('Deposit verification failed.');
+        } else {
+          setSuccessMessage('Your deposit is being verified. Balance will be updated after verification is completed.');
+        }
         setLastSubmittedDeposit(res.deposit);
         setTxHash('');
         setUserNotes('');
         handleRemovePhoto();
         await loadData();
-        onDepositConfirmed();
       }
     } catch (err) {
-      setErrorMessage((err as Error).message || 'Deposit submission failed. Please verify your details.');
+      setErrorMessage((err as Error).message || 'Deposit verification failed.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const renderStatusBadge = (status: DepositItem['status'], confirmations?: number, requiredConfirmations?: number) => {
-    switch (status) {
+  const renderStatusBadge = (status?: string) => {
+    const userStatus = mapToUserDepositStatus(status);
+    switch (userStatus) {
       case 'confirmed':
         return (
           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
@@ -224,34 +229,19 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
             <span>Confirmed</span>
           </span>
         );
-      case 'pending':
-      case 'confirming':
-        return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
-            <Clock className="w-3 h-3" />
-            <span>
-              Pending {confirmations !== undefined ? `(${confirmations}/${requiredConfirmations || 12})` : ''}
-            </span>
-          </span>
-        );
-      case 'rejected':
+      case 'failed':
         return (
           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30">
             <XCircle className="w-3 h-3" />
-            <span>Rejected</span>
-          </span>
-        );
-      case 'failed':
-        return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-500/15 text-red-700 dark:text-red-400 border border-red-500/30">
-            <AlertCircle className="w-3 h-3" />
             <span>Failed</span>
           </span>
         );
+      case 'pending':
       default:
         return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-            <span>{status}</span>
+          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+            <Clock className="w-3 h-3" />
+            <span>Pending</span>
           </span>
         );
     }
@@ -635,83 +625,94 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
         </form>
       </div>
 
-      {/* Last Submitted Deposit Confirmation Receipt (Requirement #7 & #9) */}
-      {lastSubmittedDeposit && (
-        <div className="rounded-3xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-5 shadow-lg space-y-3 text-xs">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-400 font-bold text-sm">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>
-                {lastSubmittedDeposit.status === 'confirmed' ? 'Deposit Confirmed & Credited' : 'Deposit Registered on BSC'}
-              </span>
+      {/* Last Submitted Deposit Confirmation Receipt (Section 5) */}
+      {lastSubmittedDeposit && (() => {
+        const userStatus = mapToUserDepositStatus(lastSubmittedDeposit.status);
+        const isConfirmed = userStatus === 'confirmed';
+        const isFailed = userStatus === 'failed';
+        return (
+          <div className="rounded-3xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-5 shadow-lg space-y-3 text-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-400 font-bold text-sm">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>
+                  {isConfirmed
+                    ? 'Deposit Confirmed'
+                    : isFailed
+                    ? 'Deposit Failed'
+                    : 'Deposit Pending'}
+                </span>
+              </div>
+              {renderStatusBadge(lastSubmittedDeposit.status)}
             </div>
-            {renderStatusBadge(
-              lastSubmittedDeposit.status,
-              lastSubmittedDeposit.confirmations,
-              lastSubmittedDeposit.requiredConfirmations
-            )}
-          </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-slate-700 dark:text-slate-300">
-            <div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Amount</p>
-              <p className="font-bold text-blue-600 dark:text-blue-400 text-sm">
-                ${Number(lastSubmittedDeposit.amount || 0).toFixed(2)} USDT
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Network</p>
-              <p className="font-semibold text-slate-800 dark:text-slate-200">BEP-20 (BSC)</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Confirmations</p>
-              <p className="font-semibold text-blue-600 dark:text-blue-400">
-                {lastSubmittedDeposit.confirmations || 0} / {lastSubmittedDeposit.requiredConfirmations || 12}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Yield Eligibility</p>
-              <p className="font-semibold text-slate-800 dark:text-slate-200">
-                {lastSubmittedDeposit.eligibilityDate
-                  ? new Date(lastSubmittedDeposit.eligibilityDate).toLocaleDateString()
-                  : 'Calculated upon confirmation'}
-              </p>
-            </div>
-          </div>
+            <p className="text-slate-600 dark:text-slate-300 text-xs">
+              {isConfirmed
+                ? 'Deposit confirmed and credited to your account.'
+                : isFailed
+                ? 'Deposit verification failed.'
+                : 'Your deposit is being verified. Balance will be updated after verification is completed.'}
+            </p>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-blue-200 dark:border-blue-800">
-            {lastSubmittedDeposit.txHash && (
-              <span className="text-[11px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm">
-                TxHash: {lastSubmittedDeposit.txHash}
-              </span>
-            )}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-slate-700 dark:text-slate-300">
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Amount</p>
+                <p className="font-bold text-blue-600 dark:text-blue-400 text-sm">
+                  ${Number(lastSubmittedDeposit.amount || 0).toFixed(2)} USDT
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Network</p>
+                <p className="font-semibold text-slate-800 dark:text-slate-200">BEP-20 (BSC)</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Transaction Date</p>
+                <p className="font-semibold text-slate-800 dark:text-slate-200">
+                  {new Date(lastSubmittedDeposit.createdAt).toLocaleDateString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Status</p>
+                <p className="font-semibold text-slate-800 dark:text-slate-200 capitalize">
+                  {userStatus}
+                </p>
+              </div>
+            </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-blue-200 dark:border-blue-800">
               {lastSubmittedDeposit.txHash && (
-                <a
-                  href={`https://bscscan.com/tx/${lastSubmittedDeposit.txHash}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center space-x-1 py-1 px-2.5 rounded-lg bg-blue-600 text-white font-bold text-[11px] hover:bg-blue-700 transition"
-                >
-                  <span>Track on BscScan</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                <span className="text-[11px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm">
+                  TxID: {lastSubmittedDeposit.txHash}
+                </span>
               )}
-              {lastSubmittedDeposit.proofPhotoUrl && (
-                <button
-                  type="button"
-                  onClick={() => setPreviewModalImage(lastSubmittedDeposit.proofPhotoUrl!)}
-                  className="flex items-center space-x-1 py-1 px-2.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-bold text-[11px] hover:bg-blue-50 dark:hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <ImageIcon className="w-3 h-3" />
-                  <span>View Receipt</span>
-                </button>
-              )}
+
+              <div className="flex items-center space-x-2">
+                {lastSubmittedDeposit.txHash && (
+                  <a
+                    href={`https://bscscan.com/tx/${lastSubmittedDeposit.txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center space-x-1 py-1 px-2.5 rounded-lg bg-blue-600 text-white font-bold text-[11px] hover:bg-blue-700 transition"
+                  >
+                    <span>Track on BscScan</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+                {lastSubmittedDeposit.proofPhotoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewModalImage(lastSubmittedDeposit.proofPhotoUrl!)}
+                    className="flex items-center space-x-1 py-1 px-2.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-bold text-[11px] hover:bg-blue-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <ImageIcon className="w-3 h-3" />
+                    <span>View Receipt</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Deposit History (Requirement #10: amount, network, txHash, status, created date, confirmed date, eligibility/lock date; No admin notes or fraud info) */}
       <div className="space-y-3">
@@ -737,10 +738,10 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
         ) : (
           <div className="space-y-3">
             {deposits.map(dep => {
-              const isConfirmed = dep.status === 'confirmed';
-              const isPending = dep.status === 'pending' || dep.status === 'confirming';
-              const isRejected = dep.status === 'rejected';
-              const isFailed = dep.status === 'failed';
+              const userStatus = mapToUserDepositStatus(dep.status);
+              const isConfirmed = userStatus === 'confirmed';
+              const isPending = userStatus === 'pending';
+              const isFailed = userStatus === 'failed';
               const isVerifying = verifyingDepositId === dep.id;
 
               return (
@@ -775,10 +776,10 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                           <span className="font-extrabold text-base text-slate-900 dark:text-white">
                             +${Number(dep.amount || 0).toFixed(2)} USDT
                           </span>
-                          {renderStatusBadge(dep.status, dep.confirmations, dep.requiredConfirmations)}
+                          {renderStatusBadge(dep.status)}
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {new Date(dep.createdAt).toLocaleString()} • BEP-20 (BSC)
+                          {new Date(dep.createdAt).toLocaleDateString()} • BEP-20 (BSC)
                         </p>
                       </div>
                     </div>
@@ -794,12 +795,12 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                           {isVerifying ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              <span>Checking BSC...</span>
+                              <span>Checking Status...</span>
                             </>
                           ) : (
                             <>
                               <RefreshCw className="w-3 h-3" />
-                              <span>Check Confirmations</span>
+                              <span>Check Status</span>
                             </>
                           )}
                         </button>
@@ -842,42 +843,25 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                     </div>
                   </div>
 
-                  {/* Transaction Metadata Bar: Network, TxHash, Dates, Lock Expiry (No internal admin notes or fraud info) */}
+                  {/* Transaction Metadata Bar */}
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between text-[11px] gap-2 text-slate-500 dark:text-slate-400">
                     <div className="font-mono truncate max-w-sm flex items-center space-x-2">
                       <span className="truncate">TxID: {dep.txHash || 'Pending broadcast'}</span>
-                      {dep.blockNumber && (
-                        <span className="text-slate-400 flex items-center space-x-0.5 flex-shrink-0">
-                          <Layers className="w-3 h-3 inline" />
-                          <span>Block #{dep.blockNumber}</span>
-                        </span>
-                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
-                      {dep.confirmedAt && (
-                        <span>
-                          Confirmed: <strong className="text-slate-800 dark:text-slate-200 font-mono">{new Date(dep.confirmedAt).toLocaleDateString()}</strong>
-                        </span>
-                      )}
-
                       {isConfirmed ? (
-                        dep.depositLockEndDate ? (
-                          <span>
-                            Lock Expiry:{' '}
-                            <strong className="text-slate-800 dark:text-slate-200 font-mono">
-                              {new Date(dep.depositLockEndDate).toLocaleDateString()}
-                            </strong>
-                          </span>
-                        ) : null
+                        <span>
+                          Confirmed: <strong className="text-slate-800 dark:text-slate-200 font-mono">{new Date(dep.confirmedAt || dep.createdAt).toLocaleDateString()}</strong>
+                        </span>
                       ) : isPending ? (
                         <span className="text-amber-600 dark:text-amber-400 font-medium flex items-center space-x-1">
                           <Clock className="w-3 h-3" />
-                          <span>Awaiting {dep.requiredConfirmations || 12} BSC Confirmations</span>
+                          <span>Your deposit is being verified. Balance will be updated after verification is completed.</span>
                         </span>
                       ) : (
                         <span className="text-rose-600 dark:text-rose-400 font-medium">
-                          Verification could not be confirmed on BNB Smart Chain.
+                          Deposit verification failed.
                         </span>
                       )}
                     </div>

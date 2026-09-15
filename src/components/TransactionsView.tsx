@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
-import { UserTransaction, UserBalanceSummary, TransactionsPagination, TransactionsSummary } from '../types';
+import { UserTransaction, UserBalanceSummary, TransactionsPagination, TransactionsSummary, mapToUserDepositStatus } from '../types';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -293,11 +293,21 @@ export const TransactionsView: React.FC = () => {
               className="w-full py-2.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs focus:outline-none focus:border-blue-500 transition cursor-pointer"
             >
               <option value="all">All Statuses</option>
-              <option value="confirmed">Confirmed / Credited</option>
-              <option value="paid">Paid (Withdrawals)</option>
-              <option value="pending">Pending</option>
-              <option value="under_review">Under Review</option>
-              <option value="rejected">Rejected / Refunded</option>
+              {filterType === 'deposits' ? (
+                <>
+                  <option value="pending">Pending</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="failed">Failed</option>
+                </>
+              ) : (
+                <>
+                  <option value="confirmed">Confirmed / Credited</option>
+                  <option value="paid">Paid (Withdrawals)</option>
+                  <option value="pending">Pending</option>
+                  <option value="under_review">Under Review</option>
+                  <option value="rejected">Rejected / Refunded</option>
+                </>
+              )}
             </select>
           </div>
 
@@ -421,7 +431,19 @@ export const TransactionsView: React.FC = () => {
             let statusBadge = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
             let statusLabel = item.status || 'Completed';
 
-            if (item.status === 'confirmed' || item.status === 'paid' || item.status === 'credited' || item.status === 'completed') {
+            if (isDeposit) {
+              const depStatus = mapToUserDepositStatus(item.status);
+              if (depStatus === 'confirmed') {
+                statusBadge = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
+                statusLabel = 'Confirmed';
+              } else if (depStatus === 'failed') {
+                statusBadge = 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
+                statusLabel = 'Failed';
+              } else {
+                statusBadge = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20';
+                statusLabel = 'Pending';
+              }
+            } else if (item.status === 'confirmed' || item.status === 'paid' || item.status === 'credited' || item.status === 'completed') {
               statusBadge = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
               statusLabel = item.status === 'paid' ? 'Paid (On-Chain)' : item.status === 'credited' ? 'Credited' : 'Confirmed';
             } else if (item.status === 'pending' || item.status === 'under_review' || item.status === 'processing') {
@@ -666,8 +688,18 @@ export const TransactionsView: React.FC = () => {
 
               <div className="flex justify-between items-center text-xs">
                 <span className="text-slate-500 dark:text-slate-400 font-medium">Status</span>
-                <span className="font-extrabold uppercase text-[10px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                  {selectedTx.status}
+                <span className={`font-extrabold uppercase text-[10px] px-2 py-0.5 rounded-md border ${
+                  selectedTx.type === 'deposit'
+                    ? mapToUserDepositStatus(selectedTx.status) === 'confirmed'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                      : mapToUserDepositStatus(selectedTx.status) === 'failed'
+                      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                    : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                }`}>
+                  {selectedTx.type === 'deposit'
+                    ? mapToUserDepositStatus(selectedTx.status)
+                    : selectedTx.status}
                 </span>
               </div>
 

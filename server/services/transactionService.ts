@@ -4,7 +4,7 @@ import { getEarningsByUserId } from '../repositories/earnings';
 import { getReferralRewardsByReferrerId } from '../repositories/referrals';
 import { getLedgerByUserId } from '../repositories/ledger';
 import { calculateUserBalanceAsync } from './balanceService';
-import { UserBalanceSummary } from '../types';
+import { UserBalanceSummary, mapToUserDepositStatus } from '../types';
 
 export type UserTransactionType =
   | 'deposit'
@@ -143,10 +143,12 @@ export async function getUserTransactionsAsync(
     if (seenIds.has(rawId)) continue;
     seenIds.add(rawId);
 
-    const isConfirmed = d.status === 'confirmed';
-    const desc = isConfirmed
+    const userDepStatus = mapToUserDepositStatus(d.status);
+    const desc = userDepStatus === 'confirmed'
       ? `Confirmed BEP-20 USDT deposit of ${d.amount} USDT${d.txHash ? ` (Tx: ${d.txHash.slice(0, 10)}...)` : ''}`
-      : `BEP-20 USDT deposit submission (${d.confirmations || 0}/${d.requiredConfirmations || 12} confirmations)`;
+      : userDepStatus === 'failed'
+      ? `BEP-20 USDT deposit verification failed`
+      : `BEP-20 USDT deposit is being verified`;
 
     allItems.push({
       id: rawId,
@@ -156,17 +158,17 @@ export async function getUserTransactionsAsync(
       grossAmount: Number(d.amount),
       currency: 'USDT',
       network: 'BEP-20',
-      status: d.status,
+      status: userDepStatus,
       createdAt: d.createdAt,
-      confirmedAt: d.confirmedAt,
+      confirmedAt: userDepStatus === 'confirmed' ? d.confirmedAt : undefined,
       referenceId: String(d.id),
       reference: `DEP-${d.id}`,
       description: desc,
       txHash: d.txHash,
       fromAddress: d.fromAddress,
       toAddress: d.toAddress,
-      eligibilityDate: d.eligibilityDate,
-      depositLockEndDate: d.depositLockEndDate,
+      eligibilityDate: userDepStatus === 'confirmed' ? d.eligibilityDate : undefined,
+      depositLockEndDate: userDepStatus === 'confirmed' ? d.depositLockEndDate : undefined,
       confirmations: d.confirmations,
       requiredConfirmations: d.requiredConfirmations,
     });

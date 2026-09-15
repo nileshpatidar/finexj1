@@ -50,7 +50,7 @@ import { runAutomatedTestSuite } from './tests';
 import { getMarketPrices, marketDataService } from './market';
 import { DecimalSafe } from './utils/decimalSafe';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
-import { UserRole, User } from './types';
+import { UserRole, User, mapToUserDepositStatus } from './types';
 import { generateRequestId, logger } from './logger';
 import { AppError, Errors, centralErrorHandler } from './errors';
 import { createRateLimiter } from './rateLimit';
@@ -926,6 +926,7 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
 // Helper to sanitize user deposit records (strips admin notes, internal fraud scores, etc.)
 function sanitizeUserDeposit(d: any) {
   if (!d) return null;
+  const userStatus = mapToUserDepositStatus(d.status);
   return {
     id: String(d.id),
     userId: String(d.userId),
@@ -938,14 +939,14 @@ function sanitizeUserDeposit(d: any) {
     toAddress: d.toAddress,
     tokenContract: d.tokenContract,
     blockNumber: d.blockNumber,
-    status: d.status,
+    status: userStatus, // Strictly 'pending' | 'confirmed' | 'failed'
     confirmations: d.confirmations,
     requiredConfirmations: d.requiredConfirmations,
     createdAt: d.createdAt,
-    confirmedAt: d.confirmedAt,
+    confirmedAt: userStatus === 'confirmed' ? d.confirmedAt : undefined,
     verifiedAt: d.verifiedAt,
-    eligibilityDate: d.eligibilityDate,
-    depositLockEndDate: d.depositLockEndDate,
+    eligibilityDate: userStatus === 'confirmed' ? d.eligibilityDate : undefined,
+    depositLockEndDate: userStatus === 'confirmed' ? d.depositLockEndDate : undefined,
     proofPhotoUrl: d.proofPhotoUrl,
     userNotes: d.userNotes,
   };
@@ -990,7 +991,14 @@ app.post(['/api/user/deposits', '/user/deposits'], authMiddleware, financialRate
     }
 
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ success: true, deposit: sanitizeUserDeposit(result.deposit), balance, message: result.message });
+    const sanitizedDep = sanitizeUserDeposit(result.deposit);
+    const userFacingMessage = sanitizedDep?.status === 'confirmed'
+      ? 'Deposit confirmed and credited to your balance!'
+      : sanitizedDep?.status === 'failed'
+      ? 'Deposit verification failed.'
+      : 'Your deposit is being verified. Balance will be updated after verification is completed.';
+
+    res.json({ success: true, deposit: sanitizedDep, balance, message: userFacingMessage });
   } catch (err) {
     next(err);
   }
@@ -1010,7 +1018,19 @@ app.post(['/api/user/deposits/:id/verify', '/user/deposits/:id/verify'], authMid
 
     const result = await verifyDepositOnChainAsync(validId, user.id);
     const balance = await calculateUserBalanceAsync(user.id);
-    res.json({ ...result, deposit: sanitizeUserDeposit(result.deposit), balance });
+    const sanitizedDep = sanitizeUserDeposit(result.deposit);
+    const userFacingMessage = sanitizedDep?.status === 'confirmed'
+      ? 'Deposit confirmed and credited to your balance!'
+      : sanitizedDep?.status === 'failed'
+      ? 'Deposit verification failed.'
+      : 'Your deposit is being verified. Balance will be updated after verification is completed.';
+
+    res.json({
+      success: result.success,
+      deposit: sanitizedDep,
+      balance,
+      message: userFacingMessage,
+    });
   } catch (err) {
     next(err);
   }

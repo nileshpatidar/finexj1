@@ -34,6 +34,20 @@ export interface User {
 
 export type DepositStatus = 'pending' | 'confirming' | 'confirmed' | 'rejected' | 'failed';
 
+export type UserDepositStatus = 'pending' | 'confirmed' | 'failed';
+
+export function mapToUserDepositStatus(status?: string): UserDepositStatus {
+  if (!status) return 'pending';
+  const s = status.toLowerCase();
+  if (s === 'confirmed' || s === 'completed' || s === 'credited' || s === 'approved') {
+    return 'confirmed';
+  }
+  if (s === 'rejected' || s === 'failed' || s === 'cancelled') {
+    return 'failed';
+  }
+  return 'pending';
+}
+
 export interface Deposit {
   id: string;
   userId: string;
