@@ -23,6 +23,7 @@ import {
   PaginatedLevel1ReferralsResponse,
   PaginatedLevel2ReferralsResponse,
   WithdrawalImpactResult,
+  FinancialMessage,
   UserBalanceSummary,
   TransactionsResponse,
 } from '../types';
@@ -388,6 +389,38 @@ export const api = {
   // User Notifications & Messages
   getUserMessages: () => request<{ messages: any[]; unreadCount: number }>('/api/user/messages'),
   markMessageRead: (messageId: string) => request<{ success: boolean }>(`/api/user/messages/${messageId}/read`, { method: 'POST' }),
+
+  // Financial Messages (Step 57 - User <-> Admin Communication for Deposits & Withdrawals)
+  getUserDepositMessages: (depositId: string) =>
+    request<{ messages: FinancialMessage[] }>(`/api/user/deposits/${depositId}/messages`),
+  sendUserDepositMessage: (depositId: string, message: string) =>
+    request<{ success: boolean; message: FinancialMessage }>(`/api/user/deposits/${depositId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+  getUserWithdrawalMessages: (withdrawalId: string) =>
+    request<{ messages: FinancialMessage[] }>(`/api/user/withdrawals/${withdrawalId}/messages`),
+  sendUserWithdrawalMessage: (withdrawalId: string, message: string) =>
+    request<{ success: boolean; message: FinancialMessage }>(`/api/user/withdrawals/${withdrawalId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+
+  // Admin Financial Messages (Step 57)
+  getAdminDepositMessages: (depositId: string) =>
+    request<{ messages: FinancialMessage[] }>(`/api/admin/deposits/${depositId}/messages`),
+  sendAdminDepositMessage: (depositId: string, payload: { message: string; isInternal?: boolean }) =>
+    request<{ success: boolean; message: FinancialMessage }>(`/api/admin/deposits/${depositId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getAdminWithdrawalMessages: (withdrawalId: string) =>
+    request<{ messages: FinancialMessage[] }>(`/api/admin/withdrawals/${withdrawalId}/messages`),
+  sendAdminWithdrawalMessage: (withdrawalId: string, payload: { message: string; isInternal?: boolean }) =>
+    request<{ success: boolean; message: FinancialMessage }>(`/api/admin/withdrawals/${withdrawalId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   // Admin Messages & Deposit Proof URL
   sendAdminMessage: (payload: { userId: string; depositId?: string; withdrawalId?: string; messageType?: string; subject?: string; body: string }) =>

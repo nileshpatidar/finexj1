@@ -29,6 +29,7 @@ import {
   CheckCircle,
   Hash,
 } from 'lucide-react';
+import { FinancialMessageThread } from './FinancialMessageThread';
 
 interface AdminDepositsViewProps {
   onRefreshParentStats?: () => void;
@@ -1165,6 +1166,15 @@ export const AdminDepositsView: React.FC<AdminDepositsViewProps> = ({ onRefreshP
                           )}
                         </div>
                       )}
+
+                      {/* Communication & Notes Thread */}
+                      <div className="pt-2">
+                        <FinancialMessageThread
+                          recordType="deposit"
+                          recordId={depositDetail.deposit.id}
+                          isAdmin={true}
+                        />
+                      </div>
                     </div>
                   )}
 

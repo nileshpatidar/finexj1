@@ -24,6 +24,7 @@ import { getSettings, updateSettings } from './repositories/settings';
 import { getAuditLogs, getAuditLogsCount, createAuditLog } from './repositories/auditLogs';
 import { getSystemLogs } from './repositories/systemLogs';
 import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
+import { getFinancialMessages, createFinancialMessage, markFinancialMessagesRead } from './repositories/financialMessages';
 import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync, checkWithdrawalImpactAsync } from './services/balanceService';
 import { processDepositAsync, updateDepositStatusAsync, verifyDepositOnChainAsync } from './services/depositService';
 import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync, cancelWithdrawalAsync } from './services/withdrawalService';
@@ -1036,6 +1037,50 @@ app.post(['/api/user/deposits/:id/verify', '/user/deposits/:id/verify'], authMid
   }
 });
 
+// User Deposit Financial Messages (Step 57 - User <-> Admin Communication)
+app.get(['/api/user/deposits/:id/messages', '/user/deposits/:id/messages'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { id } = req.params;
+    const validId = validateId(id, 'Deposit ID');
+    const deposit = await getDepositById(validId);
+    if (!deposit || deposit.userId !== user.id) {
+      throw Errors.notFound('DEPOSIT_NOT_FOUND', 'Deposit record not found.');
+    }
+    const messages = await getFinancialMessages({ depositId: validId, includeInternal: false });
+    await markFinancialMessagesRead({ depositId: validId, readerUserId: user.id, readerRole: 'user' });
+    res.json({ messages });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post(['/api/user/deposits/:id/messages', '/user/deposits/:id/messages'], authMiddleware, financialRateLimiter, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { id } = req.params;
+    const validId = validateId(id, 'Deposit ID');
+    const deposit = await getDepositById(validId);
+    if (!deposit || deposit.userId !== user.id) {
+      throw Errors.notFound('DEPOSIT_NOT_FOUND', 'Deposit record not found.');
+    }
+    const { message } = req.body;
+    const cleanMsg = validateString(message, 'Message', { minLength: 1, maxLength: 2000 });
+    const created = await createFinancialMessage({
+      depositId: validId,
+      userId: user.id,
+      senderType: 'user',
+      senderId: user.id,
+      senderName: user.fullName || user.email,
+      message: cleanMsg,
+      isInternal: false,
+    });
+    res.json({ success: true, message: created });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Authenticated Blockchain Tx Verification Inspector
 app.post(['/api/blockchain/verify-tx', '/blockchain/verify-tx'], authMiddleware, async (req, res, next) => {
   try {
@@ -1256,6 +1301,50 @@ app.post(['/api/user/withdrawals/:id/cancel', '/user/withdrawals/:id/cancel'], a
 
     const balance = await calculateUserBalanceAsync(user.id);
     res.json({ success: true, withdrawal: sanitizeUserWithdrawal(result.withdrawal), balance });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// User Withdrawal Financial Messages (Step 57 - User <-> Admin Communication)
+app.get(['/api/user/withdrawals/:id/messages', '/user/withdrawals/:id/messages'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { id } = req.params;
+    const validId = validateId(id, 'Withdrawal ID');
+    const withdrawal = await getWithdrawalById(validId);
+    if (!withdrawal || withdrawal.userId !== user.id) {
+      throw Errors.notFound('WITHDRAWAL_NOT_FOUND', 'Withdrawal record not found.');
+    }
+    const messages = await getFinancialMessages({ withdrawalId: validId, includeInternal: false });
+    await markFinancialMessagesRead({ withdrawalId: validId, readerUserId: user.id, readerRole: 'user' });
+    res.json({ messages });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post(['/api/user/withdrawals/:id/messages', '/user/withdrawals/:id/messages'], authMiddleware, financialRateLimiter, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+    const { id } = req.params;
+    const validId = validateId(id, 'Withdrawal ID');
+    const withdrawal = await getWithdrawalById(validId);
+    if (!withdrawal || withdrawal.userId !== user.id) {
+      throw Errors.notFound('WITHDRAWAL_NOT_FOUND', 'Withdrawal record not found.');
+    }
+    const { message } = req.body;
+    const cleanMsg = validateString(message, 'Message', { minLength: 1, maxLength: 2000 });
+    const created = await createFinancialMessage({
+      withdrawalId: validId,
+      userId: user.id,
+      senderType: 'user',
+      senderId: user.id,
+      senderName: user.fullName || user.email,
+      message: cleanMsg,
+      isInternal: false,
+    });
+    res.json({ success: true, message: created });
   } catch (err) {
     next(err);
   }
@@ -2015,6 +2104,49 @@ app.post(['/api/admin/deposits/:id/verify', '/admin/deposits/:id/verify'], authM
   }
 });
 
+// Admin Deposit Messages (Step 57 - User <-> Admin Communication & Internal Notes)
+app.get(['/api/admin/deposits/:id/messages', '/admin/deposits/:id/messages'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin', 'support_admin']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const validId = validateId(id, 'Deposit ID');
+    const deposit = await getDepositById(validId);
+    if (!deposit) {
+      throw Errors.notFound('DEPOSIT_NOT_FOUND', 'Deposit record not found.');
+    }
+    const messages = await getFinancialMessages({ depositId: validId, includeInternal: true });
+    await markFinancialMessagesRead({ depositId: validId, readerUserId: (req as any).user.id, readerRole: 'admin' });
+    res.json({ messages });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post(['/api/admin/deposits/:id/messages', '/admin/deposits/:id/messages'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin', 'support_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { id } = req.params;
+    const validId = validateId(id, 'Deposit ID');
+    const deposit = await getDepositById(validId);
+    if (!deposit) {
+      throw Errors.notFound('DEPOSIT_NOT_FOUND', 'Deposit record not found.');
+    }
+    const { message, isInternal } = req.body;
+    const cleanMsg = validateString(message, 'Message', { minLength: 1, maxLength: 2000 });
+    const created = await createFinancialMessage({
+      depositId: validId,
+      userId: deposit.userId,
+      senderType: 'admin',
+      senderId: admin.id,
+      senderName: admin.fullName || 'FINEXJ Admin',
+      message: cleanMsg,
+      isInternal: Boolean(isInternal),
+    });
+    res.json({ success: true, message: created });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Admin Withdrawals List with Search, Multi-Filter, Pagination, and User Batch Resolution
 app.get(['/api/admin/withdrawals', '/admin/withdrawals'], authMiddleware, adminMiddleware(), async (req, res, next) => {
   try {
@@ -2415,6 +2547,49 @@ app.post(['/api/admin/withdrawals/:id/action', '/admin/withdrawals/:id/action'],
     }
 
     res.json({ success: true, withdrawal: result.withdrawal });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Withdrawal Messages (Step 57 - User <-> Admin Communication & Internal Notes)
+app.get(['/api/admin/withdrawals/:id/messages', '/admin/withdrawals/:id/messages'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin', 'support_admin']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const validId = validateId(id, 'Withdrawal ID');
+    const withdrawal = await getWithdrawalById(validId);
+    if (!withdrawal) {
+      throw Errors.notFound('WITHDRAWAL_NOT_FOUND', 'Withdrawal record not found.');
+    }
+    const messages = await getFinancialMessages({ withdrawalId: validId, includeInternal: true });
+    await markFinancialMessagesRead({ withdrawalId: validId, readerUserId: (req as any).user.id, readerRole: 'admin' });
+    res.json({ messages });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post(['/api/admin/withdrawals/:id/messages', '/admin/withdrawals/:id/messages'], authMiddleware, adminMiddleware(['super_admin', 'finance_admin', 'support_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { id } = req.params;
+    const validId = validateId(id, 'Withdrawal ID');
+    const withdrawal = await getWithdrawalById(validId);
+    if (!withdrawal) {
+      throw Errors.notFound('WITHDRAWAL_NOT_FOUND', 'Withdrawal record not found.');
+    }
+    const { message, isInternal } = req.body;
+    const cleanMsg = validateString(message, 'Message', { minLength: 1, maxLength: 2000 });
+    const created = await createFinancialMessage({
+      withdrawalId: validId,
+      userId: withdrawal.userId,
+      senderType: 'admin',
+      senderId: admin.id,
+      senderName: admin.fullName || 'FINEXJ Admin',
+      message: cleanMsg,
+      isInternal: Boolean(isInternal),
+    });
+    res.json({ success: true, message: created });
   } catch (err) {
     next(err);
   }

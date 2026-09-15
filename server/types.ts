@@ -206,6 +206,22 @@ export interface AuditLog {
   referenceId?: string;
 }
 
+export type MessageSenderType = 'user' | 'admin' | 'system';
+
+export interface FinancialMessage {
+  id: string;
+  userId: string;
+  depositId?: string;
+  withdrawalId?: string;
+  senderType: MessageSenderType;
+  senderId: string;
+  senderName?: string;
+  message: string;
+  isInternal: boolean; // true = admin internal note, false = visible to user
+  createdAt: string;
+  readAt?: string;
+}
+
 export interface AppSettings {
   bep20DepositAddress: string;
   usdtContractAddress: string;

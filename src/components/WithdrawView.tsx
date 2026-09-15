@@ -18,7 +18,12 @@ import {
   ExternalLink,
   Info,
   RefreshCw,
+  AlertCircle,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+import { FinancialMessageThread } from './FinancialMessageThread';
 
 interface WithdrawViewProps {
   onWithdrawalSubmitted: () => void;
@@ -40,6 +45,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
   const [twoFactorCode, setTwoFactorCode] = useState<string>('');
   const [otpCode, setOtpCode] = useState<string>('');
   const [userNotes, setUserNotes] = useState<string>('');
+  const [expandedMessageWithdrawalId, setExpandedMessageWithdrawalId] = useState<string | null>(null);
 
   // Authoritative backend preview state
   const [previewImpact, setPreviewImpact] = useState<WithdrawalImpactResult | null>(null);
@@ -1006,6 +1012,47 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
                       </a>
                     </div>
                   )}
+
+                  {/* Rejection Notice Banner */}
+                  {wd.rejectionReason && (
+                    <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-xs text-red-700 dark:text-red-300 space-y-1">
+                      <div className="font-bold flex items-center space-x-1.5">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>Official Rejection Notice:</span>
+                      </div>
+                      <p className="leading-relaxed">{wd.rejectionReason}</p>
+                    </div>
+                  )}
+
+                  {/* User Memo Display */}
+                  {wd.userNotes && (
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">Your Withdrawal Memo:</span> {wd.userNotes}
+                    </div>
+                  )}
+
+                  {/* Communication Thread Expander */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedMessageWithdrawalId(expandedMessageWithdrawalId === wd.id ? null : wd.id)}
+                      className="flex items-center space-x-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 transition cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Support & Communication Notes</span>
+                      {expandedMessageWithdrawalId === wd.id ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    {expandedMessageWithdrawalId === wd.id && (
+                      <div className="mt-3">
+                        <FinancialMessageThread recordType="withdrawal" recordId={wd.id} isAdmin={false} />
+                      </div>
+                    )}
+                  </div>
 
                   <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
                     <span>Ref: {wd.reference}</span>

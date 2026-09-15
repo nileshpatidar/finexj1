@@ -31,7 +31,7 @@ export function mapDbDepositToDeposit(d: any): Deposit {
     eligibilityDate: d.eligibility_date || undefined,
     depositLockEndDate: d.lock_expires_at || d.deposit_lock_end_date || undefined,
     proofPhotoUrl,
-    userNotes: d.notes || d.user_notes || undefined,
+    userNotes: d.user_notes || d.notes || undefined,
     adminNotes: d.admin_notes || undefined,
     reviewedAt: d.reviewed_at || undefined,
     reviewedBy: d.reviewed_by || undefined,
@@ -193,6 +193,7 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
     payload.proof_url = dep.proofPhotoUrl;
   }
   if (dep.userNotes) {
+    payload.user_notes = dep.userNotes;
     payload.notes = dep.userNotes;
   }
 
@@ -231,8 +232,11 @@ export async function updateDeposit(id: string, updates: Partial<Deposit>): Prom
   if (updates.confirmedAt !== undefined) payload.confirmed_at = updates.confirmedAt;
   if (updates.verifiedAt !== undefined) payload.verified_at = updates.verifiedAt;
   if (updates.adminNotes !== undefined) {
-    payload.notes = updates.adminNotes;
     payload.admin_notes = updates.adminNotes;
+  }
+  if (updates.userNotes !== undefined) {
+    payload.user_notes = updates.userNotes;
+    payload.notes = updates.userNotes;
   }
   if (updates.reviewedAt !== undefined) payload.reviewed_at = updates.reviewedAt;
   if (updates.reviewedBy !== undefined) payload.reviewed_by = updates.reviewedBy;

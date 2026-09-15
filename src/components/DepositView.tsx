@@ -22,7 +22,11 @@ import {
   Layers,
   AlertCircle,
   HelpCircle,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+import { FinancialMessageThread } from './FinancialMessageThread';
 
 interface DepositViewProps {
   onDepositConfirmed: () => void;
@@ -46,6 +50,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastSubmittedDeposit, setLastSubmittedDeposit] = useState<DepositItem | null>(null);
+  const [expandedMessageDepositId, setExpandedMessageDepositId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -865,6 +870,36 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
                         </span>
                       )}
                     </div>
+                  </div>
+
+                  {/* User Memo Display */}
+                  {dep.userNotes && (
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">Your Deposit Memo:</span> {dep.userNotes}
+                    </div>
+                  )}
+
+                  {/* Communication Thread Expander */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedMessageDepositId(expandedMessageDepositId === dep.id ? null : dep.id)}
+                      className="flex items-center space-x-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 transition cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Support & Communication Notes</span>
+                      {expandedMessageDepositId === dep.id ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    {expandedMessageDepositId === dep.id && (
+                      <div className="mt-3">
+                        <FinancialMessageThread recordType="deposit" recordId={dep.id} isAdmin={false} />
+                      </div>
+                    )}
                   </div>
                 </div>
               );

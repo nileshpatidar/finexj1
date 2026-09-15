@@ -257,6 +257,23 @@ export interface WithdrawalItem {
   payoutTxHash?: string;
   adminNotes?: string;
   userNotes?: string;
+  rejectionReason?: string;
+}
+
+export type MessageSenderType = 'user' | 'admin' | 'system';
+
+export interface FinancialMessage {
+  id: string;
+  userId: string;
+  depositId?: string;
+  withdrawalId?: string;
+  senderType: MessageSenderType;
+  senderId: string;
+  senderName?: string;
+  message: string;
+  isInternal: boolean;
+  createdAt: string;
+  readAt?: string;
 }
 
 export interface AdminWithdrawalsListResponse {

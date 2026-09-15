@@ -37,6 +37,7 @@ import {
   AlertCircle,
   FlaskConical,
 } from 'lucide-react';
+import { FinancialMessageThread } from './FinancialMessageThread';
 
 interface AdminWithdrawalsViewProps {
   onRefreshParentStats?: () => void;
@@ -1099,6 +1100,15 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
                           )}
                         </div>
 
+                        {withdrawalDetail.withdrawal.userNotes && (
+                          <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+                            <span className="text-slate-400 block text-[11px] font-semibold mb-0.5">User Memo / Notes:</span>
+                            <p className="p-2 rounded bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] border border-slate-200/50 dark:border-slate-700/60">
+                              {withdrawalDetail.withdrawal.userNotes}
+                            </p>
+                          </div>
+                        )}
+
                         {withdrawalDetail.withdrawal.adminNotes && (
                           <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
                             <span className="text-slate-400 block text-[11px] font-semibold mb-0.5">Admin Notes / Rejection Reason:</span>
@@ -1107,6 +1117,15 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
                             </p>
                           </div>
                         )}
+
+                        {/* Communication & Notes Thread */}
+                        <div className="pt-2">
+                          <FinancialMessageThread
+                            recordType="withdrawal"
+                            recordId={withdrawalDetail.withdrawal.id}
+                            isAdmin={true}
+                          />
+                        </div>
                       </div>
                     </div>
                   )}
