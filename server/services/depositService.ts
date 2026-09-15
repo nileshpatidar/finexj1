@@ -148,7 +148,9 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
     // proceed
   }
 
-  const isTestUser = process.env.NODE_ENV !== 'production' && user.isTestUser === true;
+  // Designated test-user BSC verification bypass: allowed even when NODE_ENV=production.
+  // Must be determined strictly server-side from the authenticated user's database record.
+  const isTestUser = user.isTestUser === true;
 
   let verification: VerificationResult;
 
@@ -171,7 +173,7 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
       };
     }
   } else {
-    // Non-Production Testing Bypass ONLY: Strictly prohibited in production
+    // Designated test-user verification bypass
     const reqConf = Number(settings.requiredConfirmations);
     verification = {
       isValid: true,
@@ -362,7 +364,9 @@ export async function verifyDepositOnChainAsync(
   }
 
   const depositUser = await getProfileById(deposit.userId);
-  const isTestUser = process.env.NODE_ENV !== 'production' && depositUser?.isTestUser === true;
+  // Designated test-user BSC verification bypass: allowed even when NODE_ENV=production.
+  // Must be determined strictly server-side from the authenticated user's database record.
+  const isTestUser = depositUser?.isTestUser === true;
 
   let verification: VerificationResult;
 
