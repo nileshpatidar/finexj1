@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { EarningItem } from '../types';
 import { InvestmentPlanSection } from './InvestmentPlanSection';
 import { InvestmentPlanModal } from './InvestmentPlanModal';
@@ -11,6 +12,9 @@ import {
 } from 'lucide-react';
 
 export const EarningsView: React.FC = () => {
+  const { user, token, isLoading: isAuthLoading } = useAuth();
+  const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
+
   const [earnings, setEarnings] = useState<EarningItem[]>([]);
   const [totalEarnings, setTotalEarnings] = useState<number>(0);
   const [totalCount, setTotalCount] = useState<number | null>(null);
@@ -36,6 +40,13 @@ export const EarningsView: React.FC = () => {
 
   // Initial load: 30 latest records
   useEffect(() => {
+    if (!isAuthenticatedUser || isAuthLoading) {
+      setEarnings([]);
+      setTotalEarnings(0);
+      setTotalCount(null);
+      setIsLoading(false);
+      return;
+    }
     let isMounted = true;
     const loadInitial = async () => {
       try {
@@ -60,11 +71,11 @@ export const EarningsView: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAuthenticatedUser, isAuthLoading]);
 
   // Progressive loading of older records (page + 1)
   const loadMore = useCallback(async () => {
-    if (isLoadingRef.current || isLoadingMoreRef.current || !hasMoreRef.current) {
+    if (!isAuthenticatedUser || isLoadingRef.current || isLoadingMoreRef.current || !hasMoreRef.current) {
       return;
     }
     const nextPage = pageRef.current + 1;

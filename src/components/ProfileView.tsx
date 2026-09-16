@@ -28,7 +28,8 @@ interface ProfileViewProps {
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance }) => {
-  const { user, logout, logoutAll, refreshUser } = useAuth();
+  const { user, token, isLoading: isAuthLoading, logout, logoutAll, refreshUser } = useAuth();
+  const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
   const { minimumDepositAmount, referralRewardL1Percentage, referralRewardL2Percentage } = useSettings();
   const minDeposit = minimumDepositAmount || 300;
   const [dashboardBalance, setDashboardBalance] = useState<UserBalanceSummary | null>(balance || null);
@@ -38,16 +39,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
   useEffect(() => {
     if (balance) {
       setDashboardBalance(balance);
-    } else {
+    } else if (isAuthenticatedUser && !isAuthLoading) {
+      let isMounted = true;
       api.getDashboard()
         .then(res => {
-          if (res?.balance) {
+          if (isMounted && res?.balance) {
             setDashboardBalance(res.balance);
           }
         })
         .catch(() => {});
+      return () => {
+        isMounted = false;
+      };
+    } else {
+      setDashboardBalance(null);
     }
-  }, [balance]);
+  }, [balance, isAuthenticatedUser, isAuthLoading]);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');

@@ -43,7 +43,7 @@ interface AdminDashboardProps {
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
-  const { user } = useAuth();
+  const { user, token, isLoading: isAuthLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'accounting' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'settings' | 'migrations'>('overview');
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
@@ -86,10 +86,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const [adjustAmount, setAdjustAmount] = useState('');
   const [adjustReason, setAdjustReason] = useState('');
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const isAdmin = Boolean(token && user && (user.role === 'admin' || user.role === 'super_admin'));
 
   const loadAllAdminData = async () => {
-    if (!isAdmin) return;
+    if (!isAdmin || isAuthLoading) {
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     try {
       const [dash, uList, dList, wList, pList, aList, sList] = await Promise.all([
@@ -116,10 +119,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   };
 
   useEffect(() => {
-    if (isAdmin) {
+    if (isAdmin && !isAuthLoading) {
       loadAllAdminData();
+    } else {
+      setIsLoading(false);
     }
-  }, [isAdmin]);
+  }, [isAdmin, isAuthLoading]);
 
   const handleApplyPerformance = async (e: React.FormEvent) => {
     e.preventDefault();

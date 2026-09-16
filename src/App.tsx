@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -45,38 +45,50 @@ const AppContent: React.FC = () => {
     }
   }, [user]);
 
+  const dashboardReqIdRef = useRef(0);
+  const prevViewRef = useRef(currentView);
+
   // Fetch user dashboard ONLY if authenticated as standard user
   const fetchDashboard = useCallback(async () => {
-    if (!token || !user || user.role !== 'user') {
+    if (!token || !user || user.role !== 'user' || isAuthLoading) {
       setIsLoadingDashboard(false);
       return;
     }
+    const reqId = ++dashboardReqIdRef.current;
     try {
       const data = await api.getDashboard();
-      setDashboardData(data);
+      if (reqId === dashboardReqIdRef.current) {
+        setDashboardData(data);
+      }
     } catch (err) {
-      console.warn('Dashboard fetch issue:', err);
+      if (reqId === dashboardReqIdRef.current) {
+        console.warn('Dashboard fetch issue:', err);
+      }
     } finally {
-      setIsLoadingDashboard(false);
+      if (reqId === dashboardReqIdRef.current) {
+        setIsLoadingDashboard(false);
+      }
     }
-  }, [token, user]);
+  }, [token, user, isAuthLoading]);
 
   useEffect(() => {
-    if (token && user && user.role === 'user') {
+    if (token && user && user.role === 'user' && !isAuthLoading) {
       fetchDashboard();
       // Poll every 30 seconds for live market prices and credited earnings for active user
       const interval = setInterval(fetchDashboard, 30000);
       return () => clearInterval(interval);
     } else {
+      setDashboardData(null);
       setIsLoadingDashboard(false);
     }
-  }, [token, user, fetchDashboard]);
+  }, [token, user, isAuthLoading, fetchDashboard]);
 
-  // Revalidate fresh dashboard balances whenever navigating back to home
+  // Revalidate fresh dashboard balances whenever navigating back to home from another view
   useEffect(() => {
-    if (currentView === 'home' && token && user && user.role === 'user') {
+    if (currentView === 'home' && prevViewRef.current !== 'home' && token && user && user.role === 'user') {
       fetchDashboard();
     }
+    prevViewRef.current = currentView;
   }, [currentView, token, user, fetchDashboard]);
 
   // Handle URL hash / back navigation
@@ -147,7 +159,12 @@ const AppContent: React.FC = () => {
 
             {currentView === 'transactions' && <TransactionsView />}
 
-            {currentView === 'referrals' && <ReferralView onNavigate={setCurrentView} />}
+            {currentView === 'referrals' && (
+              <ReferralView
+                onNavigate={setCurrentView}
+                initialSummary={dashboardData?.referralSummary}
+              />
+            )}
 
             {currentView === 'profile' && (
               <ProfileView onNavigate={setCurrentView} balance={dashboardData?.balance} />

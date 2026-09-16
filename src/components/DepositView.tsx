@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import { DepositItem, AppSettings, mapToUserDepositStatus } from '../types';
 import {
   ArrowDownToLine,
@@ -33,10 +35,12 @@ interface DepositViewProps {
 }
 
 export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) => {
-  const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const { user, token, isLoading: isAuthLoading } = useAuth();
+  const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
+  const { settings, isLoading: isLoadingSettings } = useSettings();
   const [deposits, setDeposits] = useState<DepositItem[]>([]);
   const [isLoadingDeposits, setIsLoadingDeposits] = useState(false);
+  const depositReqIdRef = useRef(0);
   const [txHash, setTxHash] = useState('');
   const [amount, setAmount] = useState<string>('');
   const [userNotes, setUserNotes] = useState('');
@@ -54,29 +58,43 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!token || !user || user.role !== 'user' || isAuthLoading) {
+      setIsLoadingDeposits(false);
+      setDeposits([]);
+      return;
+    }
+    const currentReqId = ++depositReqIdRef.current;
     setIsLoadingDeposits(true);
     try {
-      const [settRes, depRes] = await Promise.all([
-        api.getSettings(),
-        api.getDeposits(),
-      ]);
-      setSettings(settRes);
-      if (settRes?.minimumDepositAmount && !amount) {
-        setAmount(String(settRes.minimumDepositAmount));
+      const depRes = await api.getDeposits();
+      if (currentReqId === depositReqIdRef.current) {
+        setDeposits(depRes.deposits || []);
       }
-      setDeposits(depRes.deposits || []);
     } catch (err) {
       console.warn('Error loading deposit data:', err);
     } finally {
-      setIsLoadingSettings(false);
-      setIsLoadingDeposits(false);
+      if (currentReqId === depositReqIdRef.current) {
+        setIsLoadingDeposits(false);
+      }
     }
-  };
+  }, [token, user, isAuthLoading]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (isAuthenticatedUser) {
+      loadData();
+    } else {
+      setDeposits([]);
+      setIsLoadingDeposits(false);
+    }
+  }, [isAuthenticatedUser, loadData]);
+
+  // Pre-fill default minimum deposit amount from authoritative shared settings
+  useEffect(() => {
+    if (settings?.minimumDepositAmount && !amount) {
+      setAmount(String(settings.minimumDepositAmount));
+    }
+  }, [settings?.minimumDepositAmount]);
 
   // System-configured authoritative deposit address (NEVER hardcoded)
   const depositAddress = settings?.bep20DepositAddress || '';
@@ -358,6 +376,11 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Network: <strong>BNB Smart Chain (BEP-20)</strong> • Token: <strong>Tether USD (USDT)</strong>
             </p>
+            {settings?.usdtContractAddress && (
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono break-all">
+                Contract: <span className="text-slate-700 dark:text-slate-300">{settings.usdtContractAddress}</span>
+              </p>
+            )}
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { AppSettings } from '../types';
 import { api } from '../services/api';
 
@@ -44,32 +44,57 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const lastReqIdRef = useRef(0);
+  const lastFetchedTimeRef = useRef(0);
 
   const refreshSettings = useCallback(async () => {
+    const reqId = ++lastReqIdRef.current;
     try {
       const data = await api.getSettings();
-      if (data && typeof data.withdrawalFeePercentage === 'number' && !isNaN(data.withdrawalFeePercentage)) {
-        setSettings(data);
-        setError(null);
-      } else if (data) {
-        setSettings(data);
-        setError(null);
-      } else {
-        setError('Financial configuration is temporarily unavailable.');
+      // Guard against race conditions where an older response overwrites a newer response
+      if (reqId === lastReqIdRef.current) {
+        if (data && typeof data.withdrawalFeePercentage === 'number' && !isNaN(data.withdrawalFeePercentage)) {
+          setSettings(data);
+          setError(null);
+        } else if (data) {
+          setSettings(data);
+          setError(null);
+        } else {
+          setError('Financial configuration is temporarily unavailable.');
+        }
+        lastFetchedTimeRef.current = Date.now();
       }
     } catch (err: any) {
-      console.warn('Failed to load authoritative system settings from backend:', err);
-      setError(err?.message || 'Financial configuration is temporarily unavailable. Please try again later.');
+      if (reqId === lastReqIdRef.current) {
+        console.warn('Failed to load authoritative system settings from backend:', err);
+        setError(err?.message || 'Financial configuration is temporarily unavailable. Please try again later.');
+      }
     } finally {
-      setIsLoading(false);
+      if (reqId === lastReqIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     refreshSettings();
-    // Poll settings every 15 seconds so admin updates reflect in real-time on user UI
-    const interval = setInterval(refreshSettings, 15000);
-    return () => clearInterval(interval);
+
+    // Revalidate on tab focus/visibility change if settings are older than 30 seconds
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastFetchedTimeRef.current > 30000) {
+        refreshSettings();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Conservative background polling interval (60s instead of 15s, 75% traffic reduction)
+    // Ensures admin adjustments reliably propagate to active user sessions
+    const interval = setInterval(refreshSettings, 60000);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [refreshSettings]);
 
   const withdrawalFeePercentage = settings?.withdrawalFeePercentage ?? 0;

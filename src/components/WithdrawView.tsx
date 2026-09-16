@@ -30,13 +30,15 @@ interface WithdrawViewProps {
 }
 
 export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitted }) => {
-  const { user } = useAuth();
+  const { user, token, isLoading: isAuthLoading } = useAuth();
+  const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
   const { withdrawalFeePercentage, accountAgeRequirementDays, minimumDepositAmount } = useSettings();
 
   // Financial data state
   const [balance, setBalance] = useState<UserBalanceSummary | null>(null);
   const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const withdrawReqIdRef = useRef(0);
 
   // Withdrawal form state
   const [amount, setAmount] = useState<string>('100');
@@ -82,27 +84,44 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
 
   // Load balance and withdrawal records
   const loadData = useCallback(async () => {
+    if (!token || !user || user.role !== 'user' || isAuthLoading) {
+      setIsLoadingData(false);
+      setWithdrawals([]);
+      setBalance(null);
+      return;
+    }
+    const currentReqId = ++withdrawReqIdRef.current;
     setIsLoadingData(true);
     try {
       const res = await api.getWithdrawals();
-      setWithdrawals(res.withdrawals || []);
-      setBalance(res.balance || null);
+      if (currentReqId === withdrawReqIdRef.current) {
+        setWithdrawals(res.withdrawals || []);
+        setBalance(res.balance || null);
+      }
     } catch (err) {
       console.warn('Failed to load withdrawal data:', err);
     } finally {
-      setIsLoadingData(false);
+      if (currentReqId === withdrawReqIdRef.current) {
+        setIsLoadingData(false);
+      }
     }
-  }, []);
+  }, [token, user, isAuthLoading]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (isAuthenticatedUser) {
+      loadData();
+    } else {
+      setWithdrawals([]);
+      setBalance(null);
+      setIsLoadingData(false);
+    }
+  }, [isAuthenticatedUser, loadData]);
 
   // Debounced Authoritative Backend Preview fetch
   const numAmount = parseFloat(amount) || 0;
 
   const fetchPreview = useCallback(async (reqAmount: number) => {
-    if (reqAmount <= 0) {
+    if (!isAuthenticatedUser || reqAmount <= 0) {
       setPreviewImpact(null);
       setPreviewError(null);
       return;
@@ -125,9 +144,13 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
     } finally {
       setIsPreviewLoading(false);
     }
-  }, []);
+  }, [isAuthenticatedUser]);
 
   useEffect(() => {
+    if (!isAuthenticatedUser) {
+      setPreviewImpact(null);
+      return;
+    }
     const handler = setTimeout(() => {
       if (numAmount > 0) {
         fetchPreview(numAmount);
@@ -137,7 +160,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
     }, 400);
 
     return () => clearTimeout(handler);
-  }, [numAmount, fetchPreview]);
+  }, [numAmount, fetchPreview, isAuthenticatedUser]);
 
   // OTP Cooldown Countdown
   useEffect(() => {

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DashboardResponse, UserReferralSummary, WithdrawalItem } from '../types';
 import { InvestmentPlanSection } from './InvestmentPlanSection';
 import { InvestmentPlanModal } from './InvestmentPlanModal';
 import { CopyTradingAnnouncementModal } from './CopyTradingAnnouncementModal';
 import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import {
   TrendingUp,
   ArrowDownToLine,
@@ -41,6 +42,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
   isLoading,
   onRefresh,
 }) => {
+  const { user: authUser, token, isLoading: isAuthLoading } = useAuth();
+  const isAuthenticatedUser = Boolean(token && authUser && authUser.role === 'user');
+
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isCopyTradingModalOpen, setIsCopyTradingModalOpen] = useState(false);
   const [showCopyTradingBanner, setShowCopyTradingBanner] = useState(false);
@@ -49,6 +53,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // Fallback state if referralSummary or activePendingWithdrawal not embedded in data
   const [localReferralSummary, setLocalReferralSummary] = useState<UserReferralSummary | null>(null);
   const [localPendingWithdrawal, setLocalPendingWithdrawal] = useState<WithdrawalItem | null>(null);
+  const activeReqIdRef = useRef(0);
 
   const balance = data?.balance;
   const user = data?.user;
@@ -84,12 +89,23 @@ export const HomeView: React.FC<HomeViewProps> = ({
     setIsCopyTradingModalOpen(false);
   };
 
-  // Revalidate secondary data if not provided directly in dashboard payload
+  // Sync secondary data directly from dashboard payload, only falling back if omitted and authenticated
   useEffect(() => {
-    if (!data?.referralSummary) {
+    // If not authenticated as standard user, clear local state and NEVER fire authenticated fallback APIs
+    if (!isAuthenticatedUser || isAuthLoading) {
+      setLocalReferralSummary(null);
+      setLocalPendingWithdrawal(null);
+      return;
+    }
+
+    const currentReqId = ++activeReqIdRef.current;
+
+    if (data?.referralSummary) {
+      setLocalReferralSummary(data.referralSummary);
+    } else if (data && !data.referralSummary) {
       api.getUserReferralSummary()
         .then(res => {
-          if (res.success && res.summary) {
+          if (currentReqId === activeReqIdRef.current && res.success && res.summary) {
             setLocalReferralSummary(res.summary);
           }
         })
@@ -98,10 +114,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
         });
     }
 
-    if (data?.activePendingWithdrawal === undefined) {
+    if (data?.activePendingWithdrawal !== undefined) {
+      setLocalPendingWithdrawal(data.activePendingWithdrawal);
+    } else if (data && data.activePendingWithdrawal === undefined) {
       api.getWithdrawals()
         .then(res => {
-          if (res.withdrawals) {
+          if (currentReqId === activeReqIdRef.current && res.withdrawals) {
             const pending = res.withdrawals.find(w =>
               ['pending', 'under_review', 'approved', 'processing'].includes(w.status)
             );
@@ -112,27 +130,30 @@ export const HomeView: React.FC<HomeViewProps> = ({
           // Gracefully continue
         });
     }
-  }, [data]);
+  }, [data, isAuthenticatedUser, isAuthLoading]);
 
   const handleManualRefresh = async () => {
-    if (isRefreshing) return;
+    if (isRefreshing || !isAuthenticatedUser || isAuthLoading) return;
     setIsRefreshing(true);
     try {
       if (onRefresh) {
         await onRefresh();
       }
-      const [refRes, withRes] = await Promise.allSettled([
-        api.getUserReferralSummary(),
-        api.getWithdrawals(),
-      ]);
-      if (refRes.status === 'fulfilled' && refRes.value.success) {
-        setLocalReferralSummary(refRes.value.summary);
-      }
-      if (withRes.status === 'fulfilled' && withRes.value.withdrawals) {
-        const pending = withRes.value.withdrawals.find(w =>
-          ['pending', 'under_review', 'approved', 'processing'].includes(w.status)
-        );
-        setLocalPendingWithdrawal(pending || null);
+      // Only execute secondary fallback if strictly authenticated as a standard user
+      if (isAuthenticatedUser && data && (!data.referralSummary || data.activePendingWithdrawal === undefined)) {
+        const [refRes, withRes] = await Promise.allSettled([
+          !data.referralSummary ? api.getUserReferralSummary() : Promise.resolve(null),
+          data.activePendingWithdrawal === undefined ? api.getWithdrawals() : Promise.resolve(null),
+        ]);
+        if (refRes.status === 'fulfilled' && refRes.value && 'summary' in refRes.value && refRes.value.summary) {
+          setLocalReferralSummary(refRes.value.summary);
+        }
+        if (withRes.status === 'fulfilled' && withRes.value && 'withdrawals' in withRes.value && withRes.value.withdrawals) {
+          const pending = withRes.value.withdrawals.find(w =>
+            ['pending', 'under_review', 'approved', 'processing'].includes(w.status)
+          );
+          setLocalPendingWithdrawal(pending || null);
+        }
       }
     } finally {
       setTimeout(() => setIsRefreshing(false), 500);

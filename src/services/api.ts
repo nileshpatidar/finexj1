@@ -33,46 +33,74 @@ import {
 
 const API_BASE = '';
 
+// In-memory registry for deduplicating identical simultaneous in-flight GET requests
+const inFlightGetRequests = new Map<string, Promise<any>>();
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const method = (options.method || 'GET').toUpperCase();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   };
 
-  try {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      credentials: 'same-origin', // Transmits secure HttpOnly session cookies automatically
-      headers,
-    });
-
-    const rawText = await res.text();
-    let data: any;
-
-    try {
-      data = JSON.parse(rawText);
-    } catch {
-      // If the response is not valid JSON (e.g. serverless gateway error)
-      if (!res.ok) {
-        throw new Error(rawText.slice(0, 150) || `Server returned error status ${res.status}`);
-      }
-      data = rawText;
-    }
-
-    if (!res.ok) {
-      const errMsg =
-        (typeof data === 'object' && data !== null && (data.error?.message || data.error || data.message)) ||
-        `Server request failed with status ${res.status}`;
-      throw new Error(errMsg);
-    }
-
-    return data as T;
-  } catch (err) {
-    throw err;
+  // Deduplicate concurrent GET requests to the exact same endpoint while in-flight
+  const canDedupe = method === 'GET';
+  if (canDedupe && inFlightGetRequests.has(endpoint)) {
+    return inFlightGetRequests.get(endpoint)! as Promise<T>;
   }
+
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        credentials: 'same-origin', // Transmits secure HttpOnly session cookies automatically
+        headers,
+      });
+
+      const rawText = await res.text();
+      let data: any;
+
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // If the response is not valid JSON (e.g. serverless gateway error)
+        if (!res.ok) {
+          throw new Error(rawText.slice(0, 150) || `Server returned error status ${res.status}`);
+        }
+        data = rawText;
+      }
+
+      if (!res.ok) {
+        const errMsg =
+          (typeof data === 'object' && data !== null && (data.error?.message || data.error || data.message)) ||
+          `Server request failed with status ${res.status}`;
+        throw new Error(errMsg);
+      }
+
+      return data as T;
+    } finally {
+      if (canDedupe) {
+        inFlightGetRequests.delete(endpoint);
+      }
+    }
+  })();
+
+  if (canDedupe) {
+    inFlightGetRequests.set(endpoint, fetchPromise);
+  }
+
+  return fetchPromise;
 }
 
 export const api = {
+  // In-flight request deduplication control
+  clearInFlight: (endpoint?: string) => {
+    if (endpoint) {
+      inFlightGetRequests.delete(endpoint);
+    } else {
+      inFlightGetRequests.clear();
+    }
+  },
   // Auth (Session tokens managed securely via HttpOnly cookies)
   register: (payload: any) => request<{ success: boolean; user: UserProfile }>('/api/auth/register', {
     method: 'POST',
@@ -115,11 +143,17 @@ export const api = {
 
   getDeposits: () => request<{ deposits: DepositItem[] }>('/api/user/deposits'),
 
-  submitDeposit: (payload: { txHash?: string; amount?: number; proofPhotoUrl?: string; userNotes?: string }) =>
-    request<{ success: boolean; deposit: DepositItem; balance: any }>('/api/user/deposits', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+  submitDeposit: async (payload: { txHash?: string; amount?: number; proofPhotoUrl?: string; userNotes?: string }) => {
+    try {
+      return await request<{ success: boolean; deposit: DepositItem; balance: any }>('/api/user/deposits', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } finally {
+      inFlightGetRequests.delete('/api/user/dashboard');
+      inFlightGetRequests.delete('/api/user/deposits');
+    }
+  },
 
   getEarnings: (params?: { page?: number; pageSize?: number }) => {
     const query = new URLSearchParams();
@@ -149,7 +183,7 @@ export const api = {
       method: 'POST',
     }),
 
-  submitWithdrawal: (payload: {
+  submitWithdrawal: async (payload: {
     requestedAmount: number;
     destinationAddress: string;
     network?: string;
@@ -161,25 +195,36 @@ export const api = {
     confirmMinimumBreak?: boolean;
     idempotencyKey?: string;
     userNotes?: string;
-  }) =>
-    request<{
-      success: boolean;
-      withdrawal?: WithdrawalItem;
-      balance?: UserBalanceSummary;
-      requiresOtp?: boolean;
-      requiresConfirmation?: boolean;
-      warningType?: 'COMPOUNDING_NOTICE' | 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
-      error?: string;
-    }>('/api/user/withdrawals', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+  }) => {
+    try {
+      return await request<{
+        success: boolean;
+        withdrawal?: WithdrawalItem;
+        balance?: UserBalanceSummary;
+        requiresOtp?: boolean;
+        requiresConfirmation?: boolean;
+        warningType?: 'COMPOUNDING_NOTICE' | 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
+        error?: string;
+      }>('/api/user/withdrawals', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } finally {
+      inFlightGetRequests.delete('/api/user/dashboard');
+      inFlightGetRequests.delete('/api/user/withdrawals');
+    }
+  },
 
-  lockFunds: (days: number = 30, reason?: string) =>
-    request<{ success: boolean; fundLockUntil: string; balance: any; message: string }>('/api/user/lock-funds', {
-      method: 'POST',
-      body: JSON.stringify({ days, reason }),
-    }),
+  lockFunds: async (days: number = 30, reason?: string) => {
+    try {
+      return await request<{ success: boolean; fundLockUntil: string; balance: any; message: string }>('/api/user/lock-funds', {
+        method: 'POST',
+        body: JSON.stringify({ days, reason }),
+      });
+    } finally {
+      inFlightGetRequests.delete('/api/user/dashboard');
+    }
+  },
 
   getTransactions: (params?: {
     page?: number;
@@ -209,11 +254,17 @@ export const api = {
   getMarketTicker: (refresh?: boolean) =>
     request<MarketTickerResponse>(`/api/market/ticker${refresh ? '?refresh=true' : ''}`),
 
-  verifyUserDeposit: (depositId: string) =>
-    request<{ success: boolean; deposit?: DepositItem; balance: any; isPendingConfirmations?: boolean; confirmations?: number; requiredConfirmations?: number; message?: string; error?: string }>(
-      `/api/user/deposits/${depositId}/verify`,
-      { method: 'POST' }
-    ),
+  verifyUserDeposit: async (depositId: string) => {
+    try {
+      return await request<{ success: boolean; deposit?: DepositItem; balance: any; isPendingConfirmations?: boolean; confirmations?: number; requiredConfirmations?: number; message?: string; error?: string }>(
+        `/api/user/deposits/${depositId}/verify`,
+        { method: 'POST' }
+      );
+    } finally {
+      inFlightGetRequests.delete('/api/user/dashboard');
+      inFlightGetRequests.delete('/api/user/deposits');
+    }
+  },
 
   verifyBlockchainTx: (txHash: string, claimedAmount?: number) =>
     request<any>('/api/blockchain/verify-tx', {
@@ -563,4 +614,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ filename }),
     }),
+
+  // Cancel / purge all pending in-flight GET requests (used on logout/session expiry)
+  clearInFlightRequests: () => {
+    inFlightGetRequests.clear();
+  },
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { api } from '../services/api';
@@ -31,10 +31,12 @@ import {
 
 interface ReferralViewProps {
   onNavigate?: (view: string) => void;
+  initialSummary?: UserReferralSummary | null;
 }
 
-export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
+export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialSummary }) => {
+  const { user, token, isLoading: isAuthLoading } = useAuth();
+  const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
   const {
     minimumDepositAmount,
     referralRewardL1Percentage,
@@ -43,8 +45,8 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
   const minDeposit = minimumDepositAmount || 300;
 
   // Summary state (authoritative backend values)
-  const [summary, setSummary] = useState<UserReferralSummary | null>(null);
-  const [isLoadingSummary, setIsLoadingSummary] = useState(true);
+  const [summary, setSummary] = useState<UserReferralSummary | null>(initialSummary || null);
+  const [isLoadingSummary, setIsLoadingSummary] = useState(!initialSummary);
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
   // Active tab: 'level1' | 'level2'
@@ -63,6 +65,11 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
   const [level2Error, setLevel2Error] = useState<string | null>(null);
   const [level2FilterL1, setLevel2FilterL1] = useState<{ id: string; name: string } | null>(null);
 
+  // Request ID refs for race protection
+  const refReqIdRef = useRef(0);
+  const l1ReqIdRef = useRef(0);
+  const l2ReqIdRef = useRef(0);
+
   // Feedback states
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -71,41 +78,71 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
 
   // 1. Fetch Authoritative Summary from Backend
   const fetchSummary = useCallback(async () => {
+    if (!token || !user || user.role !== 'user' || isAuthLoading) {
+      setIsLoadingSummary(false);
+      setSummary(null);
+      return;
+    }
+    const currentReqId = ++refReqIdRef.current;
     try {
       setSummaryError(null);
       const res = await api.getUserReferralSummary();
-      if (res.success && res.summary) {
-        setSummary(res.summary);
-      } else {
-        setSummaryError('Failed to load referral summary.');
+      if (currentReqId === refReqIdRef.current) {
+        if (res.success && res.summary) {
+          setSummary(res.summary);
+        } else {
+          setSummaryError('Failed to load referral summary.');
+        }
       }
     } catch (err: any) {
-      setSummaryError(err?.message || 'Network error fetching referral statistics.');
+      if (currentReqId === refReqIdRef.current) {
+        setSummaryError(err?.message || 'Network error fetching referral statistics.');
+      }
     } finally {
-      setIsLoadingSummary(false);
+      if (currentReqId === refReqIdRef.current) {
+        setIsLoadingSummary(false);
+      }
     }
-  }, []);
+  }, [token, user, isAuthLoading]);
 
   // 2. Fetch Level 1 Referrals from Backend
   const fetchLevel1 = useCallback(async (page: number) => {
+    if (!token || !user || user.role !== 'user' || isAuthLoading) {
+      setIsLoadingLevel1(false);
+      setLevel1Data(null);
+      return;
+    }
+    const currentReqId = ++l1ReqIdRef.current;
     try {
       setIsLoadingLevel1(true);
       setLevel1Error(null);
       const res = await api.getLevel1Referrals(page, 10);
-      if (res.success && res.data) {
-        setLevel1Data(res.data);
-      } else {
-        setLevel1Error('Could not retrieve Level 1 referrals.');
+      if (currentReqId === l1ReqIdRef.current) {
+        if (res.success && res.data) {
+          setLevel1Data(res.data);
+        } else {
+          setLevel1Error('Could not retrieve Level 1 referrals.');
+        }
       }
     } catch (err: any) {
-      setLevel1Error(err?.message || 'Error fetching Level 1 referrals.');
+      if (currentReqId === l1ReqIdRef.current) {
+        setLevel1Error(err?.message || 'Error fetching Level 1 referrals.');
+      }
     } finally {
-      setIsLoadingLevel1(false);
+      if (currentReqId === l1ReqIdRef.current) {
+        setIsLoadingLevel1(false);
+      }
     }
-  }, []);
+  }, [token, user, isAuthLoading]);
 
   // 3. Fetch Level 2 Referrals from Backend
   const fetchLevel2 = useCallback(async (page: number, level1UserId?: string) => {
+    if (!token || !user || user.role !== 'user' || isAuthLoading) {
+      setIsLoadingLevel2(false);
+      setLevel2Data(null);
+      return;
+    }
+    const currentReqId = ++l2ReqIdRef.current;
     try {
       setIsLoadingLevel2(true);
       setLevel2Error(null);
@@ -114,24 +151,49 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate }) => {
         page,
         limit: 10,
       });
-      if (res.success && res.data) {
-        setLevel2Data(res.data);
-      } else {
-        setLevel2Error('Could not retrieve Level 2 referrals.');
+      if (currentReqId === l2ReqIdRef.current) {
+        if (res.success && res.data) {
+          setLevel2Data(res.data);
+        } else {
+          setLevel2Error('Could not retrieve Level 2 referrals.');
+        }
       }
     } catch (err: any) {
-      setLevel2Error(err?.message || 'Error fetching Level 2 referrals.');
+      if (currentReqId === l2ReqIdRef.current) {
+        setLevel2Error(err?.message || 'Error fetching Level 2 referrals.');
+      }
     } finally {
-      setIsLoadingLevel2(false);
+      if (currentReqId === l2ReqIdRef.current) {
+        setIsLoadingLevel2(false);
+      }
     }
-  }, []);
+  }, [token, user, isAuthLoading]);
 
   // Initial load
   useEffect(() => {
-    fetchSummary();
-    fetchLevel1(1);
-    fetchLevel2(1);
-  }, [fetchSummary, fetchLevel1, fetchLevel2]);
+    if (isAuthenticatedUser) {
+      if (!initialSummary) {
+        fetchSummary();
+      }
+      fetchLevel1(1);
+      fetchLevel2(1);
+    } else {
+      setSummary(null);
+      setLevel1Data(null);
+      setLevel2Data(null);
+      setIsLoadingSummary(false);
+      setIsLoadingLevel1(false);
+      setIsLoadingLevel2(false);
+    }
+  }, [isAuthenticatedUser, fetchSummary, fetchLevel1, fetchLevel2, initialSummary]);
+
+  // Keep summary in sync if parent dashboard refreshes with new referralSummary
+  useEffect(() => {
+    if (initialSummary) {
+      setSummary(initialSummary);
+      setIsLoadingSummary(false);
+    }
+  }, [initialSummary]);
 
   // Handle page changes
   const handleLevel1PageChange = (newPage: number) => {

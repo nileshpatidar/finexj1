@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import React from 'react';
+import { useSettings } from '../context/SettingsContext';
 import { Headphones, Send, X, ExternalLink, ShieldCheck } from 'lucide-react';
 
 interface SupportModalProps {
@@ -8,13 +8,8 @@ interface SupportModalProps {
 }
 
 export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) => {
-  const [telegramUrl, setTelegramUrl] = useState('https://t.me/FINEXJ_OfficialSupport');
-
-  useEffect(() => {
-    api.getSettings().then(s => {
-      if (s.telegramSupportUrl) setTelegramUrl(s.telegramSupportUrl);
-    }).catch(() => {});
-  }, []);
+  const { telegramSupportUrl } = useSettings();
+  const telegramUrl = telegramSupportUrl || 'https://t.me/FINEXJ_OfficialSupport';
 
   if (!isOpen) return null;
 

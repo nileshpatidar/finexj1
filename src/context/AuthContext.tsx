@@ -40,6 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(res.user);
     } catch (err) {
       setUser(null);
+      api.clearInFlightRequests();
     } finally {
       setIsLoading(false);
     }
@@ -68,6 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    api.clearInFlightRequests();
     try {
       await api.logout();
     } catch {
@@ -83,6 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logoutAll = async () => {
+    api.clearInFlightRequests();
     try {
       await api.logoutAll();
     } catch {

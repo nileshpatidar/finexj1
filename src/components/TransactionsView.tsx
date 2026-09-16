@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { UserTransaction, UserBalanceSummary, TransactionsPagination, TransactionsSummary, mapToUserDepositStatus } from '../types';
 import {
   ArrowDownToLine,
@@ -28,6 +29,9 @@ import {
 } from 'lucide-react';
 
 export const TransactionsView: React.FC = () => {
+  const { user, token, isLoading: isAuthLoading } = useAuth();
+  const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
+
   const [transactions, setTransactions] = useState<UserTransaction[]>([]);
   const [balance, setBalance] = useState<UserBalanceSummary | null>(null);
   const [summary, setSummary] = useState<TransactionsSummary | null>(null);
@@ -51,9 +55,17 @@ export const TransactionsView: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [selectedTx, setSelectedTx] = useState<UserTransaction | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const txReqIdRef = useRef(0);
 
   // Load Transactions from backend API
   const loadTransactions = useCallback(async (pageToLoad: number = 1) => {
+    if (!token || !user || user.role !== 'user' || isAuthLoading) {
+      setIsLoading(false);
+      setIsRefreshing(false);
+      setTransactions([]);
+      return;
+    }
+    const currentReqId = ++txReqIdRef.current;
     try {
       setIsLoading(true);
       const res = await api.getTransactions({
@@ -66,28 +78,38 @@ export const TransactionsView: React.FC = () => {
         endDate: endDate || undefined,
       });
 
-      setTransactions(res.transactions || []);
-      if (res.pagination) {
-        setPagination(res.pagination);
-      }
-      if (res.balance) {
-        setBalance(res.balance);
-      }
-      if (res.summary) {
-        setSummary(res.summary);
+      if (currentReqId === txReqIdRef.current) {
+        setTransactions(res.transactions || []);
+        if (res.pagination) {
+          setPagination(res.pagination);
+        }
+        if (res.balance) {
+          setBalance(res.balance);
+        }
+        if (res.summary) {
+          setSummary(res.summary);
+        }
       }
     } catch (err) {
       console.warn('[TransactionsView] Failed to load transactions:', err);
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (currentReqId === txReqIdRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
-  }, [filterType, filterStatus, searchQuery, startDate, endDate, pagination.limit]);
+  }, [token, user, isAuthLoading, filterType, filterStatus, searchQuery, startDate, endDate, pagination.limit]);
 
   // Initial load and filter change trigger
   useEffect(() => {
-    loadTransactions(1);
-  }, [loadTransactions]);
+    if (isAuthenticatedUser) {
+      loadTransactions(1);
+    } else {
+      setTransactions([]);
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [isAuthenticatedUser, loadTransactions]);
 
   // Quick Date Preset handler
   const handleDatePresetChange = (preset: string) => {
