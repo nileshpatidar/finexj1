@@ -11,6 +11,7 @@ export interface AmountValidationOptions {
   max?: number;
   maxDecimals?: number;
   allowZero?: boolean;
+  allowNegative?: boolean;
 }
 
 const EVM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
@@ -28,7 +29,7 @@ export function validateAmount(
   fieldName: string = 'Amount',
   options: AmountValidationOptions = {}
 ): number {
-  const { min, max = 100_000_000, maxDecimals = 4, allowZero = false } = options;
+  const { min, max = 100_000_000, maxDecimals = 4, allowZero = false, allowNegative = false } = options;
 
   if (value === undefined || value === null || value === '') {
     throw Errors.validation(`${fieldName} is required.`);
@@ -69,12 +70,20 @@ export function validateAmount(
     throw Errors.validation(`${fieldName} must be a finite number.`);
   }
 
-  if (!allowZero && num <= 0) {
-    throw Errors.validation(`${fieldName} must be greater than zero.`);
-  }
+  const permitsNegative = allowNegative || (min !== undefined && min < 0);
 
-  if (allowZero && num < 0) {
-    throw Errors.validation(`${fieldName} cannot be negative.`);
+  if (permitsNegative) {
+    if (!allowZero && num === 0) {
+      throw Errors.validation(`${fieldName} cannot be zero.`);
+    }
+  } else {
+    if (!allowZero && num <= 0) {
+      throw Errors.validation(`${fieldName} must be greater than zero.`);
+    }
+
+    if (allowZero && num < 0) {
+      throw Errors.validation(`${fieldName} cannot be negative.`);
+    }
   }
 
   if (min !== undefined && num < min) {

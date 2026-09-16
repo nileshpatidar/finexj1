@@ -26,6 +26,9 @@ import {
   FinancialMessage,
   UserBalanceSummary,
   TransactionsResponse,
+  MigrationListResponse,
+  MigrationSqlResponse,
+  MigrationExecuteResponse,
 } from '../types';
 
 const API_BASE = '';
@@ -547,4 +550,17 @@ export const api = {
     request<{ success: boolean; valid: boolean; referrerName?: string; error?: string }>(
       `/api/referrals/validate/${encodeURIComponent(code)}`
     ),
+
+  // Database Migration Center (Super Admin)
+  getAdminMigrations: () =>
+    request<MigrationListResponse>('/api/admin/migrations'),
+
+  getAdminMigrationSql: (filename: string) =>
+    request<MigrationSqlResponse>(`/api/admin/migrations/${encodeURIComponent(filename)}/sql`),
+
+  executeAdminMigration: (filename: string) =>
+    request<MigrationExecuteResponse>('/api/admin/migrations/execute', {
+      method: 'POST',
+      body: JSON.stringify({ filename }),
+    }),
 };

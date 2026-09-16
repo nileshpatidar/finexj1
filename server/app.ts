@@ -51,6 +51,11 @@ import { runAutomatedTestSuite } from './tests';
 import { getMarketPrices, marketDataService } from './market';
 import { DecimalSafe } from './utils/decimalSafe';
 import { getServerSupabase, isServerSupabaseReady } from './supabase';
+import {
+  getMigrationStatusList,
+  getMigrationSql,
+  executeMigration,
+} from './services/migrationService';
 import { UserRole, User, mapToUserDepositStatus } from './types';
 import { generateRequestId, logger } from './logger';
 import { AppError, Errors, centralErrorHandler } from './errors';
@@ -2838,6 +2843,7 @@ app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware,
       max: 100_000_000,
       maxDecimals: 4,
       allowZero: false,
+      allowNegative: true,
     });
     const cleanReason = validateString(reason, 'Adjustment reason', { minLength: 3, maxLength: 500, required: true });
 
@@ -2857,6 +2863,65 @@ app.post(['/api/admin/adjust-balance', '/admin/adjust-balance'], authMiddleware,
       balance: updatedBalance,
       adjustment: result,
       message: `Balance successfully adjusted by ${adjustAmount} USDT with immutable ledger and audit trace.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Migration Center: Get Authoritative Migration Manifest & Status
+app.get(['/api/admin/migrations', '/admin/migrations'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+  try {
+    const data = await getMigrationStatusList();
+    res.json({
+      success: true,
+      migrations: data.migrations,
+      summary: data.summary,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Migration Center: Get Review SQL of an Allowlisted Migration File
+app.get(['/api/admin/migrations/:filename/sql', '/admin/migrations/:filename/sql'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+  try {
+    const filename = req.params.filename;
+    const result = await getMigrationSql(filename);
+    res.json({
+      success: true,
+      filename: result.filename,
+      checksum: result.checksum,
+      sql: result.sql,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Migration Center: Execute an Allowlisted Database Migration
+app.post(['/api/admin/migrations/execute', '/admin/migrations/execute'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const { filename } = req.body;
+
+    if (!filename || typeof filename !== 'string') {
+      throw Errors.validation('Migration filename is required.');
+    }
+
+    const cleanFilename = filename.trim();
+    const result = await executeMigration(cleanFilename, {
+      id: admin.id,
+      email: admin.email,
+      role: admin.role,
+    });
+
+    res.json({
+      success: true,
+      filename: result.filename,
+      appliedAt: result.appliedAt,
+      executionTimeMs: result.executionTimeMs,
+      message: `Database migration ${result.filename} successfully applied.`,
     });
   } catch (err) {
     next(err);

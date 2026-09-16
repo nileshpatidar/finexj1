@@ -766,3 +766,47 @@ export interface AdminLedgerResponse {
   totalPages: number;
 }
 
+export type MigrationStatus = 'applied' | 'pending' | 'failed' | 'checksum_mismatch';
+
+export interface MigrationItem {
+  number: number;
+  filename: string;
+  name: string;
+  status: MigrationStatus;
+  appliedAt?: string | null;
+  appliedBy?: string | null;
+  checksum: string;
+  storedChecksum?: string | null;
+  executionTimeMs?: number | null;
+  errorMessage?: string | null;
+}
+
+export interface MigrationSummary {
+  total: number;
+  applied: number;
+  pending: number;
+  failed: number;
+  mismatched: number;
+}
+
+export interface MigrationListResponse {
+  success: boolean;
+  migrations: MigrationItem[];
+  summary: MigrationSummary;
+}
+
+export interface MigrationSqlResponse {
+  success: boolean;
+  filename: string;
+  checksum: string;
+  sql: string;
+}
+
+export interface MigrationExecuteResponse {
+  success: boolean;
+  filename: string;
+  appliedAt: string;
+  executionTimeMs: number;
+  message?: string;
+}
+

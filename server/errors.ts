@@ -82,6 +82,9 @@ export const Errors = {
   validation: (msg: string, details?: any) =>
     new AppError('VALIDATION_ERROR', msg, 400, details),
 
+  conflict: (msg = 'The request conflicts with current resource state.') =>
+    new AppError('VALIDATION_ERROR', msg, 409),
+
   notFound: (code: StandardErrorCode = 'USER_NOT_FOUND', msg = 'The requested resource was not found.') =>
     new AppError(code, msg, 404),
 

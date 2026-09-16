@@ -36,6 +36,7 @@ import { AdminAccountingView } from './AdminAccountingView';
 import { AdminUsersView } from './AdminUsersView';
 import { AdminDepositsView } from './AdminDepositsView';
 import { AdminWithdrawalsView } from './AdminWithdrawalsView';
+import { AdminMigrationsView } from './AdminMigrationsView';
 
 interface AdminDashboardProps {
   onBackToUser?: () => void;
@@ -43,7 +44,7 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'accounting' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'accounting' | 'users' | 'deposits' | 'withdrawals' | 'performance' | 'adjustments' | 'security' | 'logs' | 'audit' | 'settings' | 'migrations'>('overview');
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [deposits, setDeposits] = useState<any[]>([]);
@@ -247,26 +248,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
   const handleCreateAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adjustUserId || !adjustAmount || !adjustReason) {
-      setActionError('All adjustment fields are required.');
+
+    // Clear previous messages immediately before processing
+    setActionMessage(null);
+    setActionError(null);
+
+    if (!adjustUserId) {
+      setActionError('Please select a target user.');
+      return;
+    }
+
+    if (!adjustAmount || adjustAmount.trim() === '') {
+      setActionError('Adjustment amount is required.');
+      return;
+    }
+
+    const trimmedAmount = adjustAmount.trim();
+    if (!/^[+-]?\d+(\.\d+)?$/.test(trimmedAmount)) {
+      setActionError('Invalid adjustment amount.');
+      return;
+    }
+
+    const parsedNum = Number(trimmedAmount);
+    if (isNaN(parsedNum) || !Number.isFinite(parsedNum)) {
+      setActionError('Invalid adjustment amount.');
+      return;
+    }
+
+    if (parsedNum === 0) {
+      setActionError('Adjustment amount cannot be zero.');
+      return;
+    }
+
+    if (!adjustReason || adjustReason.trim().length < 3) {
+      setActionError('A specific reason of at least 3 characters is required for audit logs.');
       return;
     }
 
     try {
-      setActionError(null);
       const res = await api.createAdjustment({
         targetUserId: adjustUserId,
-        amount: parseFloat(adjustAmount),
-        reason: adjustReason,
+        amount: parsedNum,
+        reason: adjustReason.trim(),
       });
       if (res.success) {
-        setActionMessage(`Adjustment of $${adjustAmount} applied with full audit trail.`);
+        setActionError(null);
+        const formatted = parsedNum > 0 ? `+$${parsedNum.toFixed(2)}` : `-$${Math.abs(parsedNum).toFixed(2)}`;
+        setActionMessage(`Adjustment of ${formatted} applied with full audit trail.`);
         setAdjustAmount('');
         setAdjustReason('');
         await loadAllAdminData();
       }
     } catch (err) {
-      setActionError((err as Error).message);
+      setActionMessage(null);
+      setActionError((err as Error).message || 'Adjustment failed.');
     }
   };
 
@@ -323,30 +358,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       </div>
 
-      {/* Action Notification Messages */}
-      {actionMessage && (
-        <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 flex items-center justify-between shadow-sm">
-          <div className="flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span className="font-semibold">{actionMessage}</span>
-          </div>
-          <button onClick={() => setActionMessage(null)} className="text-blue-500 hover:text-blue-700">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {actionError && (
+      {/* Action Notification Messages - strictly mutually exclusive */}
+      {actionError ? (
         <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 flex items-center justify-between shadow-sm">
           <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-            <span className="font-semibold">{actionError}</span>
+            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span className="font-semibold text-xs">{actionError}</span>
           </div>
-          <button onClick={() => setActionError(null)} className="text-rose-500 hover:text-rose-700">
+          <button onClick={() => setActionError(null)} className="text-rose-500 hover:text-rose-700 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
-      )}
+      ) : actionMessage ? (
+        <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span className="font-semibold text-xs">{actionMessage}</span>
+          </div>
+          <button onClick={() => setActionMessage(null)} className="text-blue-500 hover:text-blue-700 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ) : null}
 
       {/* Streamlined Navigation Tabs */}
       <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
@@ -393,6 +426,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         <div className="relative">
           {(() => {
             const secondaryTabs = [
+              ...(user?.role === 'super_admin' ? [{ id: 'migrations', label: 'Database Migrations', icon: Database }] : []),
               { id: 'security', label: 'Security & Auth Controls', icon: Lock },
               { id: 'adjustments', label: 'Adjustments', icon: DollarSign },
               { id: 'logs', label: 'System Logs', icon: Activity },
@@ -1289,8 +1323,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
             <div>
               <label className="block text-slate-500 dark:text-slate-400 mb-1 text-xs font-medium">Amount (+ to credit, - to debit)</label>
               <input
-                type="number"
-                step="any"
+                type="text"
+                inputMode="decimal"
                 value={adjustAmount}
                 onChange={e => setAdjustAmount(e.target.value)}
                 placeholder="+50 or -50"
@@ -1329,6 +1363,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
 
       {/* TAB: SYSTEM LOGS */}
       {activeTab === 'logs' && <SystemLogsView />}
+
+      {/* TAB: DATABASE MIGRATIONS */}
+      {activeTab === 'migrations' && (
+        <AdminMigrationsView
+          onNotifySuccess={(msg) => {
+            setActionError(null);
+            setActionMessage(msg);
+          }}
+          onNotifyError={(err) => {
+            setActionMessage(null);
+            setActionError(err);
+          }}
+        />
+      )}
 
       {/* TAB 8: SETTINGS */}
       {activeTab === 'settings' && (
