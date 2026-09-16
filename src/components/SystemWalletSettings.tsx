@@ -113,7 +113,7 @@ export const SystemWalletSettings: React.FC<SystemWalletSettingsProps> = ({
         minimumDepositAmount: minDep,
         withdrawalFeePercentage: feePct,
         accountAgeRequirementDays: parseInt(accountAgeRequirementDays, 10) || 30,
-        depositLockPeriodDays: parseInt(depositLockPeriodDays, 10) || 30,
+        depositLockPeriodDays: parseInt(depositLockPeriodDays, 10) >= 0 ? parseInt(depositLockPeriodDays, 10) : 66,
         telegramSupportUrl: telegramSupportUrl.trim(),
         operationalWalletAddress: operationalWalletAddress.trim(),
         reason: 'Super Admin updated System & Wallet database configurations',

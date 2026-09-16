@@ -28,7 +28,7 @@ const SettingsContext = createContext<SettingsContextType>({
   refreshSettings: async () => {},
   withdrawalFeePercentage: 0,
   accountAgeRequirementDays: 30,
-  depositLockPeriodDays: 30,
+  depositLockPeriodDays: 66,
   minimumDepositAmount: 0,
   referralRewardL1Percentage: 5,
   referralRewardL2Percentage: 2,
@@ -99,7 +99,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const withdrawalFeePercentage = settings?.withdrawalFeePercentage ?? 0;
   const accountAgeRequirementDays = settings?.accountAgeRequirementDays ?? 30;
-  const depositLockPeriodDays = settings?.depositLockPeriodDays ?? 30;
+  const depositLockPeriodDays = settings?.depositLockPeriodDays ?? 66;
   const minimumDepositAmount = settings?.minimumDepositAmount ?? 0;
   const referralRewardL1Percentage = settings?.referralRewardL1Percentage ?? 5;
   const referralRewardL2Percentage = settings?.referralRewardL2Percentage ?? 2;

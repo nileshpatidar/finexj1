@@ -8,6 +8,7 @@ import { getSettings } from '../repositories/settings';
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getServerSupabase } from '../supabase';
+import { calculateDepositLockEndDate } from '../utils/businessDays';
 import { UserBalanceSummary, User, Deposit, EarningEntry, Withdrawal, ReferralReward, LedgerEntry, AppSettings } from '../types';
 import crypto from 'crypto';
 
@@ -69,16 +70,17 @@ export function calculateBalanceFromDatasets(
   // Active Compounding Principal: ONLY deposit principal minus withdrawals. Referral income never compounds.
   const activeCompoundingPrincipal = Math.max(0, Number((totalDeposited - totalWithdrawn).toFixed(4)));
 
-  // 6. Deposit Principal Lock (Per-deposit independent 30-day lock from confirmed deposit date)
-  const lockDays = typeof settings.depositLockPeriodDays === 'number' && !isNaN(settings.depositLockPeriodDays)
+  // 6. Deposit Principal Lock (Per-deposit independent lock from confirmed deposit date based on US business days)
+  const lockDays = typeof settings.depositLockPeriodDays === 'number' && !isNaN(settings.depositLockPeriodDays) && settings.depositLockPeriodDays >= 0
     ? settings.depositLockPeriodDays
-    : 30;
-  const depositLockMs = lockDays * 24 * 60 * 60 * 1000;
+    : 66;
   let depositLockedAmount = 0;
 
   for (const dep of confirmedDeposits) {
     const depositDate = dep.confirmedAt ? new Date(dep.confirmedAt).getTime() : new Date(dep.createdAt).getTime();
-    const lockExpiry = dep.depositLockEndDate ? new Date(dep.depositLockEndDate).getTime() : (depositDate + depositLockMs);
+    const lockExpiry = dep.depositLockEndDate 
+      ? new Date(dep.depositLockEndDate).getTime() 
+      : new Date(calculateDepositLockEndDate(depositDate, lockDays)).getTime();
     if (now.getTime() < lockExpiry) {
       depositLockedAmount += dep.amount;
     }

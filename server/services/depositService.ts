@@ -14,6 +14,7 @@ import { verifyBEP20Deposit, isValidTxHash, isValidBEP20Address, VerificationRes
 import { calculateUserBalanceAsync } from './balanceService';
 import { checkWalletDuplication } from './fraudService';
 import { processReferralRewardForDepositAsync } from './referralService';
+import { calculateDepositLockEndDate } from '../utils/businessDays';
 import { Deposit } from '../types';
 
 export interface ProcessDepositInput {
@@ -206,8 +207,10 @@ export async function processDepositAsync(input: ProcessDepositInput): Promise<{
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   tomorrow.setUTCHours(0, 0, 0, 0);
 
-  const lockPeriodMs = (settings.depositLockPeriodDays || 30) * 24 * 60 * 60 * 1000;
-  const lockEndDate = new Date(now.getTime() + lockPeriodMs).toISOString();
+  const lockDays = typeof settings.depositLockPeriodDays === 'number' && !isNaN(settings.depositLockPeriodDays) && settings.depositLockPeriodDays >= 0
+    ? settings.depositLockPeriodDays
+    : 66;
+  const lockEndDate = calculateDepositLockEndDate(now, lockDays);
 
   let storagePath: string | undefined = undefined;
   if (input.proofPhotoUrl) {

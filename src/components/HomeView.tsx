@@ -5,6 +5,7 @@ import { InvestmentPlanModal } from './InvestmentPlanModal';
 import { CopyTradingAnnouncementModal } from './CopyTradingAnnouncementModal';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import {
   TrendingUp,
   ArrowDownToLine,
@@ -43,6 +44,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onRefresh,
 }) => {
   const { user: authUser, token, isLoading: isAuthLoading } = useAuth();
+  const { depositLockPeriodDays } = useSettings();
+  const lockPeriodDays = depositLockPeriodDays || 66;
   const isAuthenticatedUser = Boolean(token && authUser && authUser.role === 'user');
 
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -340,7 +343,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   <p id="liquidity-locked-balance" className="text-sm sm:text-base font-extrabold text-amber-300 mt-0.5">
                     ${balance.lockedBalance.toFixed(2)}
                   </p>
-                  <span className="text-[10px] text-slate-400">Under 30d lock</span>
+                  <span className="text-[10px] text-slate-400">Under {lockPeriodDays}d lock</span>
                 </div>
               ) : (
                 <div>
@@ -500,98 +503,60 @@ export const HomeView: React.FC<HomeViewProps> = ({
           id="referral-income-section"
           className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 flex flex-col justify-between"
         >
-          {referralSummary && !referralSummary.isEligible ? (
-            /* Compact Locked Referral State */
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
-                    <Lock className="w-4 h-4" />
-                  </div>
-                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Refer & Earn (Locked)
-                  </h2>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                  <Users className="w-4 h-4" />
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 uppercase">
-                  Locked
-                </span>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Referral Rewards
+                </h2>
               </div>
-              <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                Maintain at least {referralSummary.minimumRequiredPrincipal || 300} USDT in eligible funds to activate your referral code and earn 5% Level 1 & 2% Level 2 direct commissions.
-              </p>
-              <div className="pt-1 flex items-center justify-between gap-2">
-                <button
-                  onClick={() => onNavigate('deposit')}
-                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center gap-1.5"
-                >
-                  <Wallet className="w-3.5 h-3.5" />
-                  <span>Deposit to Unlock</span>
-                </button>
-                <button
-                  onClick={() => onNavigate('referrals')}
-                  className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Details</span>
-                  <ChevronRight className="w-3 h-3" />
-                </button>
-              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
+                5% L1 / 2% L2
+              </span>
             </div>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-7 h-7 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
-                      <Users className="w-4 h-4" />
-                    </div>
-                    <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                      Referral Rewards
-                    </h2>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
-                    5% L1 / 2% L2
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Earn direct rewards from qualifying deposits (≥ $300). Separated from compounding principal.
-                </p>
-              </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              {referralSummary && !referralSummary.isEligible
+                ? `Active deposit requirement (≥ $${referralSummary.minimumRequiredPrincipal || 300}) required to receive commission payouts.`
+                : 'Earn direct rewards from qualifying deposits (≥ $300). Separated from compounding principal.'}
+            </p>
+          </div>
 
-              <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 1 (5%)</span>
-                  <p id="referral-l1-income" className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
-                    ${l1Income.toFixed(2)}
-                  </p>
-                  <span className="text-[10px] text-slate-400">Direct</span>
-                </div>
+          <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 1 (5%)</span>
+              <p id="referral-l1-income" className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
+                ${l1Income.toFixed(2)}
+              </p>
+              <span className="text-[10px] text-slate-400">Direct</span>
+            </div>
 
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 2 (2%)</span>
-                  <p id="referral-l2-income" className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
-                    ${l2Income.toFixed(2)}
-                  </p>
-                  <span className="text-[10px] text-slate-400">Sub-team</span>
-                </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Level 2 (2%)</span>
+              <p id="referral-l2-income" className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">
+                ${l2Income.toFixed(2)}
+              </p>
+              <span className="text-[10px] text-slate-400">Sub-team</span>
+            </div>
 
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400">Total</span>
-                  <p id="referral-total-income" className="text-xs sm:text-sm font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
-                    ${totalReferralIncome.toFixed(2)}
-                  </p>
-                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">Liquid</span>
-                </div>
-              </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400">Total</span>
+              <p id="referral-total-income" className="text-xs sm:text-sm font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
+                ${totalReferralIncome.toFixed(2)}
+              </p>
+              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">Liquid</span>
+            </div>
+          </div>
 
-              <button
-                onClick={() => onNavigate('referrals')}
-                className="w-full py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/60 transition flex items-center justify-center space-x-1 cursor-pointer"
-              >
-                <span>Referral Network Dashboard</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => onNavigate('referrals')}
+            className="w-full py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/60 transition flex items-center justify-center space-x-1 cursor-pointer"
+          >
+            <span>Referral Network Dashboard</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 

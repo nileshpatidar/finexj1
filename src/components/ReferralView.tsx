@@ -235,19 +235,18 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
   // Authoritative referral code: strictly from database referral_code.
   // Never generate a fallback referral code from user ID.
   const rawReferralCode = summary?.referralCode || user?.referralCode || '';
-  const isReferralActive = Boolean(summary?.isEligible && rawReferralCode);
-  const displayReferralCode = isReferralActive ? rawReferralCode : 'Referral code unavailable';
+  const displayReferralCode = rawReferralCode || 'FINEXJ';
 
   // Copy referral code
   const handleCopyCode = () => {
-    if (!isReferralActive || !rawReferralCode) return;
+    if (!rawReferralCode) return;
     navigator.clipboard.writeText(rawReferralCode);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
   // Construct full referral URL using existing structure
-  const referralUrl = isReferralActive && rawReferralCode
+  const referralUrl = rawReferralCode
     ? `${window.location.origin}/register?ref=${encodeURIComponent(rawReferralCode)}`
     : '';
 
@@ -337,20 +336,20 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
         <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start space-x-3">
-              <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5">
-                <Lock className="w-4 h-4" />
+              <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5">
+                <Users className="w-4 h-4" />
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Referral Program Locked
+                    Referral Qualification Status
                   </h2>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wide">
-                    Locked
+                    Deposit Required to Earn
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Maintain at least ${(summary.minimumRequiredPrincipal || minDeposit).toFixed(2)} USDT in eligible funds to unlock your referral code and rewards.
+                  You can share your referral code now. To qualify for 5% Level 1 and 2% Level 2 commission payouts, an active deposit of at least ${(summary.minimumRequiredPrincipal || minDeposit).toFixed(2)} USDT is required on your account.
                 </p>
               </div>
             </div>
@@ -361,7 +360,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
                 className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition cursor-pointer flex-shrink-0 self-start sm:self-auto"
               >
                 <Wallet className="w-3.5 h-3.5" />
-                <span>Deposit to Unlock</span>
+                <span>Make Deposit</span>
               </button>
             )}
           </div>
@@ -380,7 +379,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
             </div>
             <div>
               <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
-                Referral Program Active
+                Qualified for Referral Rewards
               </p>
               <p className="text-[11px] text-emerald-800 dark:text-emerald-300/80">
                 Your account meets the minimum deposit requirement of ${(summary.minimumRequiredPrincipal || minDeposit).toFixed(2)} USDT.
@@ -388,7 +387,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
             </div>
           </div>
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white tracking-wide uppercase flex-shrink-0">
-            Active
+            Qualified
           </span>
         </div>
       ) : null}
@@ -413,9 +412,9 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
 
             <button
               onClick={handleCopyCode}
-              disabled={!isReferralActive}
+              disabled={!rawReferralCode}
               className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex-shrink-0 ${
-                !isReferralActive
+                !rawReferralCode
                   ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                   : copiedCode
                   ? 'bg-emerald-600 text-white'
@@ -445,9 +444,9 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
                 onClick={handleCopyLink}
-                disabled={!isReferralActive}
+                disabled={!referralUrl}
                 className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  !isReferralActive
+                  !referralUrl
                     ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                     : copiedLink
                     ? 'bg-emerald-600 text-white'
@@ -460,10 +459,10 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
 
               <button
                 onClick={handleShare}
-                disabled={!isReferralActive}
+                disabled={!referralUrl}
                 title="Share Referral Link"
                 className={`p-1.5 rounded-xl transition cursor-pointer ${
-                  !isReferralActive
+                  !referralUrl
                     ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                     : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
                 }`}

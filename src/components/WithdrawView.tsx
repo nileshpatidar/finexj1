@@ -33,7 +33,9 @@ interface WithdrawViewProps {
 export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitted, onNavigate }) => {
   const { user, token, isLoading: isAuthLoading } = useAuth();
   const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
-  const { withdrawalFeePercentage, accountAgeRequirementDays, minimumDepositAmount } = useSettings();
+  const { withdrawalFeePercentage, accountAgeRequirementDays, minimumDepositAmount, depositLockPeriodDays } = useSettings();
+  const lockDays = depositLockPeriodDays || 66;
+  const maturityDays = accountAgeRequirementDays || 30;
 
   // Financial data state
   const [balance, setBalance] = useState<UserBalanceSummary | null>(null);
@@ -363,9 +365,9 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               {balance?.isFundLocked
                 ? `Lock active (${balance.fundLockRemainingDays}d ${balance.fundLockRemainingHours}h)`
                 : !balance?.is30DaysOld
-                ? `Maturity (${balance?.accountAgeDays ?? 0}/30d)`
+                ? `Maturity (${balance?.accountAgeDays ?? 0}/${maturityDays}d)`
                 : lockedFunds > 0
-                ? '30-day deposit lock active'
+                ? `${lockDays}-day deposit lock active`
                 : 'Zero funds locked'}
             </span>
           </div>
@@ -401,7 +403,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               )}
               {!balance?.is30DaysOld && balance?.withdrawalEligibleDate && (
                 <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                  Account maturity unlocks on {new Date(balance.withdrawalEligibleDate).toLocaleDateString()} ({balance.accountAgeDays} / 30 days completed).
+                  Account maturity unlocks on {new Date(balance.withdrawalEligibleDate).toLocaleDateString()} ({balance.accountAgeDays} / {maturityDays} days completed).
                 </p>
               )}
             </div>

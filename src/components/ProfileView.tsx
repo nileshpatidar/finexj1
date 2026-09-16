@@ -4,7 +4,6 @@ import { useSettings } from '../context/SettingsContext';
 import { api } from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import { UserBalanceSummary } from '../types';
-import { FundLockModal } from './FundLockModal';
 import {
   Shield,
   KeyRound,
@@ -17,9 +16,6 @@ import {
   Users,
   ChevronRight,
   Lock,
-  Unlock,
-  ShieldCheck,
-  Zap,
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -30,10 +26,10 @@ interface ProfileViewProps {
 export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance }) => {
   const { user, token, isLoading: isAuthLoading, logout, logoutAll, refreshUser } = useAuth();
   const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
-  const { minimumDepositAmount, referralRewardL1Percentage, referralRewardL2Percentage } = useSettings();
+  const { minimumDepositAmount, referralRewardL1Percentage, referralRewardL2Percentage, accountAgeRequirementDays: configuredAgeDays } = useSettings();
   const minDeposit = minimumDepositAmount || 300;
+  const accountAgeRequirementDays = configuredAgeDays || 30;
   const [dashboardBalance, setDashboardBalance] = useState<UserBalanceSummary | null>(balance || null);
-  const [isFundLockModalOpen, setIsFundLockModalOpen] = useState(false);
   const [copiedProfileRef, setCopiedProfileRef] = useState(false);
 
   useEffect(() => {
@@ -146,29 +142,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
   const accountCreated = user?.createdAt ? new Date(user.createdAt) : new Date();
   const accountAgeDays = Math.floor((Date.now() - accountCreated.getTime()) / (24 * 60 * 60 * 1000));
 
-  const isFundLocked = Boolean(dashboardBalance?.isFundLocked);
-  const isAccountMatured = Boolean(dashboardBalance?.is30DaysOld ?? (accountAgeDays >= 30));
-  const isAccountLocked = isFundLocked || !isAccountMatured;
-  const accountAgeRequirementDays = 30;
-
-  let lockStatusLabel = 'UNLOCKED';
-  let lockStatusBadgeClass = 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
-  let unlockDateDisplay = 'Fully Matured (Eligible for Standard Withdrawals)';
-
-  if (isFundLocked) {
-    lockStatusLabel = 'LOCKED (Fund Lock Active)';
-    lockStatusBadgeClass = 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60';
-    unlockDateDisplay = dashboardBalance?.fundLockUntil
-      ? `${new Date(dashboardBalance.fundLockUntil).toLocaleDateString()} (${dashboardBalance.fundLockRemainingDays}d ${dashboardBalance.fundLockRemainingHours}h remaining)`
-      : 'Active Principal Lock Period';
-  } else if (!isAccountMatured) {
-    lockStatusLabel = `LOCKED (${accountAgeRequirementDays}d Age Requirement)`;
-    lockStatusBadgeClass = 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
-    unlockDateDisplay = dashboardBalance?.withdrawalEligibleDate
-      ? `${new Date(dashboardBalance.withdrawalEligibleDate).toLocaleDateString()} (${dashboardBalance.accountAgeDays ?? accountAgeDays}d / ${accountAgeRequirementDays}d completed)`
-      : `${accountAgeRequirementDays} Days from Registration`;
-  }
-
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-24 text-xs">
       {/* Title */}
@@ -227,79 +200,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
           </div>
 
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">30-Day Age Policy</span>
-            <p className={`font-bold text-sm mt-0.5 ${accountAgeDays >= 30 ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}>
-              {accountAgeDays >= 30 ? 'Eligible for Payout' : 'Maturity Pending'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Liquidity & Maturity Governance Card (Moved from Home for Clean Accounting View) */}
-      <div
-        id="profile-lock-status-card"
-        className={`rounded-3xl border p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-4 ${
-          isAccountLocked
-            ? 'bg-amber-50/70 dark:bg-amber-950/20 border-amber-300 dark:border-amber-700/60'
-            : 'bg-white dark:bg-[#0F172A] border-slate-200 dark:border-slate-800'
-        }`}
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start space-x-3">
-            <div
-              className={`w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0 font-bold ${
-                isAccountLocked
-                  ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                  : 'bg-blue-500/20 text-blue-700 dark:text-blue-300'
-              }`}
-            >
-              {isAccountLocked ? <Lock className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>Liquidity & Maturity Governance</span>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${lockStatusBadgeClass}`}
-                >
-                  {isAccountLocked ? 'Locked' : 'Unlocked'}
-                </span>
-              </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                {isFundLocked
-                  ? 'Deposit or voluntary fund lock is currently active on your principal to protect portfolio liquidity.'
-                  : !isAccountMatured
-                  ? `Your account is ${dashboardBalance?.accountAgeDays ?? accountAgeDays} days old. Institutional rules require ${accountAgeRequirementDays} full days before principal withdrawals unlock.`
-                  : 'Account age requirement completed. Normal principal and yield withdrawal requests are fully unlocked.'}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsFundLockModalOpen(true)}
-            className="px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl transition flex-shrink-0 cursor-pointer shadow-xs self-start sm:self-auto"
-          >
-            Policy Details
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Lock State</span>
-            <p className={`font-bold mt-0.5 ${isAccountLocked ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`}>
-              {lockStatusLabel}
-            </p>
-          </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Unlock Schedule</span>
-            <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">
-              {unlockDateDisplay}
-            </p>
-          </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Governance Policy</span>
-            <p className="font-bold text-blue-600 dark:text-blue-400 mt-0.5 flex items-center space-x-1">
-              <Zap className="w-3 h-3" />
-              <span>Standard BEP-20 Rules</span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">{accountAgeRequirementDays}-Day Age Policy</span>
+            <p className={`font-bold text-sm mt-0.5 ${(dashboardBalance?.accountAgeDays ?? accountAgeDays) >= accountAgeRequirementDays ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}>
+              {(dashboardBalance?.accountAgeDays ?? accountAgeDays) >= accountAgeRequirementDays ? 'Eligible for Payout' : 'Maturity Pending'}
             </p>
           </div>
         </div>
@@ -323,61 +226,43 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
           Receive {referralRewardL1Percentage}% Level 1 direct rewards and {referralRewardL2Percentage}% Level 2 indirect rewards when your referred investors make qualifying deposits (≥ {minDeposit} USDT). Referral rewards are non-compounding cash.
         </p>
 
-        {!user?.referralCode ? (
-          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 font-bold text-xs">
-                <Lock className="w-3.5 h-3.5" />
-                <span>Refer & Earn is Locked</span>
-              </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
-                Maintain at least {minDeposit} USDT in eligible funds in your account to unlock your referral code.
-              </p>
-            </div>
+        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <span className="text-[11px] font-semibold text-slate-500 uppercase">My Referral Code</span>
+            <p className="text-base font-mono font-black text-slate-900 dark:text-white tracking-wider mt-0.5">
+              {user?.referralCode || 'FINEXJ'}
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                if (user?.referralCode) {
+                  navigator.clipboard.writeText(user.referralCode);
+                  setCopiedProfileRef(true);
+                  setTimeout(() => setCopiedProfileRef(false), 2000);
+                }
+              }}
+              className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition cursor-pointer"
+            >
+              {copiedProfileRef ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedProfileRef ? 'Copied' : 'Copy Code'}</span>
+            </button>
+
             {onNavigate && (
               <button
-                onClick={() => onNavigate('deposit')}
-                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer self-start sm:self-auto"
+                onClick={() => onNavigate('referrals')}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
               >
-                <span>Deposit to Unlock</span>
+                <span>Referral Dashboard</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
-        ) : (
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <span className="text-[11px] font-semibold text-slate-500 uppercase">My Referral Code</span>
-              <p className="text-base font-mono font-black text-slate-900 dark:text-white tracking-wider mt-0.5">
-                {user.referralCode}
-              </p>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(user.referralCode!);
-                  setCopiedProfileRef(true);
-                  setTimeout(() => setCopiedProfileRef(false), 2000);
-                }}
-                className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition cursor-pointer"
-              >
-                {copiedProfileRef ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedProfileRef ? 'Copied' : 'Copy Code'}</span>
-              </button>
-
-              {onNavigate && (
-                <button
-                  onClick={() => onNavigate('referrals')}
-                  className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
-                >
-                  <span>Referral Dashboard</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+        </div>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          Share your referral code with friends. Referral rewards are credited when a referred user makes a qualifying deposit and your account meets the active deposit requirement.
+        </p>
       </div>
 
       {/* Authenticator App Security (TOTP) */}
@@ -669,13 +554,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
           </button>
         </div>
       </div>
-
-      {/* 30-Day Fund Lock & Yield Governance Policy Modal */}
-      <FundLockModal
-        isOpen={isFundLockModalOpen}
-        onClose={() => setIsFundLockModalOpen(false)}
-        balance={dashboardBalance}
-      />
     </div>
   );
 };

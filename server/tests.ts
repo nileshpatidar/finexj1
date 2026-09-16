@@ -39,6 +39,14 @@ import {
   getFinancialMessages,
   markFinancialMessagesRead,
 } from './repositories/financialMessages';
+import {
+  isUSFederalHoliday,
+  isUSBusinessDay,
+  calculateDepositLockEndDate,
+  countUSBusinessDays,
+  isDepositLockActive,
+} from './utils/businessDays';
+import { isTotpCodeReplayed, markTotpCodeUsed } from './auth';
 
 export interface TestResult {
   name: string;
@@ -6758,6 +6766,84 @@ export async function runAutomatedTestSuite(): Promise<{
       'Step 57 Deposit & Withdrawal Notes/Chat Suite',
       false,
       `Step 57 Test Suite error: ${step57Err.message}`
+    );
+  }
+
+  // --- STEP 58: BUSINESS-DAY DEPOSIT LOCK, INDEPENDENT MATURITY & TOTP TESTS ---
+  try {
+    // 1. Weekend exclusion
+    const sat = new Date(Date.UTC(2026, 8, 12, 12, 0, 0)); // Saturday Sep 12, 2026
+    const sun = new Date(Date.UTC(2026, 8, 13, 12, 0, 0)); // Sunday Sep 13, 2026
+    const mon = new Date(Date.UTC(2026, 8, 14, 12, 0, 0)); // Monday Sep 14, 2026
+    assert(
+      'STEP 58: TEST 1 - Weekend Exclusion from US Business Days',
+      'Business Days & Deposit Lock',
+      !isUSBusinessDay(sat) && !isUSBusinessDay(sun) && isUSBusinessDay(mon),
+      'Saturdays and Sundays are strictly excluded from business day counts.'
+    );
+
+    // 2. US Federal Holidays exclusion (e.g. Independence Day July 4, 2026 falls on Saturday -> observed Friday July 3)
+    const independenceObserved = new Date(Date.UTC(2026, 6, 3, 12, 0, 0)); // Friday July 3, 2026
+    const christmas2026 = new Date(Date.UTC(2026, 11, 25, 12, 0, 0)); // Friday Dec 25, 2026
+    assert(
+      'STEP 58: TEST 2 - US Federal Holidays Observed & Excluded (5 U.S.C. 6103)',
+      'Business Days & Deposit Lock',
+      isUSFederalHoliday(independenceObserved) && !isUSBusinessDay(independenceObserved) &&
+      isUSFederalHoliday(christmas2026) && !isUSBusinessDay(christmas2026),
+      'US Federal Holidays and their legally shifted observance dates are properly recognized and excluded.'
+    );
+
+    // 3. Deposit Lock calculation (66 US Business Days)
+    const depDate = new Date(Date.UTC(2026, 0, 5, 10, 0, 0)); // Monday Jan 5, 2026
+    const lockEndDate = calculateDepositLockEndDate(depDate, 66);
+    const businessDaysBetween = countUSBusinessDays(depDate, lockEndDate);
+    assert(
+      'STEP 58: TEST 3 - 66 US Business Days Lock End Date Calculation',
+      'Business Days & Deposit Lock',
+      businessDaysBetween === 66 && new Date(lockEndDate).getTime() > depDate.getTime(),
+      `Lock end date exactly spans 66 US business days (computed ${businessDaysBetween} business days).`
+    );
+
+    // 4. Multiple Deposits: Later deposits never reset earlier deposits
+    const dep1Date = new Date(Date.UTC(2026, 0, 5, 10, 0, 0));
+    const dep2Date = new Date(Date.UTC(2026, 1, 15, 10, 0, 0));
+    const dep1LockEnd = calculateDepositLockEndDate(dep1Date, 66);
+    const dep2LockEnd = calculateDepositLockEndDate(dep2Date, 66);
+    assert(
+      'STEP 58: TEST 4 - Independent Deposit Lock Schedules (No Reset on Subsequent Deposits)',
+      'Business Days & Deposit Lock',
+      new Date(dep1LockEnd).getTime() < new Date(dep2LockEnd).getTime(),
+      'Each deposit maintains its own independent lock schedule; later deposits never delay earlier maturities.'
+    );
+
+    // 5. Active vs Expired Deposit Lock State
+    const futureDate = new Date(Date.now() + 86400000 * 10);
+    const pastDate = new Date(Date.now() - 86400000 * 10);
+    assert(
+      'STEP 58: TEST 5 - Deposit Lock Status Evaluator (Active vs Expired)',
+      'Business Days & Deposit Lock',
+      isDepositLockActive(futureDate) === true && isDepositLockActive(pastDate) === false,
+      'isDepositLockActive accurately determines whether a deposit is currently locked.'
+    );
+
+    // 6. TOTP Replay Protection Verification
+    const testTotpUser = 'user-totp-test-step58';
+    const testTotpCode = '987654';
+    const replayBefore = isTotpCodeReplayed(testTotpUser, testTotpCode);
+    markTotpCodeUsed(testTotpUser, testTotpCode);
+    const replayAfter = isTotpCodeReplayed(testTotpUser, testTotpCode);
+    assert(
+      'STEP 58: TEST 6 - TOTP Replay Protection for Withdrawals',
+      'Authentication & 2FA',
+      replayBefore === false && replayAfter === true,
+      'Used TOTP codes are recorded and rejected upon reuse to prevent replay attacks.'
+    );
+  } catch (step58Err: any) {
+    assert(
+      'STEP 58: TEST-SUITE-EXCEPTION',
+      'Step 58 Business Days & Security Suite',
+      false,
+      `Step 58 Test Suite error: ${step58Err.message}`
     );
   }
 

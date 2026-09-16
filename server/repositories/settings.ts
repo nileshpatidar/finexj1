@@ -31,7 +31,7 @@ export const developmentDefaultSettings: Readonly<AppSettings> = Object.freeze({
   referralRewardL1Percentage: 5,
   referralRewardL2Percentage: 2,
   accountAgeRequirementDays: 30,
-  depositLockPeriodDays: 30,
+  depositLockPeriodDays: 66,
   telegramSupportUrl: 'https://t.me/USDTFundOfficialSupport',
   operationalWalletAddress: '0x71C5A8c0B26D19543e49e29547d6e492211C54a9',
   compoundingEnabled: true,

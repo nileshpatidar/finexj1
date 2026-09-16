@@ -3,6 +3,7 @@ import { Deposit, DepositStatus } from '../types';
 import { resolveUserIdForDb } from './profiles';
 import { getPublicDepositProofUrl } from '../storage';
 import { getSettings } from './settings';
+import { calculateDepositLockEndDate } from '../utils/businessDays';
 
 const devDeposits: Deposit[] = [];
 
@@ -124,7 +125,9 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
   }
 
   if (!isServerSupabaseReady()) {
-    const lockDays = Number(settings?.depositLockPeriodDays || 30);
+    const lockDays = typeof settings?.depositLockPeriodDays === 'number' && !isNaN(settings.depositLockPeriodDays) && settings.depositLockPeriodDays >= 0
+      ? settings.depositLockPeriodDays
+      : 66;
     const created: Deposit = {
       id: String(Date.now()),
       userId: String(dep.userId),
@@ -137,7 +140,7 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
       status: dep.status || 'pending',
       confirmations: dep.confirmations !== undefined ? dep.confirmations : 0,
       requiredConfirmations: dep.requiredConfirmations || settings?.requiredConfirmations || 12,
-      depositLockEndDate: dep.depositLockEndDate || new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000).toISOString(),
+      depositLockEndDate: dep.depositLockEndDate || calculateDepositLockEndDate(dep.createdAt || Date.now(), lockDays),
       createdAt: dep.createdAt || new Date().toISOString(),
       fromAddress: dep.fromAddress,
       tokenContract: dep.tokenContract,
@@ -154,7 +157,9 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
 
   const supabase = getServerSupabase();
   const userIdNum = await resolveUserIdForDb(dep.userId);
-  const lockDays = Number(settings?.depositLockPeriodDays || 30);
+  const lockDays = typeof settings?.depositLockPeriodDays === 'number' && !isNaN(settings.depositLockPeriodDays) && settings.depositLockPeriodDays >= 0
+    ? settings.depositLockPeriodDays
+    : 66;
 
   const payload: any = {
     user_id: userIdNum,
@@ -167,7 +172,7 @@ export async function createDeposit(dep: Partial<Deposit>): Promise<Deposit> {
     status: dep.status || 'pending',
     confirmations: dep.confirmations !== undefined ? dep.confirmations : 0,
     required_confirmations: dep.requiredConfirmations || settings?.requiredConfirmations || 12,
-    lock_expires_at: dep.depositLockEndDate || new Date(Date.now() + lockDays * 24 * 60 * 60 * 1000).toISOString(),
+    lock_expires_at: dep.depositLockEndDate || calculateDepositLockEndDate(dep.createdAt || Date.now(), lockDays),
     created_at: dep.createdAt || new Date().toISOString(),
   };
 

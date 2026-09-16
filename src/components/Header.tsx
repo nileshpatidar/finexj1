@@ -14,6 +14,8 @@ import {
   ChevronDown,
   Users,
   History,
+  ArrowDownToLine,
+  ArrowUpFromLine,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -246,12 +248,32 @@ export const Header: React.FC<HeaderProps> = ({
                         <>
                           <button
                             onClick={() => {
+                              onNavigate('deposit');
+                              setShowAccountDropdown(false);
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 text-slate-700 dark:text-slate-300 cursor-pointer"
+                          >
+                            <ArrowDownToLine className="w-4 h-4 text-emerald-500" />
+                            <span>Deposit</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              onNavigate('withdraw');
+                              setShowAccountDropdown(false);
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 text-slate-700 dark:text-slate-300 cursor-pointer"
+                          >
+                            <ArrowUpFromLine className="w-4 h-4 text-amber-500" />
+                            <span>Withdraw</span>
+                          </button>
+                          <button
+                            onClick={() => {
                               onNavigate('referrals');
                               setShowAccountDropdown(false);
                             }}
                             className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 text-slate-700 dark:text-slate-300 cursor-pointer"
                           >
-                            <Users className="w-4 h-4 text-emerald-500" />
+                            <Users className="w-4 h-4 text-indigo-500" />
                             <span>Referral Network</span>
                           </button>
                           <button
@@ -271,7 +293,7 @@ export const Header: React.FC<HeaderProps> = ({
                             }}
                             className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 text-slate-700 dark:text-slate-300 cursor-pointer"
                           >
-                            <History className="w-4 h-4 text-indigo-500" />
+                            <History className="w-4 h-4 text-purple-500" />
                             <span>Activity</span>
                           </button>
                         </>
