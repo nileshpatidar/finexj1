@@ -861,18 +861,63 @@ app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (re
 
 // Dashboard summary
 app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, res, next) => {
+  const reqStart = performance.now();
   try {
     const user: User = (req as any).user;
+    let tBalance = 0;
+    let tLedger = 0;
+    let tEarnings = 0;
+    let tMarket = 0;
+    let tSettings = 0;
+    let tReferral = 0;
+    let tWithdrawals = 0;
+
     const [balanceSummary, ledger, earnings, marketPrices, settings, referralSummary, withdrawals] = await Promise.all([
-      calculateUserBalanceAsync(user.id),
-      getLedgerByUserId(user.id),
-      getEarningsByUserId(user.id),
-      getMarketPrices(),
-      getSettings(),
-      getUserReferralSummaryAsync(user.id),
-      getWithdrawalsByUserId(user.id),
+      (async () => {
+        const s = performance.now();
+        const r = await calculateUserBalanceAsync(user.id);
+        tBalance = performance.now() - s;
+        return r;
+      })(),
+      (async () => {
+        const s = performance.now();
+        const r = await getLedgerByUserId(user.id);
+        tLedger = performance.now() - s;
+        return r;
+      })(),
+      (async () => {
+        const s = performance.now();
+        const r = await getEarningsByUserId(user.id);
+        tEarnings = performance.now() - s;
+        return r;
+      })(),
+      (async () => {
+        const s = performance.now();
+        const r = await getMarketPrices();
+        tMarket = performance.now() - s;
+        return r;
+      })(),
+      (async () => {
+        const s = performance.now();
+        const r = await getSettings();
+        tSettings = performance.now() - s;
+        return r;
+      })(),
+      (async () => {
+        const s = performance.now();
+        const r = await getUserReferralSummaryAsync(user.id);
+        tReferral = performance.now() - s;
+        return r;
+      })(),
+      (async () => {
+        const s = performance.now();
+        const r = await getWithdrawalsByUserId(user.id);
+        tWithdrawals = performance.now() - s;
+        return r;
+      })(),
     ]);
 
+    const postStart = performance.now();
     const todayStr = new Date().toISOString().split('T')[0];
     const todayEarning = earnings.find(e => e.performanceDate === todayStr);
     const todayEarningsAmount = todayEarning ? todayEarning.earningsAmount : 0;
@@ -894,6 +939,27 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
       status: pendingWithdrawal.status,
       createdAt: pendingWithdrawal.createdAt,
     } : null;
+
+    const totalTimeMs = performance.now() - reqStart;
+    const postProcessingMs = performance.now() - postStart;
+
+    logger.info('DASHBOARD_PROFILE', `[Dashboard Profile] user=${user.id} total=${totalTimeMs.toFixed(2)}ms balance=${tBalance.toFixed(2)}ms referral=${tReferral.toFixed(2)}ms ledger=${tLedger.toFixed(2)}ms earnings=${tEarnings.toFixed(2)}ms withdrawals=${tWithdrawals.toFixed(2)}ms`, {
+      userId: user.id,
+      durationMs: Math.round(totalTimeMs),
+      metadata: {
+        balanceCalcMs: Number(tBalance.toFixed(2)),
+        ledgerMs: Number(tLedger.toFixed(2)),
+        earningsMs: Number(tEarnings.toFixed(2)),
+        marketPricesMs: Number(tMarket.toFixed(2)),
+        settingsMs: Number(tSettings.toFixed(2)),
+        referralSummaryMs: Number(tReferral.toFixed(2)),
+        withdrawalsMs: Number(tWithdrawals.toFixed(2)),
+        postProcessingMs: Number(postProcessingMs.toFixed(2)),
+        totalTimeMs: Number(totalTimeMs.toFixed(2)),
+      },
+    });
+
+    res.setHeader('Server-Timing', `total;dur=${totalTimeMs.toFixed(2)}, bal;dur=${tBalance.toFixed(2)}, ref;dur=${tReferral.toFixed(2)}, led;dur=${tLedger.toFixed(2)}, earn;dur=${tEarnings.toFixed(2)}, wdr;dur=${tWithdrawals.toFixed(2)}`);
 
     res.json({
       user: {
