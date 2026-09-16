@@ -572,4 +572,43 @@ export async function flagUserForReview(
   });
 }
 
+export async function getProfilesByIds(ids: (string | number)[]): Promise<Map<string, User>> {
+  const result = new Map<string, User>();
+  if (!ids || ids.length === 0) return result;
+
+  const stringIds = ids.map(id => String(id).trim()).filter(Boolean);
+  if (stringIds.length === 0) return result;
+
+  if (!isServerSupabaseReady()) {
+    seedDevUsers();
+    for (const sid of stringIds) {
+      const u = devUsersById.get(sid);
+      if (u) result.set(sid, u);
+    }
+    return result;
+  }
+
+  try {
+    const supabase = getServerSupabase();
+    const numericIds = stringIds.map(Number).filter(n => !isNaN(n) && n > 0);
+
+    const queryIds = numericIds.length > 0 ? numericIds : stringIds;
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .in('id', queryIds);
+
+    if (!error && data) {
+      for (const row of data) {
+        const user = mapDbUserToUser(row);
+        result.set(String(user.id), user);
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getProfilesByIds:`, err?.message);
+  }
+
+  return result;
+}
+
 

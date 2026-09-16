@@ -105,34 +105,41 @@ export async function getUserTransactionsAsync(
   userId: string,
   options?: UserTransactionQueryOptions
 ): Promise<UserTransactionsResult> {
-  const [deposits, withdrawals, earnings, referralRewards, ledger, balance] = await Promise.all([
+  const [deposits, withdrawals, earnings, referralRewards, ledger] = await Promise.all([
     getDepositsByUserId(userId),
     getWithdrawalsByUserId(userId),
     getEarningsByUserId(userId),
     getReferralRewardsByReferrerId(userId),
     getLedgerByUserId(userId),
-    calculateUserBalanceAsync(userId).catch((): UserBalanceSummary => ({
-      userId,
-      totalDeposited: 0,
-      totalEarnings: 0,
-      referralEarnings: 0,
-      activeCompoundingPrincipal: 0,
-      depositLockedPrincipal: 0,
-      totalWithdrawn: 0,
-      totalFeesPaid: 0,
-      totalPendingWithdrawals: 0,
-      availableBalance: 0,
-      lockedBalance: 0,
-      eligibleForWithdrawal: 0,
-      accountAgeDays: 0,
-      is30DaysOld: false,
-      canWithdraw: false,
-      withdrawalEligibleDate: new Date().toISOString(),
-      isFundLocked: false,
-      fundLockRemainingDays: 0,
-      fundLockRemainingHours: 0,
-    })),
   ]);
+
+  const balance = await calculateUserBalanceAsync(userId, {
+    deposits,
+    earnings,
+    withdrawals,
+    referralRewards,
+    ledgerEntries: ledger,
+  }).catch((): UserBalanceSummary => ({
+    userId,
+    totalDeposited: 0,
+    totalEarnings: 0,
+    referralEarnings: 0,
+    activeCompoundingPrincipal: 0,
+    depositLockedPrincipal: 0,
+    totalWithdrawn: 0,
+    totalFeesPaid: 0,
+    totalPendingWithdrawals: 0,
+    availableBalance: 0,
+    lockedBalance: 0,
+    eligibleForWithdrawal: 0,
+    accountAgeDays: 0,
+    is30DaysOld: false,
+    canWithdraw: false,
+    withdrawalEligibleDate: new Date().toISOString(),
+    isFundLocked: false,
+    fundLockRemainingDays: 0,
+    fundLockRemainingHours: 0,
+  }));
 
   const allItems: UserTransactionItem[] = [];
   const seenIds = new Set<string>();

@@ -10,7 +10,7 @@ import {
   PaginatedLevel1ReferralsResponse,
   PaginatedLevel2ReferralsResponse,
 } from '../types';
-import { getProfileById, getProfileByReferralCode, updateProfile } from '../repositories/profiles';
+import { getProfileById, getProfileByReferralCode, updateProfile, getProfilesByIds } from '../repositories/profiles';
 import {
   getReferralByReferredId,
   createReferralRelationship,
@@ -21,11 +21,16 @@ import {
   DuplicateReferralRewardError,
   getReferralsByReferrerId,
   getReferralsByReferrerIdPaginated,
+  getReferralsByReferrerIdsPaginated,
   getReferralsCountByReferrerId,
+  getTotalReferralsCountForReferrerIds,
   getRewardsSumForReferredUser,
+  getRewardsSumByReferredUserIds,
+  getReferralCountsByReferrerIds,
   getReferralRewardsByReferrerId,
   creditReferralRewardAtomic,
 } from '../repositories/referrals';
+import { getConfirmedDepositSumsByUserIds } from '../repositories/deposits';
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getSettings } from '../repositories/settings';
@@ -184,8 +189,14 @@ export async function bindReferralAsync(
  * 4. Unconfirmed, rejected, cancelled, pending deposits NEVER qualify.
  * 5. If user withdraws and maintained principal falls below minimum, eligibility becomes inactive.
  */
-export async function checkReferralEligibilityAsync(userId: string): Promise<ReferralEligibilityResult> {
-  const settings = await getSettings();
+export async function checkReferralEligibilityAsync(
+  userId: string,
+  preloaded?: {
+    balance?: { totalDeposited: number; totalWithdrawn: number };
+    settings?: any;
+  }
+): Promise<ReferralEligibilityResult> {
+  const settings = preloaded?.settings || (await getSettings());
   const rawMin = Number(settings.minimumDepositAmount);
   if (isNaN(rawMin) || rawMin <= 0) {
     return {
@@ -201,7 +212,7 @@ export async function checkReferralEligibilityAsync(userId: string): Promise<Ref
   const effectiveMinDeposit = rawMin;
 
   try {
-    const balance = await calculateUserBalanceAsync(userId);
+    const balance = preloaded?.balance || (await calculateUserBalanceAsync(userId));
     const totalDeposited = balance.totalDeposited;
     const totalWithdrawn = balance.totalWithdrawn;
     
@@ -668,8 +679,16 @@ export async function getReferralSummaryAsync(userId: string): Promise<{
  * Authoritative user referral summary with separate referral income vs compounding principal.
  * Backend-calculated exclusively.
  */
-export async function getUserReferralSummaryAsync(userId: string): Promise<UserReferralSummary> {
-  const user = await getProfileById(userId);
+export async function getUserReferralSummaryAsync(
+  userId: string,
+  preloaded?: {
+    user?: User;
+    balance?: any;
+    referralRewards?: ReferralReward[];
+    settings?: any;
+  }
+): Promise<UserReferralSummary> {
+  const user = preloaded?.user || (await getProfileById(userId));
   if (!user) {
     throw new Error('User not found');
   }
@@ -679,19 +698,13 @@ export async function getUserReferralSummaryAsync(userId: string): Promise<UserR
   const level1Referrals = l1Referrals.length;
   const l1UserIds = l1Referrals.map(r => r.referredId);
 
-  // 2. Level 2 count (derived directly from database relationships)
-  let level2Referrals = 0;
-  for (const l1Id of l1UserIds) {
-    try {
-      const count = await getReferralsCountByReferrerId(l1Id);
-      level2Referrals += count;
-    } catch {
-      // Continue
-    }
-  }
+  // 2. Level 2 count (derived directly from database relationships via single aggregate query)
+  const level2Referrals = await getTotalReferralsCountForReferrerIds(l1UserIds);
 
   // 3. User Referral Rewards earned
-  const rewards = await getReferralRewardsByReferrerId(userId);
+  const rewards = preloaded?.referralRewards !== undefined
+    ? preloaded.referralRewards
+    : await getReferralRewardsByReferrerId(userId);
   let level1Income = 0;
   let level2Income = 0;
 
@@ -707,7 +720,10 @@ export async function getUserReferralSummaryAsync(userId: string): Promise<UserR
   const totalReferralIncome = Number((level1Income + level2Income).toFixed(4));
 
   // 4. Authoritative Referral Eligibility Validation
-  const eligibility = await checkReferralEligibilityAsync(userId);
+  const eligibility = await checkReferralEligibilityAsync(userId, {
+    balance: preloaded?.balance,
+    settings: preloaded?.settings,
+  });
 
   // Security rule: If the user is NOT eligible, do not expose active referralCode or referralLink
   const rawReferralCode = user.referralCode || '';
@@ -745,16 +761,34 @@ export async function getUserLevel1ReferralsPaginatedAsync(
   limit: number = 10
 ): Promise<PaginatedLevel1ReferralsResponse> {
   const safePage = Math.max(1, page);
-  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const safeLimit = Math.min(10, Math.max(1, limit || 10));
   const { referrals, total } = await getReferralsByReferrerIdPaginated(userId, safePage, safeLimit);
   const settings = await getSettings();
   const minDeposit = Number(settings.minimumDepositAmount);
+
+  if (!referrals || referrals.length === 0) {
+    return {
+      items: [],
+      page: safePage,
+      limit: safeLimit,
+      totalCount: total,
+      totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+    };
+  }
+
+  const referredIds = referrals.map(r => r.referredId);
+  const [profilesMap, rewardsMap, depositSumsMap, l2CountsMap] = await Promise.all([
+    getProfilesByIds(referredIds),
+    getRewardsSumByReferredUserIds(userId, referredIds),
+    getConfirmedDepositSumsByUserIds(referredIds),
+    getReferralCountsByReferrerIds(referredIds),
+  ]);
 
   const items: Level1ReferralItem[] = [];
 
   for (const ref of referrals) {
     try {
-      const p = await getProfileById(ref.referredId);
+      const p = profilesMap.get(String(ref.referredId));
       if (!p) continue;
 
       // Extract Name and Surname strictly without exposing email
@@ -763,12 +797,12 @@ export async function getUserLevel1ReferralsPaginatedAsync(
       const surname = nameParts.slice(1).join(' ') || (nameParts.length > 1 ? nameParts[1] : '—');
 
       // Check qualification: either reward credited or confirmed deposit >= minDeposit
-      const rewardEarned = await getRewardsSumForReferredUser(userId, p.id);
-      const pBalance = await calculateUserBalanceAsync(p.id);
-      const isQualified = rewardEarned > 0 || (pBalance.totalDeposited >= minDeposit);
+      const rewardEarned = rewardsMap.get(String(p.id)) || 0;
+      const totalDeposited = depositSumsMap.get(String(p.id)) || 0;
+      const isQualified = rewardEarned > 0 || (totalDeposited >= minDeposit);
 
       // Sub-referrals count under this Level 1 member (Level 2 for the caller)
-      const level2Count = await getReferralsCountByReferrerId(p.id);
+      const level2Count = l2CountsMap.get(String(p.id)) || 0;
 
       items.push({
         id: p.id,
@@ -809,9 +843,7 @@ export async function getUserLevel2ReferralsPaginatedAsync(
   const settings = await getSettings();
   const minDeposit = Number(settings.minimumDepositAmount);
   const safePage = Math.max(1, page);
-  const safeLimit = Math.max(1, Math.min(limit, 100));
-
-  let targetL1Referrers: { id: string; name: string; surname: string }[] = [];
+  const safeLimit = Math.min(10, Math.max(1, limit || 10));
 
   if (level1UserId) {
     // 1. Strict Security Validation: Ensure level1UserId is a direct referral of userId
@@ -823,53 +855,39 @@ export async function getUserLevel2ReferralsPaginatedAsync(
 
     const l1Profile = await getProfileById(level1UserId);
     const l1Parts = (l1Profile?.fullName || 'Investor Member').trim().split(/\s+/);
-    targetL1Referrers.push({
-      id: level1UserId,
-      name: l1Parts[0] || 'Investor',
-      surname: l1Parts.slice(1).join(' ') || '—',
-    });
-  } else {
-    // Fetch all L1 referrals for this user
-    const l1List = await getReferralsByReferrerId(userId);
-    for (const ref of l1List) {
-      const p = await getProfileById(ref.referredId);
-      if (p) {
-        const parts = (p.fullName || 'Investor Member').trim().split(/\s+/);
-        targetL1Referrers.push({
-          id: p.id,
-          name: parts[0] || 'Investor',
-          surname: parts.slice(1).join(' ') || '—',
-        });
-      }
-    }
-  }
+    const l1Name = `${l1Parts[0] || 'Investor'} ${l1Parts.slice(1).join(' ') || '—'}`.trim();
 
-  if (targetL1Referrers.length === 0) {
-    return {
-      items: [],
-      page: safePage,
-      limit: safeLimit,
-      totalCount: 0,
-      totalPages: 1,
-      level1ReferrerId: level1UserId,
-    };
-  }
-
-  // If single level1UserId specified, paginate directly
-  if (level1UserId && targetL1Referrers.length === 1) {
-    const l1 = targetL1Referrers[0];
     const { referrals, total } = await getReferralsByReferrerIdPaginated(level1UserId, safePage, safeLimit);
-    const items: Level2ReferralItem[] = [];
 
+    if (!referrals || referrals.length === 0) {
+      return {
+        items: [],
+        page: safePage,
+        limit: safeLimit,
+        totalCount: total,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+        level1ReferrerId: level1UserId,
+        level1ReferrerName: l1Name,
+      };
+    }
+
+    const l2ReferredIds = referrals.map(r => r.referredId);
+    const [profilesMap, rewardsMap, depositSumsMap] = await Promise.all([
+      getProfilesByIds(l2ReferredIds),
+      getRewardsSumByReferredUserIds(userId, l2ReferredIds),
+      getConfirmedDepositSumsByUserIds(l2ReferredIds),
+    ]);
+
+    const items: Level2ReferralItem[] = [];
     for (const ref of referrals) {
       try {
-        const p = await getProfileById(ref.referredId);
+        const p = profilesMap.get(String(ref.referredId));
         if (!p) continue;
 
         const nameParts = (p.fullName || 'Investor Member').trim().split(/\s+/);
-        const rewardEarned = await getRewardsSumForReferredUser(userId, p.id);
-        const pBalance = await calculateUserBalanceAsync(p.id);
-        const isQualified = rewardEarned > 0 || (pBalance.totalDeposited >= minDeposit);
+        const rewardEarned = rewardsMap.get(String(p.id)) || 0;
+        const totalDeposited = depositSumsMap.get(String(p.id)) || 0;
+        const isQualified = rewardEarned > 0 || (totalDeposited >= minDeposit);
 
         items.push({
           id: p.id,
@@ -879,8 +897,8 @@ export async function getUserLevel2ReferralsPaginatedAsync(
           isQualified,
           rewardEarned,
           joinedAt: ref.createdAt,
-          level1ReferrerId: l1.id,
-          level1ReferrerName: `${l1.name} ${l1.surname}`.trim(),
+          level1ReferrerId: level1UserId,
+          level1ReferrerName: l1Name,
         });
       } catch (err: any) {
         logger.warn('LEVEL2_MAP_WARN', `Error mapping L2 ref ${ref.id}: ${err?.message}`);
@@ -893,34 +911,64 @@ export async function getUserLevel2ReferralsPaginatedAsync(
       limit: safeLimit,
       totalCount: total,
       totalPages: Math.max(1, Math.ceil(total / safeLimit)),
-      level1ReferrerId: l1.id,
-      level1ReferrerName: `${l1.name} ${l1.surname}`.trim(),
+      level1ReferrerId: level1UserId,
+      level1ReferrerName: l1Name,
     };
   }
 
   // Across all L1 referrers (overview)
-  const allL2Referrals: Array<{ ref: any; l1: { id: string; name: string; surname: string } }> = [];
-  for (const l1 of targetL1Referrers) {
-    const subList = await getReferralsByReferrerId(l1.id);
-    for (const sub of subList) {
-      allL2Referrals.push({ ref: sub, l1 });
-    }
+  // 1. Get all L1 referral IDs
+  const l1List = await getReferralsByReferrerId(userId);
+  const l1UserIds = l1List.map(r => r.referredId);
+
+  if (l1UserIds.length === 0) {
+    return {
+      items: [],
+      page: safePage,
+      limit: safeLimit,
+      totalCount: 0,
+      totalPages: 1,
+    };
   }
 
-  const total = allL2Referrals.length;
-  const offset = (safePage - 1) * safeLimit;
-  const pageSlice = allL2Referrals.slice(offset, offset + safeLimit);
+  // 2. Paginate directly at the database level across all L1 referrers
+  const { referrals, total } = await getReferralsByReferrerIdsPaginated(l1UserIds, safePage, safeLimit);
+
+  if (!referrals || referrals.length === 0) {
+    return {
+      items: [],
+      page: safePage,
+      limit: safeLimit,
+      totalCount: total,
+      totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+    };
+  }
+
+  // 3. Batch fetch profiles for the returned L2 members AND their L1 referrers
+  const l2ReferredIds = referrals.map(r => r.referredId);
+  const l1ReferrerIds = Array.from(new Set(referrals.map(r => String(r.referrerId))));
+
+  const [l2ProfilesMap, l1ProfilesMap, rewardsMap, depositSumsMap] = await Promise.all([
+    getProfilesByIds(l2ReferredIds),
+    getProfilesByIds(l1ReferrerIds),
+    getRewardsSumByReferredUserIds(userId, l2ReferredIds),
+    getConfirmedDepositSumsByUserIds(l2ReferredIds),
+  ]);
 
   const items: Level2ReferralItem[] = [];
-  for (const entry of pageSlice) {
+  for (const ref of referrals) {
     try {
-      const p = await getProfileById(entry.ref.referredId);
+      const p = l2ProfilesMap.get(String(ref.referredId));
       if (!p) continue;
 
+      const l1User = l1ProfilesMap.get(String(ref.referrerId));
+      const l1Parts = (l1User?.fullName || 'Investor Member').trim().split(/\s+/);
+      const l1ReferrerName = `${l1Parts[0] || 'Investor'} ${l1Parts.slice(1).join(' ') || '—'}`.trim();
+
       const nameParts = (p.fullName || 'Investor Member').trim().split(/\s+/);
-      const rewardEarned = await getRewardsSumForReferredUser(userId, p.id);
-      const pBalance = await calculateUserBalanceAsync(p.id);
-      const isQualified = rewardEarned > 0 || (pBalance.totalDeposited >= minDeposit);
+      const rewardEarned = rewardsMap.get(String(p.id)) || 0;
+      const totalDeposited = depositSumsMap.get(String(p.id)) || 0;
+      const isQualified = rewardEarned > 0 || (totalDeposited >= minDeposit);
 
       items.push({
         id: p.id,
@@ -929,9 +977,9 @@ export async function getUserLevel2ReferralsPaginatedAsync(
         status: p.status === 'active' ? 'Active' : 'Pending',
         isQualified,
         rewardEarned,
-        joinedAt: entry.ref.createdAt,
-        level1ReferrerId: entry.l1.id,
-        level1ReferrerName: `${entry.l1.name} ${entry.l1.surname}`.trim(),
+        joinedAt: ref.createdAt,
+        level1ReferrerId: String(ref.referrerId),
+        level1ReferrerName: l1ReferrerName,
       });
     } catch (err: any) {
       logger.warn('LEVEL2_MAP_WARN', `Error mapping L2 item: ${err?.message}`);

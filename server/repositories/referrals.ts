@@ -105,6 +105,43 @@ export async function getReferralsByReferrerIdPaginated(
   }
 }
 
+export async function getReferralsByReferrerIdsPaginated(
+  referrerIds: (string | number)[],
+  page: number = 1,
+  limit: number = 10
+): Promise<{ referrals: Referral[]; total: number }> {
+  if (!isServerSupabaseReady() || !referrerIds || referrerIds.length === 0) {
+    return { referrals: [], total: 0 };
+  }
+
+  try {
+    const supabase = getServerSupabase();
+    const stringIds = referrerIds.map(id => String(id).trim()).filter(Boolean);
+    const numericIds = stringIds.map(Number).filter(n => !isNaN(n) && n > 0);
+    const queryIds = numericIds.length > 0 ? numericIds : stringIds;
+
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.max(1, Math.min(limit, 10));
+    const offset = (safePage - 1) * safeLimit;
+
+    const { data, count, error } = await supabase
+      .from('referrals')
+      .select('*', { count: 'exact' })
+      .in('referrer_id', queryIds)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + safeLimit - 1);
+
+    if (error || !data) return { referrals: [], total: 0 };
+    return {
+      referrals: data.map(mapDbReferral),
+      total: count !== null && count !== undefined ? count : data.length,
+    };
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getReferralsByReferrerIdsPaginated:`, err?.message);
+    return { referrals: [], total: 0 };
+  }
+}
+
 export async function getReferralsCountByReferrerId(referrerId: string): Promise<number> {
   if (!isServerSupabaseReady()) return 0;
 
@@ -551,6 +588,107 @@ export async function creditReferralRewardAtomic(
     }
   } finally {
     ongoingProcessingLocks.delete(lockKey);
+  }
+}
+
+export async function getRewardsSumByReferredUserIds(
+  referrerId: string,
+  referredIds: (string | number)[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (!referredIds || referredIds.length === 0) return result;
+
+  const stringIds = referredIds.map(id => String(id).trim()).filter(Boolean);
+  if (stringIds.length === 0) return result;
+
+  if (!isServerSupabaseReady()) return result;
+
+  try {
+    const supabase = getServerSupabase();
+    const dbReferrerId = await resolveUserIdForDb(referrerId);
+    const numericIds = stringIds.map(Number).filter(n => !isNaN(n) && n > 0);
+    const queryIds = numericIds.length > 0 ? numericIds : stringIds;
+
+    const { data, error } = await supabase
+      .from('referral_rewards')
+      .select('referred_id, amount')
+      .eq('referrer_id', dbReferrerId)
+      .in('referred_id', queryIds)
+      .eq('status', 'credited');
+
+    if (!error && data) {
+      for (const row of data) {
+        const uId = String(row.referred_id);
+        const amt = Number(row.amount) || 0;
+        result.set(uId, Number(((result.get(uId) || 0) + amt).toFixed(4)));
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getRewardsSumByReferredUserIds:`, err?.message);
+  }
+
+  return result;
+}
+
+export async function getReferralCountsByReferrerIds(
+  referrerIds: (string | number)[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (!referrerIds || referrerIds.length === 0) return result;
+
+  const stringIds = referrerIds.map(id => String(id).trim()).filter(Boolean);
+  if (stringIds.length === 0) return result;
+
+  if (!isServerSupabaseReady()) return result;
+
+  try {
+    const supabase = getServerSupabase();
+    const numericIds = stringIds.map(Number).filter(n => !isNaN(n) && n > 0);
+    const queryIds = numericIds.length > 0 ? numericIds : stringIds;
+
+    const { data, error } = await supabase
+      .from('referrals')
+      .select('referrer_id')
+      .in('referrer_id', queryIds);
+
+    if (!error && data) {
+      for (const row of data) {
+        const rId = String(row.referrer_id);
+        result.set(rId, (result.get(rId) || 0) + 1);
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getReferralCountsByReferrerIds:`, err?.message);
+  }
+
+  return result;
+}
+
+export async function getTotalReferralsCountForReferrerIds(
+  referrerIds: (string | number)[]
+): Promise<number> {
+  if (!referrerIds || referrerIds.length === 0) return 0;
+
+  const stringIds = referrerIds.map(id => String(id).trim()).filter(Boolean);
+  if (stringIds.length === 0) return 0;
+
+  if (!isServerSupabaseReady()) return 0;
+
+  try {
+    const supabase = getServerSupabase();
+    const numericIds = stringIds.map(Number).filter(n => !isNaN(n) && n > 0);
+    const queryIds = numericIds.length > 0 ? numericIds : stringIds;
+
+    const { count, error } = await supabase
+      .from('referrals')
+      .select('*', { count: 'exact', head: true })
+      .in('referrer_id', queryIds);
+
+    if (error || count === null || count === undefined) return 0;
+    return count;
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getTotalReferralsCountForReferrerIds:`, err?.message);
+    return 0;
   }
 }
 

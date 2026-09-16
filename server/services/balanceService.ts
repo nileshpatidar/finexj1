@@ -8,24 +8,31 @@ import { getSettings } from '../repositories/settings';
 import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getServerSupabase } from '../supabase';
-import { UserBalanceSummary } from '../types';
+import { UserBalanceSummary, User, Deposit, EarningEntry, Withdrawal, ReferralReward, LedgerEntry, AppSettings } from '../types';
 import crypto from 'crypto';
 
-export async function calculateUserBalanceAsync(userId: string): Promise<UserBalanceSummary> {
-  const user = await getProfileById(userId);
-  if (!user) {
-    throw new Error('User not found');
+export interface PreloadedBalanceData {
+  user?: User;
+  settings?: AppSettings;
+  deposits?: Deposit[];
+  earnings?: EarningEntry[];
+  withdrawals?: Withdrawal[];
+  referralRewards?: ReferralReward[];
+  ledgerEntries?: LedgerEntry[];
+}
+
+export function calculateBalanceFromDatasets(
+  user: User,
+  settings: AppSettings,
+  datasets: {
+    deposits: Deposit[];
+    earnings: EarningEntry[];
+    withdrawals: Withdrawal[];
+    referralRewards: ReferralReward[];
+    ledgerEntries: LedgerEntry[];
   }
-
-  const settings = await getSettings();
-  const [deposits, earnings, withdrawals, referralRewards, ledgerEntries] = await Promise.all([
-    getDepositsByUserId(userId),
-    getEarningsByUserId(userId),
-    getWithdrawalsByUserId(userId),
-    getReferralRewardsByReferrerId(userId),
-    getLedgerByUserId(userId),
-  ]);
-
+): UserBalanceSummary {
+  const { deposits, earnings, withdrawals, referralRewards, ledgerEntries } = datasets;
   const now = new Date();
 
   // 1. Confirmed deposits
@@ -173,6 +180,82 @@ export async function calculateUserBalanceAsync(userId: string): Promise<UserBal
     fundLockReason,
   };
 }
+
+export async function calculateUserBalanceWithDatasetsAsync(
+  userId: string,
+  preloadedUser?: User
+): Promise<{
+  balance: UserBalanceSummary;
+  user: User;
+  settings: AppSettings;
+  deposits: Deposit[];
+  earnings: EarningEntry[];
+  withdrawals: Withdrawal[];
+  referralRewards: ReferralReward[];
+  ledgerEntries: LedgerEntry[];
+}> {
+  const user = preloadedUser || (await getProfileById(userId));
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const [settings, deposits, earnings, withdrawals, referralRewards, ledgerEntries] = await Promise.all([
+    getSettings(),
+    getDepositsByUserId(userId),
+    getEarningsByUserId(userId),
+    getWithdrawalsByUserId(userId),
+    getReferralRewardsByReferrerId(userId),
+    getLedgerByUserId(userId),
+  ]);
+
+  const balance = calculateBalanceFromDatasets(user, settings, {
+    deposits,
+    earnings,
+    withdrawals,
+    referralRewards,
+    ledgerEntries,
+  });
+
+  return {
+    balance,
+    user,
+    settings,
+    deposits,
+    earnings,
+    withdrawals,
+    referralRewards,
+    ledgerEntries,
+  };
+}
+
+export async function calculateUserBalanceAsync(
+  userId: string,
+  preloaded?: PreloadedBalanceData
+): Promise<UserBalanceSummary> {
+  const user = preloaded?.user || (await getProfileById(userId));
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const settings = preloaded?.settings || (await getSettings());
+
+  const [deposits, earnings, withdrawals, referralRewards, ledgerEntries] = await Promise.all([
+    preloaded?.deposits !== undefined ? preloaded.deposits : getDepositsByUserId(userId),
+    preloaded?.earnings !== undefined ? preloaded.earnings : getEarningsByUserId(userId),
+    preloaded?.withdrawals !== undefined ? preloaded.withdrawals : getWithdrawalsByUserId(userId),
+    preloaded?.referralRewards !== undefined ? preloaded.referralRewards : getReferralRewardsByReferrerId(userId),
+    preloaded?.ledgerEntries !== undefined ? preloaded.ledgerEntries : getLedgerByUserId(userId),
+  ]);
+
+  return calculateBalanceFromDatasets(user, settings, {
+    deposits,
+    earnings,
+    withdrawals,
+    referralRewards,
+    ledgerEntries,
+  });
+}
+
 
 export interface WithdrawalImpactResult {
   canWithdraw: boolean;

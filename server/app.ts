@@ -21,7 +21,7 @@ import {
 import { getProfileById, getProfileByEmail, createProfile, updateProfile, getAllProfiles } from './repositories/profiles';
 import { getDepositsByUserId, getAllDeposits, getDepositById } from './repositories/deposits';
 import { getWithdrawalsByUserId, getAllWithdrawals, getWithdrawalById } from './repositories/withdrawals';
-import { getEarningsByUserId, getAllEarnings, getPaginatedEarningsByUserId } from './repositories/earnings';
+import { getEarningsByUserId, getAllEarnings, getPaginatedEarningsByUserId, getTotalCreditedEarningsByUserId } from './repositories/earnings';
 import { getDailyPerformances, isValidDateString } from './repositories/performances';
 import { getLedgerByUserId, getAllLedger, getLedgerCount, createLedgerEntry } from './repositories/ledger';
 import { getSettings, updateSettings } from './repositories/settings';
@@ -29,7 +29,7 @@ import { getAuditLogs, getAuditLogsCount, createAuditLog } from './repositories/
 import { getSystemLogs } from './repositories/systemLogs';
 import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
 import { getFinancialMessages, createFinancialMessage, markFinancialMessagesRead } from './repositories/financialMessages';
-import { calculateUserBalanceAsync, adjustUserBalanceAtomicAsync, checkWithdrawalImpactAsync } from './services/balanceService';
+import { calculateUserBalanceAsync, calculateUserBalanceWithDatasetsAsync, adjustUserBalanceAtomicAsync, checkWithdrawalImpactAsync } from './services/balanceService';
 import { processDepositAsync, updateDepositStatusAsync, verifyDepositOnChainAsync } from './services/depositService';
 import { createWithdrawalRequestAsync, updateWithdrawalStatusAsync, cancelWithdrawalAsync } from './services/withdrawalService';
 import {
@@ -988,23 +988,11 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
     let tReferral = 0;
     let tWithdrawals = 0;
 
-    const [balanceSummary, ledger, earnings, marketPrices, settings, referralSummary, withdrawals] = await Promise.all([
+    const [balanceData, marketPrices] = await Promise.all([
       (async () => {
         const s = performance.now();
-        const r = await calculateUserBalanceAsync(user.id);
+        const r = await calculateUserBalanceWithDatasetsAsync(user.id, user);
         tBalance = performance.now() - s;
-        return r;
-      })(),
-      (async () => {
-        const s = performance.now();
-        const r = await getLedgerByUserId(user.id);
-        tLedger = performance.now() - s;
-        return r;
-      })(),
-      (async () => {
-        const s = performance.now();
-        const r = await getEarningsByUserId(user.id);
-        tEarnings = performance.now() - s;
         return r;
       })(),
       (async () => {
@@ -1013,25 +1001,25 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
         tMarket = performance.now() - s;
         return r;
       })(),
-      (async () => {
-        const s = performance.now();
-        const r = await getSettings();
-        tSettings = performance.now() - s;
-        return r;
-      })(),
-      (async () => {
-        const s = performance.now();
-        const r = await getUserReferralSummaryAsync(user.id);
-        tReferral = performance.now() - s;
-        return r;
-      })(),
-      (async () => {
-        const s = performance.now();
-        const r = await getWithdrawalsByUserId(user.id);
-        tWithdrawals = performance.now() - s;
-        return r;
-      })(),
     ]);
+
+    const {
+      balance: balanceSummary,
+      settings,
+      earnings,
+      withdrawals,
+      referralRewards,
+      ledgerEntries: ledger,
+    } = balanceData;
+
+    const sRef = performance.now();
+    const referralSummary = await getUserReferralSummaryAsync(user.id, {
+      user,
+      balance: balanceSummary,
+      referralRewards,
+      settings,
+    });
+    tReferral = performance.now() - sRef;
 
     const postStart = performance.now();
     const todayStr = new Date().toISOString().split('T')[0];
@@ -1309,14 +1297,16 @@ app.get(['/api/user/earnings', '/user/earnings'], authMiddleware, async (req, re
   try {
     const user: User = (req as any).user;
     const page = Math.max(0, parseInt(req.query.page as string, 10) || 0);
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string, 10) || 30));
+    const pageSize = Math.min(10, Math.max(1, parseInt(req.query.pageSize as string, 10) || 10));
 
-    const result = await getPaginatedEarningsByUserId(user.id, { page, pageSize });
-    const balance = await calculateUserBalanceAsync(user.id);
+    const [result, totalEarnings] = await Promise.all([
+      getPaginatedEarningsByUserId(user.id, { page, pageSize }),
+      getTotalCreditedEarningsByUserId(user.id),
+    ]);
 
     res.json({
       earnings: result.earnings,
-      totalEarnings: balance.totalEarnings,
+      totalEarnings,
       page: result.page,
       pageSize: result.pageSize,
       hasMore: result.hasMore,
@@ -1332,7 +1322,7 @@ app.get(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, async (r
   try {
     const user: User = (req as any).user;
     const withdrawals = await getWithdrawalsByUserId(user.id);
-    const balance = await calculateUserBalanceAsync(user.id);
+    const balance = await calculateUserBalanceAsync(user.id, { withdrawals });
     res.json({ withdrawals: withdrawals.map(sanitizeUserWithdrawal), balance });
   } catch (err) {
     next(err);

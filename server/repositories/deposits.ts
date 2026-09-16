@@ -478,3 +478,41 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
   };
 }
 
+export async function getConfirmedDepositSumsByUserIds(
+  userIds: (string | number)[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (!userIds || userIds.length === 0) return result;
+
+  const stringIds = userIds.map(id => String(id).trim()).filter(Boolean);
+  if (stringIds.length === 0) return result;
+
+  if (!isServerSupabaseReady()) {
+    return result;
+  }
+
+  try {
+    const supabase = getServerSupabase();
+    const numericIds = stringIds.map(Number).filter(n => !isNaN(n) && n > 0);
+    const queryIds = numericIds.length > 0 ? numericIds : stringIds;
+
+    const { data, error } = await supabase
+      .from('deposits')
+      .select('user_id, amount')
+      .in('user_id', queryIds)
+      .eq('status', 'confirmed');
+
+    if (!error && data) {
+      for (const row of data) {
+        const uId = String(row.user_id);
+        const amt = Number(row.amount) || 0;
+        result.set(uId, (result.get(uId) || 0) + amt);
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getConfirmedDepositSumsByUserIds:`, err?.message);
+  }
+
+  return result;
+}
+

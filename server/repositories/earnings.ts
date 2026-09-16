@@ -100,7 +100,7 @@ export async function getPaginatedEarningsByUserId(
   options?: GetEarningsOptions
 ): Promise<PaginatedEarningsResult> {
   const page = Math.max(0, options?.page ?? 0);
-  const pageSize = Math.max(1, options?.pageSize ?? 30);
+  const pageSize = Math.min(100, Math.max(1, options?.pageSize ?? 10));
   const from = page * pageSize;
   const to = from + pageSize - 1;
 
@@ -117,9 +117,11 @@ export async function getPaginatedEarningsByUserId(
   }
 
   const supabase = getServerSupabase();
+  const selectColumns = 'id, user_id, daily_performance_id, calculation_id, active_principal, base_eligible_amount, rate_percentage, applicable_rate, payout_amount, earnings_amount, date, performance_date, created_at, status, market_condition, note';
+
   let query = supabase
     .from('earnings')
-    .select('*', { count: 'exact' });
+    .select(selectColumns, { count: 'exact' });
 
   if (!isNaN(Number(userId))) {
     query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
@@ -173,6 +175,42 @@ export async function getPaginatedEarningsByUserId(
     hasMore,
     totalCount,
   };
+}
+
+export async function getTotalCreditedEarningsByUserId(userId: string): Promise<number> {
+  if (!userId) return 0;
+  if (!isServerSupabaseReady()) {
+    return devEarnings
+      .filter(e => String(e.userId) === String(userId) && e.status === 'credited')
+      .reduce((acc, e) => acc + (Number(e.earningsAmount) || 0), 0);
+  }
+
+  try {
+    const supabase = getServerSupabase();
+    let query = supabase
+      .from('earnings')
+      .select('earnings_amount, payout_amount')
+      .eq('status', 'credited');
+
+    if (!isNaN(Number(userId))) {
+      query = query.or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`);
+    } else {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query;
+    if (error || !data) return 0;
+
+    const sum = data.reduce((acc: number, row: any) => {
+      const amt = Number(row.payout_amount !== undefined && row.payout_amount !== null ? row.payout_amount : row.earnings_amount) || 0;
+      return acc + amt;
+    }, 0);
+
+    return Number(sum.toFixed(4));
+  } catch (err: any) {
+    console.warn(`[Supabase Exception] getTotalCreditedEarningsByUserId(${userId}):`, err?.message);
+    return 0;
+  }
 }
 
 export async function createEarning(entry: Partial<EarningEntry>): Promise<EarningEntry> {
