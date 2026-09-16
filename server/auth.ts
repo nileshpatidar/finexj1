@@ -254,7 +254,94 @@ export function generate2FASecret(userEmail?: string): { secret: string; otpAuth
 }
 
 /**
+ * Derives a dedicated 256-bit encryption key for TOTP secrets at rest.
+ */
+function getTotpEncryptionKey(): Buffer {
+  const baseKey = getSessionSecret();
+  return crypto.scryptSync(baseKey, 'finexj_totp_salt_v1', 32);
+}
+
+/**
+ * Encrypts a Base32 TOTP secret using AES-256-GCM.
+ * Output format: enc:v1:<iv_hex>:<auth_tag_hex>:<ciphertext_hex>
+ */
+export function encryptTotpSecret(secret: string): string {
+  if (!secret || typeof secret !== 'string') return secret;
+  if (secret.startsWith('enc:v1:')) return secret; // already encrypted
+  const iv = crypto.randomBytes(12); // standard 96-bit IV for GCM
+  const key = getTotpEncryptionKey();
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(secret, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag();
+  return `enc:v1:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+}
+
+/**
+ * Decrypts an AES-256-GCM encrypted TOTP secret.
+ * Seamlessly handles legacy plaintext Base32 secrets for backward compatibility.
+ */
+export function decryptTotpSecret(encryptedOrPlain: string): string {
+  if (!encryptedOrPlain || typeof encryptedOrPlain !== 'string') return '';
+  if (!encryptedOrPlain.startsWith('enc:v1:')) {
+    // Unencrypted / legacy secret
+    return encryptedOrPlain.trim();
+  }
+  try {
+    const parts = encryptedOrPlain.split(':');
+    if (parts.length !== 5) return '';
+    const iv = Buffer.from(parts[2], 'hex');
+    const authTag = Buffer.from(parts[3], 'hex');
+    const ciphertext = parts[4];
+    const key = getTotpEncryptionKey();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted.trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * In-memory sliding window cache for used TOTP codes.
+ * Enforces single-use verification within the valid ±30s clock drift window to prevent replay attacks.
+ */
+const usedTotpCache = new Map<string, number>();
+
+export function isTotpCodeReplayed(userId: string, code: string): boolean {
+  if (!userId || !code) return false;
+  const key = `${userId}:${code.trim()}`;
+  const usedAt = usedTotpCache.get(key);
+  if (!usedAt) return false;
+  // If used within 90 seconds (the 30s epoch + drift window), it is a replay
+  if (Date.now() - usedAt < 90 * 1000) {
+    return true;
+  }
+  usedTotpCache.delete(key);
+  return false;
+}
+
+export function markTotpCodeUsed(userId: string, code: string): void {
+  if (!userId || !code) return;
+  const key = `${userId}:${code.trim()}`;
+  usedTotpCache.set(key, Date.now());
+
+  // Periodically evict expired entries
+  if (usedTotpCache.size > 2000) {
+    const cutoff = Date.now() - 90 * 1000;
+    for (const [k, timestamp] of usedTotpCache.entries()) {
+      if (timestamp < cutoff) {
+        usedTotpCache.delete(k);
+      }
+    }
+  }
+}
+
+/**
  * Cryptographically verifies 6-digit TOTP code against the user's secret.
+ * Transparently decrypts encrypted secrets if needed.
  * Allows a strict ±1 step (30s) clock-drift tolerance window.
  * Strictly rejects malformed, empty, or non-matching codes.
  */
@@ -263,8 +350,11 @@ export function verify2FACode(secret: string, code: string): boolean {
     return false;
   }
   const cleanCode = code.trim();
-  const cleanSecret = secret.trim();
+  const cleanSecret = decryptTotpSecret(secret);
   if (cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
+    return false;
+  }
+  if (!cleanSecret) {
     return false;
   }
   try {
@@ -278,3 +368,4 @@ export function verify2FACode(secret: string, code: string): boolean {
     return false;
   }
 }
+

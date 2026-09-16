@@ -121,6 +121,7 @@ export function mapDbUserToUser(u: any): User {
     createdAt: u.created_at || new Date().toISOString(),
     twoFactorEnabled: Boolean(u.two_factor_enabled || u.twoFactorEnabled),
     twoFactorSecret: u.two_factor_secret || u.twoFactorSecret,
+    twoFactorEnabledAt: u.two_factor_enabled_at || u.twoFactorEnabledAt,
     lastLoginAt: u.last_login_at || u.lastLoginAt,
     loginAttempts: u.login_attempts || u.loginAttempts || 0,
     lockUntil: u.lock_until || u.lockUntil,
@@ -252,6 +253,7 @@ export async function createProfile(user: Partial<User>): Promise<User> {
     role: user.role || 'user',
     two_factor_enabled: Boolean(user.twoFactorEnabled),
     two_factor_secret: user.twoFactorSecret || null,
+    two_factor_enabled_at: user.twoFactorEnabledAt || null,
     profile_picture_url: user.profilePictureUrl || null,
     login_attempts: user.loginAttempts || 0,
     lock_until: user.lockUntil || null,
@@ -276,6 +278,19 @@ export async function createProfile(user: Partial<User>): Promise<User> {
     .single();
 
   if (error && error.message.includes('column')) {
+    if (payload.two_factor_enabled_at !== undefined) {
+      delete payload.two_factor_enabled_at;
+      const retryWithoutTimestamp = await supabase
+        .from('users')
+        .insert(payload)
+        .select()
+        .single();
+      data = retryWithoutTimestamp.data;
+      error = retryWithoutTimestamp.error;
+    }
+  }
+
+  if (error && error.message.includes('column')) {
     // If optional columns (profile_picture_url, phone, country, lock_until) are not yet migrated in DB, gracefully retry without them
     const fallbackPayload: any = {
       full_name: user.fullName || 'User',
@@ -284,6 +299,8 @@ export async function createProfile(user: Partial<User>): Promise<User> {
       salt: user.passwordSalt || '',
       role: user.role || 'user',
       is_locked: user.status === 'suspended',
+      two_factor_enabled: Boolean(user.twoFactorEnabled),
+      two_factor_secret: user.twoFactorSecret || null,
       created_at: user.createdAt || new Date().toISOString(),
     };
 
@@ -337,6 +354,7 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
   if (updates.isLocked !== undefined) payload.is_locked = updates.isLocked;
   if (updates.twoFactorEnabled !== undefined) payload.two_factor_enabled = updates.twoFactorEnabled;
   if (updates.twoFactorSecret !== undefined) payload.two_factor_secret = updates.twoFactorSecret;
+  if (updates.twoFactorEnabledAt !== undefined) payload.two_factor_enabled_at = updates.twoFactorEnabledAt;
   if (updates.profilePictureUrl !== undefined) payload.profile_picture_url = updates.profilePictureUrl;
   if (updates.walletAddress !== undefined) payload.wallet_address = updates.walletAddress;
   if (updates.loginAttempts !== undefined) payload.login_attempts = updates.loginAttempts;
@@ -367,20 +385,9 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
     .maybeSingle();
 
   if (error && error.message && error.message.includes('column')) {
-    // Progressively strip non-essential columns if schema migrations haven't run on the connected Supabase instance
-    delete payload.phone;
-    delete payload.country;
-    delete payload.profile_picture_url;
-    delete payload.wallet_address;
-    delete payload.fund_lock_reason;
-    delete payload.fund_lock_until;
-    delete payload.login_attempts;
-    delete payload.lock_until;
-    delete payload.last_login_at;
-    delete payload.two_factor_secret;
-    delete payload.two_factor_enabled;
-
-    if (Object.keys(payload).length > 0) {
+    // If two_factor_enabled_at is not present in schema cache, strip it first and retry
+    if (payload.two_factor_enabled_at !== undefined) {
+      delete payload.two_factor_enabled_at;
       const retry = await supabase
         .from('users')
         .update(payload)
@@ -389,8 +396,32 @@ export async function updateProfile(id: string, updates: Partial<User>): Promise
         .maybeSingle();
       data = retry.data;
       error = retry.error;
-    } else {
-      error = null;
+    }
+
+    if (error && error.message && error.message.includes('column')) {
+      // Progressively strip non-essential columns if schema migrations haven't run on the connected Supabase instance
+      delete payload.phone;
+      delete payload.country;
+      delete payload.profile_picture_url;
+      delete payload.wallet_address;
+      delete payload.fund_lock_reason;
+      delete payload.fund_lock_until;
+      delete payload.login_attempts;
+      delete payload.lock_until;
+      delete payload.last_login_at;
+
+      if (Object.keys(payload).length > 0) {
+        const retry = await supabase
+          .from('users')
+          .update(payload)
+          .eq('id', queryId)
+          .select()
+          .maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      } else {
+        error = null;
+      }
     }
   }
 

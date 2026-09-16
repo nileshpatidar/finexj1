@@ -11,6 +11,7 @@ export interface UserProfile {
   status: AccountStatus;
   createdAt: string;
   twoFactorEnabled: boolean;
+  twoFactorEnabledAt?: string;
   profilePictureUrl?: string;
   fundLockUntil?: string;
   fundLockReason?: string;
@@ -31,6 +32,7 @@ export interface AdminUserListItem {
   status: AccountStatus;
   createdAt: string;
   twoFactorEnabled: boolean;
+  twoFactorEnabledAt?: string;
   profilePictureUrl?: string;
   walletAddress?: string;
   referralCode?: string;

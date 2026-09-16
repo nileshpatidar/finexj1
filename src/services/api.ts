@@ -130,13 +130,33 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  generate2FA: () => request<{ secret: string; otpAuthUrl: string }>('/api/auth/2fa/generate', { method: 'POST' }),
+  // 2FA / Authenticator App (RFC 6238 TOTP)
+  setup2FA: () => request<{ success: boolean; secret: string; otpAuthUrl: string }>('/api/user/2fa/setup', { method: 'POST' }),
 
-  toggle2FA: (payload: { enable: boolean; secret?: string; code?: string }) =>
-    request<{ success: boolean; twoFactorEnabled: boolean }>('/api/auth/2fa/toggle', {
+  verifySetup2FA: (payload: { secret: string; code: string }) =>
+    request<{ success: boolean; twoFactorEnabled: boolean; message: string }>('/api/user/2fa/verify-setup', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  disable2FA: (payload: { code?: string; password?: string }) =>
+    request<{ success: boolean; twoFactorEnabled: boolean; message: string }>('/api/user/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  generate2FA: () => request<{ secret: string; otpAuthUrl: string }>('/api/user/2fa/setup', { method: 'POST' }),
+
+  toggle2FA: (payload: { enable: boolean; secret?: string; code?: string; password?: string }) =>
+    payload.enable
+      ? request<{ success: boolean; twoFactorEnabled: boolean }>('/api/user/2fa/verify-setup', {
+          method: 'POST',
+          body: JSON.stringify({ secret: payload.secret, code: payload.code }),
+        })
+      : request<{ success: boolean; twoFactorEnabled: boolean }>('/api/user/2fa/disable', {
+          method: 'POST',
+          body: JSON.stringify({ code: payload.code, password: payload.password }),
+        }),
 
   // User Financial
   getDashboard: () => request<DashboardResponse>('/api/user/dashboard'),
@@ -178,18 +198,13 @@ export const api = {
       body: JSON.stringify({ requestedAmount }),
     }),
 
-  requestWithdrawalOtp: () =>
-    request<{ success: boolean; message: string; expiresInSeconds?: number; testOtpCode?: string }>('/api/user/withdrawals/request-otp', {
-      method: 'POST',
-    }),
-
   submitWithdrawal: async (payload: {
     requestedAmount: number;
     destinationAddress: string;
     network?: string;
     password: string;
+    totpCode: string;
     twoFactorCode?: string;
-    otpCode?: string;
     confirmCompoundingImpact?: boolean;
     confirmLockBreak?: boolean;
     confirmMinimumBreak?: boolean;
@@ -201,7 +216,8 @@ export const api = {
         success: boolean;
         withdrawal?: WithdrawalItem;
         balance?: UserBalanceSummary;
-        requiresOtp?: boolean;
+        requiresTotp?: boolean;
+        requiresTotpSetup?: boolean;
         requiresConfirmation?: boolean;
         warningType?: 'COMPOUNDING_NOTICE' | 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
         error?: string;

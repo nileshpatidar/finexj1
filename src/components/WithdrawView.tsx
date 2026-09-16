@@ -27,9 +27,10 @@ import { FinancialMessageThread } from './FinancialMessageThread';
 
 interface WithdrawViewProps {
   onWithdrawalSubmitted: () => void;
+  onNavigate?: (view: any) => void;
 }
 
-export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitted }) => {
+export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitted, onNavigate }) => {
   const { user, token, isLoading: isAuthLoading } = useAuth();
   const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
   const { withdrawalFeePercentage, accountAgeRequirementDays, minimumDepositAmount } = useSettings();
@@ -44,8 +45,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
   const [amount, setAmount] = useState<string>('100');
   const [destinationAddress, setDestinationAddress] = useState<string>('');
   const [password, setPassword] = useState<string>('');
-  const [twoFactorCode, setTwoFactorCode] = useState<string>('');
-  const [otpCode, setOtpCode] = useState<string>('');
+  const [totpCode, setTotpCode] = useState<string>('');
   const [userNotes, setUserNotes] = useState<string>('');
   const [expandedMessageWithdrawalId, setExpandedMessageWithdrawalId] = useState<string | null>(null);
 
@@ -53,13 +53,6 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
   const [previewImpact, setPreviewImpact] = useState<WithdrawalImpactResult | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-
-  // Email OTP state
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [otpSentMessage, setOtpSentMessage] = useState<string | null>(null);
-  const [otpExpiresInSeconds, setOtpExpiresInSeconds] = useState<number>(0);
-  const [otpCooldown, setOtpCooldown] = useState<number>(0);
-  const [testOtpCode, setTestOtpCode] = useState<string | null>(null);
 
   // Two-Stage Confirmation Modal State
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
@@ -71,9 +64,6 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [lastSubmitted, setLastSubmitted] = useState<WithdrawalItem | null>(null);
-
-  // Cooldown timer ref
-  const cooldownTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Pre-fill destination wallet from user profile
   useEffect(() => {
@@ -162,45 +152,6 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
     return () => clearTimeout(handler);
   }, [numAmount, fetchPreview, isAuthenticatedUser]);
 
-  // OTP Cooldown Countdown
-  useEffect(() => {
-    if (otpCooldown > 0) {
-      cooldownTimerRef.current = setTimeout(() => {
-        setOtpCooldown(prev => prev - 1);
-      }, 1000);
-    }
-    return () => {
-      if (cooldownTimerRef.current) {
-        clearTimeout(cooldownTimerRef.current);
-      }
-    };
-  }, [otpCooldown]);
-
-  // Request Email OTP Handler
-  const handleRequestOtp = async () => {
-    if (otpCooldown > 0) return;
-
-    setIsSendingOtp(true);
-    setErrorMessage(null);
-
-    try {
-      const res = await api.requestWithdrawalOtp();
-      if (res.success) {
-        setOtpSentMessage(res.message);
-        setOtpExpiresInSeconds(res.expiresInSeconds || 600);
-        setOtpCooldown(60); // 60-second cooldown
-        if (res.testOtpCode) {
-          setTestOtpCode(res.testOtpCode);
-          setOtpCode(res.testOtpCode);
-        }
-      }
-    } catch (err) {
-      setErrorMessage((err as Error).message || 'Failed to send verification code. Please try again.');
-    } finally {
-      setIsSendingOtp(false);
-    }
-  };
-
   // Pre-validate & Check Confirmation Requirements before Submission
   const handleInitiateWithdrawal = (e: React.FormEvent) => {
     e.preventDefault();
@@ -227,13 +178,15 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
       return;
     }
 
-    if (user?.twoFactorEnabled && !twoFactorCode.trim()) {
-      setErrorMessage('Please enter your 6-digit 2FA authenticator code.');
+    // Authenticator (TOTP) is strictly mandatory for all withdrawals
+    if (!user?.twoFactorEnabled) {
+      setErrorMessage('Authenticator verification is required. Set up your Authenticator App to continue.');
       return;
     }
 
-    if (!otpCode.trim()) {
-      setErrorMessage('Email security verification code (OTP) is required. Click "Send Email Code" to receive it.');
+    const cleanTotp = totpCode.trim();
+    if (!cleanTotp || cleanTotp.length !== 6 || !/^\d{6}$/.test(cleanTotp)) {
+      setErrorMessage('Please enter your 6-digit Authenticator code.');
       return;
     }
 
@@ -282,8 +235,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         destinationAddress: destinationAddress.trim(),
         network: 'BEP-20',
         password,
-        twoFactorCode: twoFactorCode.trim() || undefined,
-        otpCode: otpCode.trim(),
+        totpCode: totpCode.trim(),
         confirmCompoundingImpact: userConfirmedCompounding,
         confirmLockBreak: userConfirmedCompounding,
         confirmMinimumBreak: userConfirmedMinimumBreak,
@@ -302,10 +254,7 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         );
         setLastSubmitted(res.withdrawal);
         setPassword('');
-        setTwoFactorCode('');
-        setOtpCode('');
-        setTestOtpCode(null);
-        setOtpSentMessage(null);
+        setTotpCode('');
         setShowConfirmationModal(false);
         setUserConfirmedCompounding(false);
         setUserConfirmedMinimumBreak(false);
@@ -316,7 +265,11 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
         if (res.requiresConfirmation) {
           setShowConfirmationModal(true);
         }
-        setErrorMessage(res.error || 'Failed to submit withdrawal request.');
+        if (res.requiresTotpSetup) {
+          setErrorMessage('Authenticator verification is required. Set up your Authenticator App to continue.');
+        } else {
+          setErrorMessage(res.error || 'Failed to submit withdrawal request.');
+        }
       }
     } catch (err) {
       setErrorMessage((err as Error).message || 'Withdrawal request failed. Please check eligibility rules.');
@@ -674,78 +627,52 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               />
             </div>
 
-            {/* Email OTP Security Flow */}
-            <div className="space-y-2 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
+            {/* Authenticator App Security Flow (Strictly Mandatory) */}
+            {!user?.twoFactorEnabled ? (
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 space-y-3">
+                <div className="flex items-start space-x-3">
+                  <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-xs">
+                      Authenticator verification is required. Set up your Authenticator App to continue.
+                    </p>
+                    <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 leading-relaxed">
+                      To safeguard your funds and protect withdrawal operations, FinexJ requires a verified 6-digit Authenticator App code for all payouts.
+                    </p>
+                  </div>
+                </div>
+                {onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('profile')}
+                    className="w-full py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  >
+                    <span>Set up Authenticator in Security Profile</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
                   <label className="font-bold text-slate-700 dark:text-slate-300 text-xs flex items-center space-x-1.5">
-                    <Mail className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                    <span>Email Verification Code (OTP)</span>
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>Authenticator Code</span>
                   </label>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                    Dispatched to {user?.email ? user.email.replace(/(.{2})(.*)(?=@)/, '$1***') : 'your registered email'}
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60">
+                    2FA Protected
                   </span>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleRequestOtp}
-                  disabled={isSendingOtp || otpCooldown > 0}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs transition flex items-center justify-center space-x-1 cursor-pointer self-start sm:self-auto"
-                >
-                  {isSendingOtp ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Sending Code...</span>
-                    </>
-                  ) : otpCooldown > 0 ? (
-                    <>
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Resend in {otpCooldown}s</span>
-                    </>
-                  ) : (
-                    <>
-                      <Mail className="w-3.5 h-3.5" />
-                      <span>Send Email Code</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {otpSentMessage && (
-                <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-[11px] flex items-center justify-between">
-                  <span>{otpSentMessage}</span>
-                  {testOtpCode && (
-                    <span className="font-mono font-bold bg-blue-600 text-white px-2 py-0.5 rounded text-[10px]">
-                      Test Helper: {testOtpCode}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <input
-                type="text"
-                maxLength={6}
-                value={otpCode}
-                onChange={e => setOtpCode(e.target.value.trim())}
-                placeholder="Enter 6-digit OTP code"
-                className="w-full py-3 px-3.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono text-center tracking-widest text-sm font-bold focus:outline-none focus:border-blue-600 transition"
-              />
-            </div>
-
-            {/* 2FA Authenticator Code (if user has 2FA enabled) */}
-            {user?.twoFactorEnabled && (
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  6-Digit 2FA Authenticator Code (Google Authenticator)
-                </label>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Enter the 6-digit code from your Authenticator App.
+                </p>
                 <input
                   type="text"
                   maxLength={6}
-                  value={twoFactorCode}
-                  onChange={e => setTwoFactorCode(e.target.value.trim())}
-                  placeholder="123456"
-                  className="w-full py-3 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs tracking-widest text-center font-mono focus:outline-none focus:border-blue-600 transition"
+                  value={totpCode}
+                  onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="000000"
+                  className="w-full py-3 px-3.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono text-center tracking-[0.35em] text-base font-bold focus:outline-none focus:border-blue-600 transition"
                 />
               </div>
             )}
@@ -775,7 +702,8 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               numAmount > withdrawableBalance ||
               !destinationAddress ||
               !password ||
-              !otpCode
+              !user?.twoFactorEnabled ||
+              totpCode.length !== 6
             }
             className="w-full py-4 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-sm shadow-lg shadow-blue-500/25 transition flex items-center justify-center space-x-2 cursor-pointer"
           >

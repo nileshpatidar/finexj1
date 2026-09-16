@@ -2202,33 +2202,121 @@ export async function runAutomatedTestSuite(): Promise<{
     );
   }
 
-  // --- 74. FINEXJ STEP 4: WITHDRAWAL OTP FLOW ---
+  // --- 74. FINEXJ STEP 4: PRODUCTION TOTP AUTHENTICATOR WITHDRAWAL FLOW & REPLAY PROTECTION ---
   try {
-    const { generateWithdrawalOtp, verifyWithdrawalOtp } = await import('./services/otpService');
-    const testUserId = 'test_user_otp_99';
-    const otpGen = await generateWithdrawalOtp(testUserId, 'investor@test.com', true);
-    const hasCode = typeof otpGen.devCode === 'string' && otpGen.devCode.length === 6;
+    const {
+      generate2FASecret,
+      verify2FACode,
+      encryptTotpSecret,
+      decryptTotpSecret,
+      isTotpCodeReplayed,
+      markTotpCodeUsed,
+    } = await import('./auth');
+    const { createWithdrawalRequestAsync } = await import('./services/withdrawalService');
+    const { createProfile, getProfileById, updateProfile } = await import('./repositories/profiles');
 
-    // Verify invalid OTP
-    const invalidCheck = verifyWithdrawalOtp(testUserId, '000000', false);
-    const isInvalidBlocked = invalidCheck.valid === false;
+    // 1. Generate TOTP secret and verify encryption at rest
+    const { secret, otpAuthUrl } = generate2FASecret('totp_test@finexj.com');
+    const encryptedSecret = encryptTotpSecret(secret);
+    const isEncrypted = encryptedSecret.startsWith('enc:v1:');
+    const decryptedSecret = decryptTotpSecret(encryptedSecret);
+    const isDecryptionExact = decryptedSecret === secret;
 
-    // Verify valid OTP
-    const validCheck = verifyWithdrawalOtp(testUserId, otpGen.devCode!, false);
-    const isValidAccepted = validCheck.valid === true;
+    // 2. Cryptographic verification & invalid rejection
+    const validCode = generateSync({ secret });
+    const isTokenVerified = verify2FACode(encryptedSecret, validCode);
+    const isInvalidRejected = !verify2FACode(encryptedSecret, '000000') || validCode === '000000';
+    const isMalformedRejected = !verify2FACode(encryptedSecret, '123') && !verify2FACode('', validCode);
+
+    // 3. Replay Protection
+    const testUserId = 'test_totp_user_' + Date.now();
+    const isInitiallyNotReplayed = !isTotpCodeReplayed(testUserId, validCode);
+    markTotpCodeUsed(testUserId, validCode);
+    const isReplayBlocked = isTotpCodeReplayed(testUserId, validCode);
+
+    // 4. Withdrawal Security: User without TOTP enabled is firmly blocked
+    const unverifiedUser = await createProfile({
+      id: 'test_unverified_totp_' + Date.now(),
+      fullName: 'Unverified TOTP User',
+      email: `unverified_${Date.now()}@finexj.com`,
+      phone: '+15550001111',
+      country: 'US',
+      passwordHash: 'dummyhash',
+      passwordSalt: 'dummysalt',
+      role: 'user',
+      status: 'active',
+      twoFactorEnabled: false,
+      loginAttempts: 0,
+      createdAt: new Date().toISOString(),
+    });
+
+    const blockWithoutTotp = await createWithdrawalRequestAsync({
+      userId: unverifiedUser.id,
+      requestedAmount: 50,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+    });
+
+    const requiresTotpSetupBlocked =
+      blockWithoutTotp.success === false &&
+      Boolean(blockWithoutTotp.requiresTotpSetup) &&
+      blockWithoutTotp.error?.includes('Authenticator verification is required');
+
+    // 5. Withdrawal Security: User with TOTP enabled but missing or invalid code is blocked
+    await updateProfile(unverifiedUser.id, {
+      twoFactorEnabled: true,
+      twoFactorSecret: encryptedSecret,
+      twoFactorEnabledAt: new Date().toISOString(),
+    });
+
+    const blockMissingCode = await createWithdrawalRequestAsync({
+      userId: unverifiedUser.id,
+      requestedAmount: 50,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+    });
+    const isMissingCodeBlocked =
+      blockMissingCode.success === false &&
+      Boolean(blockMissingCode.requiresTotp) &&
+      blockMissingCode.error === 'Authenticator code is required.';
+
+    const blockInvalidCode = await createWithdrawalRequestAsync({
+      userId: unverifiedUser.id,
+      requestedAmount: 50,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      totpCode: '000000',
+    });
+    const isInvalidCodeBlocked =
+      blockInvalidCode.success === false &&
+      Boolean(blockInvalidCode.requiresTotp) &&
+      blockInvalidCode.error === 'Invalid authenticator code.';
+
+    // 6. Confirm email OTP is completely decommissioned
+    const fs = await import('fs');
+    const path = await import('path');
+    const otpServicePath = path.resolve(process.cwd(), 'server/services/otpService.ts');
+    const isOtpServiceDecommissioned = !fs.existsSync(otpServicePath);
 
     assert(
-      'FINEXJ Step 4: Withdrawal Security OTP Flow',
+      'FINEXJ Step 4: Production Authenticator App (TOTP) Security Flow',
       'Security & Authentication',
-      hasCode && isInvalidBlocked && isValidAccepted,
-      'Email OTP generation, TTL enforcement, and single-use validation are verified.'
+      isEncrypted &&
+        isDecryptionExact &&
+        isTokenVerified &&
+        isInvalidRejected &&
+        isMalformedRejected &&
+        isInitiallyNotReplayed &&
+        isReplayBlocked &&
+        requiresTotpSetupBlocked &&
+        isMissingCodeBlocked &&
+        isInvalidCodeBlocked &&
+        isOtpServiceDecommissioned,
+      'Production RFC 6238 TOTP, AES-256-GCM encryption-at-rest, replay protection, and atomic withdrawal enforcement verified.'
     );
   } catch (err) {
     assert(
-      'FINEXJ Step 4: Withdrawal Security OTP Flow',
+      'FINEXJ Step 4: Production Authenticator App (TOTP) Security Flow',
       'Security & Authentication',
       false,
-      `OTP test error: ${(err as Error).message}`
+      `TOTP Authenticator test error: ${(err as Error).message}`
     );
   }
 
@@ -5823,10 +5911,10 @@ export async function runAutomatedTestSuite(): Promise<{
       ? fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort()
       : [];
 
-    const expectedCount = 25;
+    const expectedCount = 26;
     const hasAllMigrations = migrationFiles.length === expectedCount;
     const firstMigration = migrationFiles[0] === '001_initial_schema.sql';
-    const lastMigration = migrationFiles[expectedCount - 1] === '025_finexj_financial_communication_messages.sql';
+    const lastMigration = migrationFiles[expectedCount - 1] === '026_finexj_totp_authenticator_hardening.sql';
     const allNonEmpty = migrationFiles.every(f => {
       const stat = fs.statSync(path.join(migrationsDir, f));
       return stat.size > 100;
@@ -5836,7 +5924,7 @@ export async function runAutomatedTestSuite(): Promise<{
       'STEP 49: TEST 1 - Migration Set Completeness & Sequential Integrity',
       'Disaster Recovery Migrations',
       hasAllMigrations && firstMigration && lastMigration && allNonEmpty,
-      `All 25 migrations exist in strict sequence (001 to 025), non-empty, enabling clean bare-metal database reconstitution.`
+      `All 26 migrations exist in strict sequence (001 to 026), non-empty, enabling clean bare-metal database reconstitution.`
     );
 
     // -----------------------------------------------------------------------

@@ -154,7 +154,7 @@ const AppContent: React.FC = () => {
             {currentView === 'earnings' && <EarningsView />}
 
             {currentView === 'withdraw' && (
-              <WithdrawView onWithdrawalSubmitted={fetchDashboard} />
+              <WithdrawView onWithdrawalSubmitted={fetchDashboard} onNavigate={setCurrentView} />
             )}
 
             {currentView === 'transactions' && <TransactionsView />}

@@ -16,6 +16,7 @@ export interface User {
   createdAt: string; // ISO string
   twoFactorEnabled: boolean;
   twoFactorSecret?: string;
+  twoFactorEnabledAt?: string;
   lastLoginAt?: string;
   loginAttempts: number;
   lockUntil?: string;

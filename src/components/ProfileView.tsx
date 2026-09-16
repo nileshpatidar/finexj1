@@ -380,29 +380,29 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
         )}
       </div>
 
-      {/* 2-Factor Authentication (TOTP) */}
+      {/* Authenticator App Security (TOTP) */}
       <div className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Shield className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
-              Two-Factor Authentication (2FA)
+              Authenticator App
             </h2>
           </div>
 
           <span
             className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
               user?.twoFactorEnabled
-                ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
             }`}
           >
-            {user?.twoFactorEnabled ? 'ENABLED' : 'DISABLED'}
+            {user?.twoFactorEnabled ? 'Authenticator enabled' : 'Not configured'}
           </span>
         </div>
 
         <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
-          Protect your account and withdrawal operations using Google Authenticator, Authy, or standard RFC 6238 TOTP apps.
+          Protect withdrawals with a 6-digit code from your Authenticator App.
         </p>
 
         {twoFactorMessage && (
@@ -425,49 +425,61 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
               <button
                 type="button"
                 onClick={handleStart2FA}
-                className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold transition shadow-md shadow-blue-500/20 cursor-pointer"
+                className="py-2.5 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold transition shadow-md shadow-blue-500/20 cursor-pointer text-xs"
               >
-                Enable 2FA Authenticator
+                Set up Authenticator
               </button>
             ) : (
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-                <p className="font-semibold text-slate-900 dark:text-white">
-                  Scan this QR code with Google Authenticator or copy the secret key:
-                </p>
+              <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+                <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+                  <h3 className="font-bold text-slate-900 dark:text-white text-xs">
+                    Setup Instructions:
+                  </h3>
+                  <ol className="list-decimal list-inside text-xs text-slate-600 dark:text-slate-400 mt-1.5 space-y-1">
+                    <li>Open Google Authenticator, Microsoft Authenticator, or Authy</li>
+                    <li>Scan the QR code below (or enter manual setup key)</li>
+                    <li>Enter the 6-digit code below</li>
+                    <li>Confirm setup</li>
+                  </ol>
+                </div>
 
-                <div className="flex flex-col sm:flex-row items-center gap-4">
-                  <div className="p-2.5 bg-white rounded-xl shadow-md border border-slate-200">
-                    <QRCodeSVG value={secretData?.otpAuthUrl || ''} size={120} />
+                <div className="flex flex-col sm:flex-row items-center gap-5">
+                  <div className="p-3 bg-white rounded-xl shadow-md border border-slate-200">
+                    <QRCodeSVG value={secretData?.otpAuthUrl || ''} size={128} />
                   </div>
 
-                  <div className="space-y-2 flex-1 w-full">
-                    <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Secret Key</span>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={secretData?.secret || ''}
-                        className="w-full py-2 px-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 font-mono text-xs font-bold text-blue-600 dark:text-blue-400"
-                      />
-                      <button
-                        onClick={copySecret}
-                        className="p-2 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer"
-                      >
-                        {copiedSecret ? <Check className="w-4 h-4 text-blue-600" /> : <Copy className="w-4 h-4" />}
-                      </button>
+                  <div className="space-y-3 flex-1 w-full">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Manual Setup Key</span>
+                      <div className="flex items-center space-x-2 mt-1">
+                        <input
+                          type="text"
+                          readOnly
+                          value={secretData?.secret || ''}
+                          className="w-full py-2 px-3 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 font-mono text-xs font-bold text-blue-600 dark:text-blue-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={copySecret}
+                          className="p-2 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer"
+                          title="Copy setup key"
+                        >
+                          {copiedSecret ? <Check className="w-4 h-4 text-blue-600" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mt-2 mb-1">
-                        Enter 6-digit Code to Confirm:
+                      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        6-digit authenticator code:
                       </label>
                       <input
                         type="text"
                         maxLength={6}
                         value={twoFactorInputCode}
-                        onChange={e => setTwoFactorInputCode(e.target.value)}
+                        onChange={e => setTwoFactorInputCode(e.target.value.replace(/\D/g, ''))}
                         placeholder="123456"
-                        className="w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono tracking-widest text-center font-bold"
+                        className="w-full py-2.5 px-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono tracking-widest text-center font-bold text-sm"
                       />
                     </div>
                   </div>
@@ -475,15 +487,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
 
                 <div className="flex space-x-2 pt-2">
                   <button
+                    type="button"
                     onClick={() => handleToggle2FA(true)}
                     disabled={twoFactorInputCode.length !== 6}
-                    className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold cursor-pointer"
+                    className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold cursor-pointer text-xs"
                   >
-                    Verify & Activate 2FA
+                    Verify & Enable
                   </button>
                   <button
-                    onClick={() => setShow2FASetup(false)}
-                    className="py-2.5 px-4 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                    type="button"
+                    onClick={() => {
+                      setShow2FASetup(false);
+                      setTwoFactorInputCode('');
+                    }}
+                    className="py-2.5 px-4 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium cursor-pointer text-xs"
                   >
                     Cancel
                   </button>
@@ -492,7 +509,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
             )}
           </div>
         ) : (
-          <div>
+          <div className="space-y-3">
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 flex items-center space-x-2.5 text-xs text-emerald-800 dark:text-emerald-300">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>Authenticator enabled. Withdrawals are protected with mandatory 6-digit TOTP verification.</span>
+            </div>
+
             {!showDisable2FA ? (
               <button
                 type="button"
@@ -501,21 +523,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
                   setTwoFactorError(null);
                   setTwoFactorMessage(null);
                 }}
-                className="py-2 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 font-bold transition cursor-pointer"
+                className="py-2 px-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 font-bold transition cursor-pointer text-xs"
               >
-                Disable 2FA Authenticator
+                Disable Authenticator
               </button>
             ) : (
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3 max-w-md">
                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Enter your 6-digit Authenticator code to confirm disabling 2FA:
+                  Enter your current 6-digit Authenticator code to confirm disabling:
                 </p>
                 <div className="flex items-center space-x-2">
                   <input
                     type="text"
                     maxLength={6}
                     value={disable2FACode}
-                    onChange={e => setDisable2FACode(e.target.value)}
+                    onChange={e => setDisable2FACode(e.target.value.replace(/\D/g, ''))}
                     placeholder="123456"
                     className="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono tracking-widest text-center font-bold"
                   />
@@ -523,7 +545,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
                     type="button"
                     onClick={() => handleToggle2FA(false)}
                     disabled={disable2FACode.length !== 6}
-                    className="py-2 px-4 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold transition cursor-pointer"
+                    className="py-2 px-4 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold transition cursor-pointer text-xs"
                   >
                     Confirm
                   </button>
@@ -533,7 +555,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
                       setShowDisable2FA(false);
                       setDisable2FACode('');
                     }}
-                    className="py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                    className="py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium cursor-pointer text-xs"
                   >
                     Cancel
                   </button>

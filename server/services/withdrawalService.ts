@@ -16,7 +16,7 @@ import { createAuditLog } from '../repositories/auditLogs';
 import { getSettings } from '../repositories/settings';
 import { isValidBEP20Address, isValidTxHash, verifyBEP20PayoutTx } from '../blockchain';
 import { calculateUserBalanceAsync, checkWithdrawalImpactAsync } from './balanceService';
-import { verifyWithdrawalOtp } from './otpService';
+import { verify2FACode, isTotpCodeReplayed, markTotpCodeUsed } from '../auth';
 import { checkWalletDuplication, checkRapidWithdrawalCycle } from './fraudService';
 import { Withdrawal, WithdrawalStatus } from '../types';
 import { getServerSupabase } from '../supabase';
@@ -48,7 +48,8 @@ export interface RequestWithdrawalInput {
   userId: string;
   requestedAmount: number;
   destinationAddress: string;
-  otpCode?: string;
+  totpCode?: string;
+  twoFactorCode?: string;
   confirmCompoundingImpact?: boolean;
   confirmLockBreak?: boolean;
   confirmMinimumBreak?: boolean;
@@ -60,7 +61,8 @@ export interface RequestWithdrawalInput {
 export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput): Promise<{
   success: boolean;
   withdrawal?: Withdrawal;
-  requiresOtp?: boolean;
+  requiresTotp?: boolean;
+  requiresTotpSetup?: boolean;
   requiresConfirmation?: boolean;
   warningType?: 'COMPOUNDING_NOTICE' | 'LOCK_BREAK_WARNING' | 'MINIMUM_FUND_WARNING';
   error?: string;
@@ -89,24 +91,50 @@ export async function createWithdrawalRequestAsync(input: RequestWithdrawalInput
       };
     }
 
-    // 1. Mandatory Email OTP Verification
-    const isTestUser = process.env.NODE_ENV !== 'production' && user.isTestUser === true;
-    if (!input.otpCode || !input.otpCode.trim()) {
+    // 1. Mandatory Authenticator App (TOTP) Verification
+    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
       return {
         success: false,
-        requiresOtp: true,
-        error: 'Security verification code (OTP) is required to authorize this withdrawal.',
+        requiresTotpSetup: true,
+        error: 'Authenticator verification is required. Please set up your Authenticator App before making a withdrawal.',
       };
     }
 
-    const otpValidation = verifyWithdrawalOtp(user.id, input.otpCode.trim(), isTestUser);
-    if (!otpValidation.valid) {
+    const code = (input.totpCode || input.twoFactorCode || '').trim();
+    if (!code) {
       return {
         success: false,
-        requiresOtp: true,
-        error: otpValidation.error || 'Invalid or expired security verification code.',
+        requiresTotp: true,
+        error: 'Authenticator code is required.',
       };
     }
+
+    if (code.length !== 6 || !/^\d{6}$/.test(code)) {
+      return {
+        success: false,
+        requiresTotp: true,
+        error: 'Invalid authenticator code.',
+      };
+    }
+
+    if (isTotpCodeReplayed(user.id, code)) {
+      return {
+        success: false,
+        requiresTotp: true,
+        error: 'Authenticator code has already been used. Please wait for the next 6-digit code.',
+      };
+    }
+
+    const isTotpValid = verify2FACode(user.twoFactorSecret, code);
+    if (!isTotpValid) {
+      return {
+        success: false,
+        requiresTotp: true,
+        error: 'Invalid authenticator code.',
+      };
+    }
+
+    markTotpCodeUsed(user.id, code);
 
     // Fraud risk detection
     checkWalletDuplication(destination, user.id, 'withdrawal').catch(() => {});

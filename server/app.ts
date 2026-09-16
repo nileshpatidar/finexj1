@@ -13,6 +13,10 @@ import {
   forceLogoutAllUsersAsync,
   generate2FASecret,
   verify2FACode,
+  encryptTotpSecret,
+  decryptTotpSecret,
+  isTotpCodeReplayed,
+  markTotpCodeUsed,
 } from './auth';
 import { getProfileById, getProfileByEmail, createProfile, updateProfile, getAllProfiles } from './repositories/profiles';
 import { getDepositsByUserId, getAllDeposits, getDepositById } from './repositories/deposits';
@@ -39,7 +43,6 @@ import {
 } from './services/referralService';
 import { getFraudSignals, resolveFraudSignal, checkWalletDuplication, checkRapidWithdrawalCycle } from './services/fraudService';
 import { getReferralsByReferrerId, getReferralRewardsByReferrerId } from './repositories/referrals';
-import { generateWithdrawalOtp } from './services/otpService';
 import { getOperationalFundSummaryAsync, adjustOperationalFundAsync } from './services/operationalFundService';
 import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync, getAdminLedgerAsync } from './services/accountingService';
 import { getUserTransactionsAsync } from './services/transactionService';
@@ -810,15 +813,119 @@ app.post(['/api/auth/change-password', '/auth/change-password'], authMiddleware,
   }
 });
 
-// 2FA Secret Generation
-app.post(['/api/auth/2fa/generate', '/auth/2fa/generate'], authMiddleware, (req, res) => {
-  const user: User = (req as any).user;
-  const { secret, otpAuthUrl } = generate2FASecret(user?.email);
-  res.json({ secret, otpAuthUrl });
-});
+// 2FA / Authenticator App Setup & Management Endpoints
+// Standard RFC 6238 TOTP (Google Authenticator, Microsoft Authenticator, Authy, etc.)
 
-// 2FA Toggle
-app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (req, res, next) => {
+// 1. Authenticator Setup - Generate Secret and otpauth:// QR URI (Does NOT enable 2FA until verified)
+app.post(
+  ['/api/user/2fa/setup', '/api/auth/2fa/setup', '/api/auth/2fa/generate', '/auth/2fa/generate'],
+  authMiddleware,
+  financialRateLimiter,
+  (req, res) => {
+    const user: User = (req as any).user;
+    const { secret, otpAuthUrl } = generate2FASecret(user?.email);
+    res.json({
+      success: true,
+      secret,
+      otpAuthUrl,
+      issuer: 'FINEXJ',
+      message: 'Scan the QR code with your Authenticator App, then verify with the 6-digit code to enable 2FA.',
+    });
+  }
+);
+
+// 2. Authenticator Verification & Activation - Requires valid 6-digit TOTP code to enable
+app.post(
+  ['/api/user/2fa/verify-setup', '/api/auth/2fa/verify-setup', '/api/user/2fa/enable'],
+  authMiddleware,
+  financialRateLimiter,
+  async (req, res, next) => {
+    try {
+      const user: User = (req as any).user;
+      const { secret, code } = req.body;
+
+      if (!secret || typeof secret !== 'string' || !secret.trim()) {
+        throw Errors.validation('Authenticator secret is required.');
+      }
+      if (!code || typeof code !== 'string' || !code.trim()) {
+        throw Errors.validation('6-digit authenticator code is required.');
+      }
+
+      const cleanCode = code.trim();
+      if (cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
+        throw Errors.validation('Invalid authenticator code format. Must be 6 digits.');
+      }
+
+      if (isTotpCodeReplayed(user.id, cleanCode)) {
+        throw Errors.validation('Authenticator code has already been used. Please wait for the next 6-digit code.');
+      }
+
+      const isValid = verify2FACode(secret.trim(), cleanCode);
+      if (!isValid) {
+        throw Errors.validation('Invalid authenticator code. Please check your authenticator app and ensure your device clock is synchronized.');
+      }
+
+      const encryptedSecret = encryptTotpSecret(secret.trim());
+      await updateProfile(user.id, {
+        twoFactorEnabled: true,
+        twoFactorSecret: encryptedSecret,
+        twoFactorEnabledAt: new Date().toISOString(),
+      });
+
+      markTotpCodeUsed(user.id, cleanCode);
+
+      res.json({
+        success: true,
+        twoFactorEnabled: true,
+        message: 'Authenticator App verified and enabled successfully.',
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// 3. Authenticator Disable - Requires valid current 6-digit TOTP code or account password
+app.post(
+  ['/api/user/2fa/disable', '/api/auth/2fa/disable'],
+  authMiddleware,
+  financialRateLimiter,
+  async (req, res, next) => {
+    try {
+      const user: User = (req as any).user;
+      const { code, password } = req.body;
+
+      if (!user.twoFactorEnabled) {
+        return res.json({ success: true, twoFactorEnabled: false, message: 'Authenticator is already disabled.' });
+      }
+
+      let isVerified = false;
+      if (code && typeof code === 'string' && /^\d{6}$/.test(code.trim())) {
+        isVerified = verify2FACode(user.twoFactorSecret || '', code.trim());
+      }
+      if (!isVerified && password && typeof password === 'string') {
+        isVerified = verifyPassword(password, user.passwordHash, user.passwordSalt);
+      }
+
+      if (!isVerified) {
+        throw Errors.validation('Valid 6-digit Authenticator code or account password is required to disable two-factor authentication.');
+      }
+
+      await updateProfile(user.id, {
+        twoFactorEnabled: false,
+        twoFactorSecret: undefined,
+        twoFactorEnabledAt: undefined,
+      });
+
+      res.json({ success: true, twoFactorEnabled: false, message: 'Authenticator disabled successfully.' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// 4. Backward-Compatible 2FA Toggle Wrapper
+app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, financialRateLimiter, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
     const { enable, secret, code, password } = req.body;
@@ -827,14 +934,19 @@ app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (re
       if (!code || !secret) {
         throw Errors.validation('Verification code and secret required to enable 2FA.');
       }
-      const isValid = verify2FACode(secret, code);
+      const cleanCode = String(code).trim();
+      const isValid = verify2FACode(secret, cleanCode);
       if (!isValid) {
         throw Errors.validation('Invalid 2FA code. Please check your authenticator app.');
       }
-      await updateProfile(user.id, { twoFactorEnabled: true, twoFactorSecret: secret });
+      const encryptedSecret = encryptTotpSecret(secret.trim());
+      await updateProfile(user.id, {
+        twoFactorEnabled: true,
+        twoFactorSecret: encryptedSecret,
+        twoFactorEnabledAt: new Date().toISOString(),
+      });
       res.json({ success: true, twoFactorEnabled: true });
     } else {
-      // 2FA Security: Disabling 2FA requires verifying either the current TOTP code or account password
       if (user.twoFactorEnabled) {
         let isVerified = false;
         if (code && typeof code === 'string') {
@@ -847,7 +959,11 @@ app.post(['/api/auth/2fa/toggle', '/auth/2fa/toggle'], authMiddleware, async (re
           throw Errors.validation('Valid 2FA verification code or account password is required to disable two-factor authentication.');
         }
       }
-      await updateProfile(user.id, { twoFactorEnabled: false, twoFactorSecret: undefined });
+      await updateProfile(user.id, {
+        twoFactorEnabled: false,
+        twoFactorSecret: undefined,
+        twoFactorEnabledAt: undefined,
+      });
       res.json({ success: true, twoFactorEnabled: false });
     }
   } catch (err) {
@@ -1240,25 +1356,7 @@ app.post(['/api/user/withdrawals/preview', '/user/withdrawals/preview'], authMid
   }
 });
 
-// Request Withdrawal Security OTP (Sends 6-digit code to registered email)
-app.post(['/api/user/withdrawals/request-otp', '/user/withdrawals/request-otp'], authMiddleware, financialRateLimiter, async (req, res, next) => {
-  try {
-    const user: User = (req as any).user;
-    const isTestBypass = process.env.NODE_ENV !== 'production' && user.isTestUser === true;
-    const otpResult = await generateWithdrawalOtp(user.id, user.email, isTestBypass);
-
-    res.json({
-      success: true,
-      message: 'A 6-digit verification code has been dispatched to your registered email address.',
-      expiresInSeconds: otpResult.expiresInSeconds,
-      ...(isTestBypass && otpResult.devCode ? { testOtpCode: otpResult.devCode } : {}),
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Submit Withdrawal Request
+// Submit Withdrawal Request (Strict Authenticator TOTP Enforced)
 app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financialRateLimiter, async (req, res, next) => {
   try {
     const user: User = (req as any).user;
@@ -1267,8 +1365,8 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
       destinationAddress,
       network,
       password,
+      totpCode,
       twoFactorCode,
-      otpCode,
       confirmCompoundingImpact,
       confirmLockBreak,
       confirmMinimumBreak,
@@ -1278,6 +1376,32 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
 
     if (user.status !== 'active') {
       throw Errors.forbidden(`Your account is currently ${user.status}. Withdrawals are disabled.`);
+    }
+
+    // 1. Enforce Authenticator (TOTP) Requirement
+    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+      return res.status(400).json({
+        success: false,
+        requiresTotpSetup: true,
+        error: 'Authenticator verification is required. Please set up your Authenticator App before making a withdrawal.',
+      });
+    }
+
+    const submittedTotp = String(totpCode || twoFactorCode || '').trim();
+    if (!submittedTotp) {
+      return res.status(400).json({
+        success: false,
+        requiresTotp: true,
+        error: 'Authenticator code is required.',
+      });
+    }
+
+    if (submittedTotp.length !== 6 || !/^\d{6}$/.test(submittedTotp)) {
+      return res.status(400).json({
+        success: false,
+        requiresTotp: true,
+        error: 'Invalid authenticator code.',
+      });
     }
 
     const amount = validateAmount(requestedAmount, 'Withdrawal amount', { allowZero: false, maxDecimals: 4 });
@@ -1296,16 +1420,6 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
       throw Errors.invalidCredentials('Incorrect account password.');
     }
 
-    if (user.twoFactorEnabled) {
-      if (!twoFactorCode) {
-        throw Errors.validation('2FA authenticator code is required.');
-      }
-      const isValidCode = verify2FACode(user.twoFactorSecret || '', twoFactorCode);
-      if (!isValidCode) {
-        throw Errors.validation('Invalid 2FA authenticator code.');
-      }
-    }
-
     const cleanIdempotencyKey = idempotencyKey ? validateString(idempotencyKey, 'Idempotency key', { minLength: 8, maxLength: 128 }) : undefined;
     const cleanUserNotes = userNotes ? validateString(userNotes, 'User notes', { maxLength: 1000 }) : undefined;
 
@@ -1313,7 +1427,7 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
       userId: user.id, // Strictly derived from session, never from req.body
       requestedAmount: amount,
       destinationAddress: validDestAddress,
-      otpCode: otpCode ? String(otpCode).trim() : undefined,
+      totpCode: submittedTotp,
       confirmCompoundingImpact: Boolean(confirmCompoundingImpact),
       confirmLockBreak: Boolean(confirmLockBreak),
       confirmMinimumBreak: Boolean(confirmMinimumBreak),
@@ -1323,11 +1437,19 @@ app.post(['/api/user/withdrawals', '/user/withdrawals'], authMiddleware, financi
     });
 
     if (!result.success) {
-      if (result.requiresOtp) {
+      if (result.requiresTotpSetup) {
         return res.status(400).json({
           success: false,
-          requiresOtp: true,
-          error: result.error || 'Email verification code is required.',
+          requiresTotpSetup: true,
+          error: result.error || 'Authenticator verification is required. Please set up your Authenticator App before making a withdrawal.',
+        });
+      }
+
+      if (result.requiresTotp) {
+        return res.status(400).json({
+          success: false,
+          requiresTotp: true,
+          error: result.error || 'Authenticator code is required.',
         });
       }
 
