@@ -5,107 +5,52 @@
 -- Actions:
 -- 1. Hardens search_path (SET search_path = public, pg_temp) on all financial RPCs
 -- 2. Enforces SECURITY DEFINER on all critical privileged mutation functions
--- 3. Fixes argument signature mismatch in REVOKE/GRANT for adjust_user_balance_atomic
---    and adjust_finexj_operational_fund_atomic from migration 021
+-- 3. Dynamically resolves function signatures from pg_proc to prevent 42883 signature errors
 -- 4. Restricts execution privileges exclusively to service_role for privileged financial RPCs
 -- ==============================================================================
 
--- 1. Harden confirm_deposit_atomic
-ALTER FUNCTION confirm_deposit_atomic(
-  INTEGER, TEXT, TEXT, TEXT, TEXT, BIGINT, TEXT, INTEGER, NUMERIC
-) SECURITY DEFINER SET search_path = public, pg_temp;
+DO $$
+DECLARE
+  r RECORD;
+  v_func_names TEXT[] := ARRAY[
+    'confirm_deposit_atomic',
+    'credit_referral_reward_atomic',
+    'process_withdrawal_status_atomic',
+    'distribute_daily_performance_atomic',
+    'adjust_user_balance_atomic',
+    'adjust_finexj_operational_fund_atomic',
+    'get_admin_accounting_summary',
+    'get_referral_accounting_summary',
+    'get_operational_fund_summary_aggregate',
+    'get_admin_dashboard_stats_aggregate'
+  ];
+  v_name TEXT;
+BEGIN
+  -- 1-7. Harden and restrict privileged financial RPCs
+  FOREACH v_name IN ARRAY v_func_names LOOP
+    FOR r IN (
+      SELECT p.oid::regprocedure AS func_signature 
+      FROM pg_proc p
+      JOIN pg_namespace n ON p.pronamespace = n.oid
+      WHERE p.proname = v_name 
+        AND n.nspname = 'public'
+    ) LOOP
+      EXECUTE format('ALTER FUNCTION %s SECURITY DEFINER SET search_path = public, pg_temp', r.func_signature);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated', r.func_signature);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.func_signature);
+    END LOOP;
+  END LOOP;
 
-REVOKE EXECUTE ON FUNCTION confirm_deposit_atomic(
-  INTEGER, TEXT, TEXT, TEXT, TEXT, BIGINT, TEXT, INTEGER, NUMERIC
-) FROM PUBLIC, anon, authenticated;
+  -- 8. Harden get_user_referral_eligibility (Read-only query function)
+  FOR r IN (
+    SELECT p.oid::regprocedure AS func_signature 
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE p.proname = 'get_user_referral_eligibility' 
+      AND n.nspname = 'public'
+  ) LOOP
+    EXECUTE format('ALTER FUNCTION %s SET search_path = public, pg_temp', r.func_signature);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated, service_role, anon', r.func_signature);
+  END LOOP;
+END $$;
 
-GRANT EXECUTE ON FUNCTION confirm_deposit_atomic(
-  INTEGER, TEXT, TEXT, TEXT, TEXT, BIGINT, TEXT, INTEGER, NUMERIC
-) TO service_role;
-
--- 2. Harden credit_referral_reward_atomic
-ALTER FUNCTION credit_referral_reward_atomic(
-  INTEGER, INTEGER, INTEGER, INTEGER, NUMERIC, NUMERIC, TEXT, TEXT, INTEGER, TEXT
-) SECURITY DEFINER SET search_path = public, pg_temp;
-
-REVOKE EXECUTE ON FUNCTION credit_referral_reward_atomic(
-  INTEGER, INTEGER, INTEGER, INTEGER, NUMERIC, NUMERIC, TEXT, TEXT, INTEGER, TEXT
-) FROM PUBLIC, anon, authenticated;
-
-GRANT EXECUTE ON FUNCTION credit_referral_reward_atomic(
-  INTEGER, INTEGER, INTEGER, INTEGER, NUMERIC, NUMERIC, TEXT, TEXT, INTEGER, TEXT
-) TO service_role;
-
--- 3. Harden process_withdrawal_status_atomic
-ALTER FUNCTION process_withdrawal_status_atomic(
-  TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT
-) SECURITY DEFINER SET search_path = public, pg_temp;
-
-REVOKE EXECUTE ON FUNCTION process_withdrawal_status_atomic(
-  TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT
-) FROM PUBLIC, anon, authenticated;
-
-GRANT EXECUTE ON FUNCTION process_withdrawal_status_atomic(
-  TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT
-) TO service_role;
-
--- 4. Harden distribute_daily_performance_atomic
-ALTER FUNCTION distribute_daily_performance_atomic(
-  TEXT, NUMERIC, NUMERIC, TEXT, TEXT, BOOLEAN
-) SECURITY DEFINER SET search_path = public, pg_temp;
-
-REVOKE EXECUTE ON FUNCTION distribute_daily_performance_atomic(
-  TEXT, NUMERIC, NUMERIC, TEXT, TEXT, BOOLEAN
-) FROM PUBLIC, anon, authenticated;
-
-GRANT EXECUTE ON FUNCTION distribute_daily_performance_atomic(
-  TEXT, NUMERIC, NUMERIC, TEXT, TEXT, BOOLEAN
-) TO service_role;
-
--- 5. Harden adjust_user_balance_atomic (Correcting 8-parameter signature)
-ALTER FUNCTION adjust_user_balance_atomic(
-  TEXT, TEXT, TEXT, INTEGER, NUMERIC, TEXT, TEXT, TEXT
-) SECURITY DEFINER SET search_path = public, pg_temp;
-
-REVOKE EXECUTE ON FUNCTION adjust_user_balance_atomic(
-  TEXT, TEXT, TEXT, INTEGER, NUMERIC, TEXT, TEXT, TEXT
-) FROM PUBLIC, anon, authenticated;
-
-GRANT EXECUTE ON FUNCTION adjust_user_balance_atomic(
-  TEXT, TEXT, TEXT, INTEGER, NUMERIC, TEXT, TEXT, TEXT
-) TO service_role;
-
--- 6. Harden adjust_finexj_operational_fund_atomic (Correcting 5-parameter signature with TEXT first)
-ALTER FUNCTION adjust_finexj_operational_fund_atomic(
-  TEXT, NUMERIC, TEXT, TEXT, TEXT
-) SECURITY DEFINER SET search_path = public, pg_temp;
-
-REVOKE EXECUTE ON FUNCTION adjust_finexj_operational_fund_atomic(
-  TEXT, NUMERIC, TEXT, TEXT, TEXT
-) FROM PUBLIC, anon, authenticated;
-
-GRANT EXECUTE ON FUNCTION adjust_finexj_operational_fund_atomic(
-  TEXT, NUMERIC, TEXT, TEXT, TEXT
-) TO service_role;
-
--- 7. Harden get_admin_accounting_summary & get_referral_accounting_summary
-ALTER FUNCTION get_admin_accounting_summary(TEXT, TEXT) SECURITY DEFINER SET search_path = public, pg_temp;
-ALTER FUNCTION get_referral_accounting_summary(TEXT, TEXT) SECURITY DEFINER SET search_path = public, pg_temp;
-ALTER FUNCTION get_operational_fund_summary_aggregate() SECURITY DEFINER SET search_path = public, pg_temp;
-ALTER FUNCTION get_admin_dashboard_stats_aggregate() SECURITY DEFINER SET search_path = public, pg_temp;
-
-REVOKE EXECUTE ON FUNCTION get_admin_accounting_summary(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION get_admin_accounting_summary(TEXT, TEXT) TO service_role;
-
-REVOKE EXECUTE ON FUNCTION get_referral_accounting_summary(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION get_referral_accounting_summary(TEXT, TEXT) TO service_role;
-
-REVOKE EXECUTE ON FUNCTION get_operational_fund_summary_aggregate() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION get_operational_fund_summary_aggregate() TO service_role;
-
-REVOKE EXECUTE ON FUNCTION get_admin_dashboard_stats_aggregate() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION get_admin_dashboard_stats_aggregate() TO service_role;
-
--- 8. Harden get_user_referral_eligibility
-ALTER FUNCTION get_user_referral_eligibility(INTEGER) SET search_path = public, pg_temp;
-GRANT EXECUTE ON FUNCTION get_user_referral_eligibility(INTEGER) TO authenticated, service_role;

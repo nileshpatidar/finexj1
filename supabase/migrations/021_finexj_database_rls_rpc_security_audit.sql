@@ -110,14 +110,25 @@ BEGIN
     ALTER TABLE withdrawals ADD CONSTRAINT chk_withdrawals_positive_amount CHECK (requested_amount > 0 AND amount > 0);
   END IF;
 
-  -- Earnings non-negative amount check
+  -- Earnings amount sanity check:
+  -- Auto-classify any legacy unclassified negative earnings as 'loss' before applying constraint
+  UPDATE earnings 
+  SET market_condition = 'loss' 
+  WHERE earnings_amount < 0 AND (market_condition IS NULL OR market_condition NOT IN ('loss', 'reversed'));
+
+  -- Drop legacy overly-restrictive constraint if already present
+  ALTER TABLE earnings DROP CONSTRAINT IF EXISTS chk_earnings_non_negative_amount;
+
+  -- Earnings amount check: non-negative for standard profit/neutral yields, permits negative for fund loss days or reversed payouts
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_earnings_non_negative_amount') THEN
-    ALTER TABLE earnings ADD CONSTRAINT chk_earnings_non_negative_amount CHECK (earnings_amount >= 0);
+    ALTER TABLE earnings ADD CONSTRAINT chk_earnings_non_negative_amount 
+      CHECK (earnings_amount >= 0 OR market_condition = 'loss' OR applicable_rate < 0 OR status = 'reversed');
   END IF;
 
-  -- Ledger non-zero amount check
+  -- Ledger non-zero amount check (permits zero amounts for zero-yield distribution days and withdrawal states)
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_ledger_nonzero_amount') THEN
-    ALTER TABLE ledger ADD CONSTRAINT chk_ledger_nonzero_amount CHECK (amount <> 0 OR type IN ('withdrawal_paid', 'withdrawal_hold'));
+    ALTER TABLE ledger ADD CONSTRAINT chk_ledger_nonzero_amount 
+      CHECK (amount <> 0 OR type IN ('withdrawal_paid', 'withdrawal_hold', 'daily_earnings', 'admin_adjustment', 'voluntary_lock'));
   END IF;
 END $$;
 
@@ -345,32 +356,49 @@ CREATE POLICY "fraud_signals_update_admin" ON fraud_signals FOR UPDATE TO authen
 -- ==============================================================================
 -- 5. RPC SECURITY & FUNCTION EXECUTION HARDENING
 -- ==============================================================================
--- Revoke default PUBLIC execution permissions on all privileged RPCs
-REVOKE EXECUTE ON FUNCTION confirm_deposit_atomic(INTEGER, TEXT, TEXT, TEXT, TEXT, BIGINT, TEXT, INTEGER, NUMERIC) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION credit_referral_reward_atomic(INTEGER, INTEGER, INTEGER, INTEGER, NUMERIC, NUMERIC, TEXT, TEXT, INTEGER, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION process_withdrawal_status_atomic(TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION adjust_user_balance_atomic(TEXT, INTEGER, NUMERIC, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION adjust_finexj_operational_fund_atomic(NUMERIC, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION distribute_daily_performance_atomic(TEXT, NUMERIC, NUMERIC, TEXT, TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION get_admin_accounting_summary(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION get_referral_accounting_summary(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION get_operational_fund_summary_aggregate() FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION get_admin_dashboard_stats_aggregate() FROM PUBLIC, anon, authenticated;
+DO $$
+DECLARE
+  r RECORD;
+  v_func_names TEXT[] := ARRAY[
+    'confirm_deposit_atomic',
+    'credit_referral_reward_atomic',
+    'process_withdrawal_status_atomic',
+    'adjust_user_balance_atomic',
+    'adjust_finexj_operational_fund_atomic',
+    'distribute_daily_performance_atomic',
+    'get_admin_accounting_summary',
+    'get_referral_accounting_summary',
+    'get_operational_fund_summary_aggregate',
+    'get_admin_dashboard_stats_aggregate'
+  ];
+  v_name TEXT;
+BEGIN
+  -- Revoke default PUBLIC execution and grant exclusively to service_role
+  FOREACH v_name IN ARRAY v_func_names LOOP
+    FOR r IN (
+      SELECT p.oid::regprocedure AS func_signature 
+      FROM pg_proc p
+      JOIN pg_namespace n ON p.pronamespace = n.oid
+      WHERE p.proname = v_name 
+        AND n.nspname = 'public'
+    ) LOOP
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated', r.func_signature);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.func_signature);
+    END LOOP;
+  END LOOP;
 
--- Grant EXECUTE exclusively to service_role for backend operations
-GRANT EXECUTE ON FUNCTION confirm_deposit_atomic(INTEGER, TEXT, TEXT, TEXT, TEXT, BIGINT, TEXT, INTEGER, NUMERIC) TO service_role;
-GRANT EXECUTE ON FUNCTION credit_referral_reward_atomic(INTEGER, INTEGER, INTEGER, INTEGER, NUMERIC, NUMERIC, TEXT, TEXT, INTEGER, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION process_withdrawal_status_atomic(TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION adjust_user_balance_atomic(TEXT, INTEGER, NUMERIC, TEXT, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION adjust_finexj_operational_fund_atomic(NUMERIC, TEXT, TEXT, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION distribute_daily_performance_atomic(TEXT, NUMERIC, NUMERIC, TEXT, TEXT, BOOLEAN) TO service_role;
-GRANT EXECUTE ON FUNCTION get_admin_accounting_summary(TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION get_referral_accounting_summary(TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION get_operational_fund_summary_aggregate() TO service_role;
-GRANT EXECUTE ON FUNCTION get_admin_dashboard_stats_aggregate() TO service_role;
+  -- get_user_referral_eligibility (read-only query function)
+  FOR r IN (
+    SELECT p.oid::regprocedure AS func_signature 
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE p.proname = 'get_user_referral_eligibility' 
+      AND n.nspname = 'public'
+  ) LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated, service_role, anon', r.func_signature);
+  END LOOP;
+END $$;
 
--- get_user_referral_eligibility is a read-only query function: grant to authenticated, service_role, anon
-GRANT EXECUTE ON FUNCTION get_user_referral_eligibility(INTEGER) TO authenticated, service_role, anon;
 
 
 -- ==============================================================================
