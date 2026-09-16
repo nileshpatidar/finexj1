@@ -39,6 +39,7 @@ SELECT
 FROM daily_performances;
 
 -- 2. Unique Constraints & Anti-Replay Indexes (Case-Insensitive for hashes and emails)
+ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS referral_code TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_uniq ON users (LOWER(TRIM(email)));
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code_uniq ON users (referral_code) WHERE referral_code IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deposits_tx_hash_lower_uniq ON deposits (LOWER(TRIM(tx_hash))) WHERE tx_hash IS NOT NULL;

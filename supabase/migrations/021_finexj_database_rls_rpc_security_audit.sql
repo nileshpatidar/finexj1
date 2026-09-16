@@ -105,10 +105,21 @@ BEGIN
     ALTER TABLE deposits ADD CONSTRAINT chk_deposits_positive_amount CHECK (amount > 0);
   END IF;
 
+  -- Ensure withdrawals amount column exists
+  ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS amount NUMERIC(18, 4);
+  UPDATE withdrawals SET amount = requested_amount WHERE amount IS NULL;
+
   -- Withdrawals positive amount check
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_withdrawals_positive_amount') THEN
-    ALTER TABLE withdrawals ADD CONSTRAINT chk_withdrawals_positive_amount CHECK (requested_amount > 0 AND amount > 0);
+    ALTER TABLE withdrawals ADD CONSTRAINT chk_withdrawals_positive_amount CHECK (requested_amount > 0 AND (amount IS NULL OR amount > 0));
   END IF;
+
+  -- Ensure earnings columns exist
+  ALTER TABLE earnings ADD COLUMN IF NOT EXISTS earnings_amount NUMERIC(18, 4) NOT NULL DEFAULT 0;
+  ALTER TABLE earnings ADD COLUMN IF NOT EXISTS market_condition TEXT DEFAULT 'profit';
+  ALTER TABLE earnings ADD COLUMN IF NOT EXISTS applicable_rate NUMERIC(8, 4) NOT NULL DEFAULT 0;
+  ALTER TABLE earnings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'credited';
+  UPDATE earnings SET earnings_amount = payout_amount WHERE earnings_amount = 0 AND payout_amount > 0;
 
   -- Earnings amount sanity check:
   -- Auto-classify any legacy unclassified negative earnings as 'loss' before applying constraint
@@ -187,6 +198,11 @@ CREATE TRIGGER trg_immutable_op_ledger
 -- ==============================================================================
 -- 4. ROW LEVEL SECURITY (RLS) HARDENING PASS
 -- ==============================================================================
+-- Ensure auth schema and JWT helpers exist for self-hosted or testing environments
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT COALESCE(NULLIF(current_setting('request.jwt.claims', true), ''), '{}')::jsonb; $$;
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid; $$;
+
 -- Drop existing overly permissive policies
 DROP POLICY IF EXISTS "Allow all access to users" ON users;
 DROP POLICY IF EXISTS "Allow all access to deposits" ON deposits;
@@ -404,6 +420,28 @@ END $$;
 -- ==============================================================================
 -- 6. Harden create_withdrawal_atomic: Search Path & Identity Verification
 -- ==============================================================================
+-- Explicitly drop known obsolete 10-parameter signature from prior migrations
+DROP FUNCTION IF EXISTS public.create_withdrawal_atomic(
+  INTEGER, NUMERIC, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, INTEGER
+);
+
+-- Safely drop any other non-authoritative overloads of create_withdrawal_atomic
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN (
+    SELECT p.oid::regprocedure AS func_sig
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE p.proname = 'create_withdrawal_atomic'
+      AND n.nspname = 'public'
+      AND p.pronargs <> 12
+  ) LOOP
+    EXECUTE format('DROP FUNCTION IF EXISTS %s', r.func_sig);
+  END LOOP;
+END $$;
+
 CREATE OR REPLACE FUNCTION create_withdrawal_atomic(
   p_user_id INTEGER,
   p_requested_amount NUMERIC(18, 4),
@@ -577,5 +615,29 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION create_withdrawal_atomic TO service_role, authenticated;
-REVOKE EXECUTE ON FUNCTION create_withdrawal_atomic FROM anon, PUBLIC;
+-- Unambiguously grant/revoke on the authoritative 12-argument signature
+GRANT EXECUTE ON FUNCTION public.create_withdrawal_atomic(
+  INTEGER, NUMERIC(18, 4), TEXT, TEXT, TEXT, TEXT, NUMERIC(8, 4), NUMERIC(18, 4), NUMERIC(18, 4), INTEGER, BOOLEAN, BOOLEAN
+) TO service_role, authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.create_withdrawal_atomic(
+  INTEGER, NUMERIC(18, 4), TEXT, TEXT, TEXT, TEXT, NUMERIC(8, 4), NUMERIC(18, 4), NUMERIC(18, 4), INTEGER, BOOLEAN, BOOLEAN
+) FROM anon, PUBLIC;
+
+-- Dynamic loop to guarantee all resolved overloads in public are properly granted
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN (
+    SELECT p.oid::regprocedure AS func_signature
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE p.proname = 'create_withdrawal_atomic' 
+      AND n.nspname = 'public'
+  ) LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role, authenticated', r.func_signature);
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM anon, PUBLIC', r.func_signature);
+  END LOOP;
+END $$;
+

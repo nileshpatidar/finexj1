@@ -31,6 +31,9 @@ BEGIN
 END $$;
 
 -- 2. Define or Replace create_withdrawal_atomic
+-- Explicitly drop obsolete 10-parameter signature from prior migrations
+DROP FUNCTION IF EXISTS create_withdrawal_atomic(INTEGER, NUMERIC, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, INTEGER);
+
 CREATE OR REPLACE FUNCTION create_withdrawal_atomic(
   p_user_id INTEGER,
   p_requested_amount NUMERIC(18, 4),
