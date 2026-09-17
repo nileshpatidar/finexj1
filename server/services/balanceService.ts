@@ -9,7 +9,7 @@ import { createLedgerEntry } from '../repositories/ledger';
 import { createAuditLog } from '../repositories/auditLogs';
 import { getServerSupabase } from '../supabase';
 import { calculateDepositLockEndDate } from '../utils/businessDays';
-import { UserBalanceSummary, User, Deposit, EarningEntry, Withdrawal, ReferralReward, LedgerEntry, AppSettings } from '../types';
+import { UserBalanceSummary, WithdrawalEligibilityStatus, User, Deposit, EarningEntry, Withdrawal, ReferralReward, LedgerEntry, AppSettings } from '../types';
 import crypto from 'crypto';
 
 export interface PreloadedBalanceData {
@@ -157,6 +157,23 @@ export function calculateBalanceFromDatasets(
     }
   }
 
+  let withdrawalEligibilityStatus: WithdrawalEligibilityStatus;
+  let withdrawalEligibilityLabel: string;
+
+  if (canWithdraw && eligibleForWithdrawal > 0) {
+    withdrawalEligibilityStatus = 'ELIGIBLE_FOR_WITHDRAWAL';
+    withdrawalEligibilityLabel = 'Eligible for Withdrawal';
+  } else if (totalDeposited <= 0 && activeCompoundingPrincipal <= 0) {
+    withdrawalEligibilityStatus = 'DEPOSIT_REQUIRED';
+    withdrawalEligibilityLabel = 'Deposit Required';
+  } else if (depositLockedPrincipal > 0 || isFundLocked) {
+    withdrawalEligibilityStatus = 'DEPOSIT_LOCKED';
+    withdrawalEligibilityLabel = 'Deposit Locked';
+  } else {
+    withdrawalEligibilityStatus = 'NO_WITHDRAWABLE_FUNDS';
+    withdrawalEligibilityLabel = 'No Withdrawable Funds';
+  }
+
   return {
     userId: user.id,
     totalDeposited: Number(totalDeposited.toFixed(2)),
@@ -180,6 +197,8 @@ export function calculateBalanceFromDatasets(
     fundLockRemainingDays,
     fundLockRemainingHours,
     fundLockReason,
+    withdrawalEligibilityStatus,
+    withdrawalEligibilityLabel,
   };
 }
 

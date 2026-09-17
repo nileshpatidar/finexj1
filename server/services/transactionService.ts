@@ -139,6 +139,8 @@ export async function getUserTransactionsAsync(
     isFundLocked: false,
     fundLockRemainingDays: 0,
     fundLockRemainingHours: 0,
+    withdrawalEligibilityStatus: 'DEPOSIT_REQUIRED',
+    withdrawalEligibilityLabel: 'Deposit Required',
   }));
 
   const allItems: UserTransactionItem[] = [];

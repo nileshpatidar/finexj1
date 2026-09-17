@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { api } from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
-import { UserBalanceSummary } from '../types';
+import { UserBalanceSummary, WithdrawalEligibilityStatus } from '../types';
 import {
   Shield,
   KeyRound,
@@ -21,6 +21,60 @@ import {
 interface ProfileViewProps {
   onNavigate?: (view: string) => void;
   balance?: UserBalanceSummary | null;
+}
+
+export function getProfileWithdrawalEligibility(balance: UserBalanceSummary | null | undefined): {
+  status: WithdrawalEligibilityStatus;
+  label: string;
+} {
+  // If backend provided authoritative status and label, use them directly
+  if (balance?.withdrawalEligibilityStatus && balance?.withdrawalEligibilityLabel) {
+    return {
+      status: balance.withdrawalEligibilityStatus,
+      label: balance.withdrawalEligibilityLabel,
+    };
+  }
+
+  // If no balance summary loaded yet
+  if (!balance) {
+    return {
+      status: 'DEPOSIT_REQUIRED',
+      label: 'Deposit Required',
+    };
+  }
+
+  // 1. Server-authoritative withdrawal eligibility says eligible
+  if (balance.canWithdraw && (balance.eligibleForWithdrawal ?? 0) > 0) {
+    return {
+      status: 'ELIGIBLE_FOR_WITHDRAWAL',
+      label: 'Eligible for Withdrawal',
+    };
+  }
+
+  // 2. User has no qualifying deposit
+  const totalDeposited = balance.totalDeposited ?? 0;
+  const activePrincipal = balance.activeCompoundingPrincipal ?? 0;
+  if (totalDeposited <= 0 && activePrincipal <= 0) {
+    return {
+      status: 'DEPOSIT_REQUIRED',
+      label: 'Deposit Required',
+    };
+  }
+
+  // 3. User has a deposit but it is still locked
+  const lockedPrincipal = balance.depositLockedPrincipal ?? 0;
+  if (lockedPrincipal > 0 || balance.isFundLocked) {
+    return {
+      status: 'DEPOSIT_LOCKED',
+      label: 'Deposit Locked',
+    };
+  }
+
+  // 4. Deposit matured but no withdrawable amount
+  return {
+    status: 'NO_WITHDRAWABLE_FUNDS',
+    label: 'No Withdrawable Funds',
+  };
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance }) => {
@@ -141,6 +195,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
 
   const accountCreated = user?.createdAt ? new Date(user.createdAt) : new Date();
   const accountAgeDays = Math.floor((Date.now() - accountCreated.getTime()) / (24 * 60 * 60 * 1000));
+  const withdrawalEligibility = getProfileWithdrawalEligibility(dashboardBalance);
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-24 text-xs">
@@ -200,9 +255,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
           </div>
 
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">{accountAgeRequirementDays}-Day Age Policy</span>
-            <p className={`font-bold text-sm mt-0.5 ${(dashboardBalance?.accountAgeDays ?? accountAgeDays) >= accountAgeRequirementDays ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}>
-              {(dashboardBalance?.accountAgeDays ?? accountAgeDays) >= accountAgeRequirementDays ? 'Eligible for Payout' : 'Maturity Pending'}
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Withdrawal Eligibility</span>
+            <p className={`font-bold text-sm mt-0.5 ${
+              withdrawalEligibility.status === 'ELIGIBLE_FOR_WITHDRAWAL'
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : withdrawalEligibility.status === 'DEPOSIT_LOCKED'
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-slate-600 dark:text-slate-400'
+            }`}>
+              {withdrawalEligibility.label}
             </p>
           </div>
         </div>
@@ -230,7 +291,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
           <div>
             <span className="text-[11px] font-semibold text-slate-500 uppercase">My Referral Code</span>
             <p className="text-base font-mono font-black text-slate-900 dark:text-white tracking-wider mt-0.5">
-              {user?.referralCode || 'FINEXJ'}
+              {user?.referralCode || (user ? 'Referral code pending' : 'Loading...')}
             </p>
           </div>
 
@@ -243,7 +304,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
                   setTimeout(() => setCopiedProfileRef(false), 2000);
                 }
               }}
-              className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition cursor-pointer"
+              disabled={!user?.referralCode}
+              className={`inline-flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                !user?.referralCode
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                  : 'bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200'
+              }`}
             >
               {copiedProfileRef ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copiedProfileRef ? 'Copied' : 'Copy Code'}</span>

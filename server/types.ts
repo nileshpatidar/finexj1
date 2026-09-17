@@ -167,6 +167,12 @@ export interface LedgerEntry {
   performedBy?: string;
 }
 
+export type WithdrawalEligibilityStatus =
+  | 'DEPOSIT_REQUIRED'
+  | 'DEPOSIT_LOCKED'
+  | 'NO_WITHDRAWABLE_FUNDS'
+  | 'ELIGIBLE_FOR_WITHDRAWAL';
+
 export interface UserBalanceSummary {
   userId: string;
   totalDeposited: number;
@@ -190,6 +196,8 @@ export interface UserBalanceSummary {
   fundLockRemainingDays: number;
   fundLockRemainingHours: number;
   fundLockReason?: string;
+  withdrawalEligibilityStatus?: WithdrawalEligibilityStatus;
+  withdrawalEligibilityLabel?: string;
 }
 
 export interface AuditLog {

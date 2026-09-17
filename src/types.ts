@@ -112,6 +112,12 @@ export interface AdminUserDetailResponse {
   };
 }
 
+export type WithdrawalEligibilityStatus =
+  | 'DEPOSIT_REQUIRED'
+  | 'DEPOSIT_LOCKED'
+  | 'NO_WITHDRAWABLE_FUNDS'
+  | 'ELIGIBLE_FOR_WITHDRAWAL';
+
 export interface UserBalanceSummary {
   userId: string;
   totalDeposited: number;
@@ -136,6 +142,8 @@ export interface UserBalanceSummary {
   activeCompoundingPrincipal?: number;
   depositLockedPrincipal?: number;
   withdrawalFeePercentage?: number;
+  withdrawalEligibilityStatus?: WithdrawalEligibilityStatus;
+  withdrawalEligibilityLabel?: string;
 }
 
 export interface WithdrawalImpactResult {

@@ -233,9 +233,8 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
   };
 
   // Authoritative referral code: strictly from database referral_code.
-  // Never generate a fallback referral code from user ID.
-  const rawReferralCode = summary?.referralCode || user?.referralCode || '';
-  const displayReferralCode = rawReferralCode || 'FINEXJ';
+  // Never generate a fake fallback referral code such as 'FINEXJ'.
+  const rawReferralCode = (summary?.referralCode || user?.referralCode || '').trim();
 
   // Copy referral code
   const handleCopyCode = () => {
@@ -245,7 +244,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Construct full referral URL using existing structure
+  // Construct full referral URL using existing application origin/URL structure
   const referralUrl = rawReferralCode
     ? `${window.location.origin}/register?ref=${encodeURIComponent(rawReferralCode)}`
     : '';
@@ -349,7 +348,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  You can share your referral code now. To qualify for 5% Level 1 and 2% Level 2 commission payouts, an active deposit of at least ${(summary.minimumRequiredPrincipal || minDeposit).toFixed(2)} USDT is required on your account.
+                  Share your referral code anytime. Referral rewards are available when your account meets the qualifying active-principal requirement of ${(summary.minimumRequiredPrincipal || minDeposit).toFixed(2)} USDT.
                 </p>
               </div>
             </div>
@@ -405,8 +404,10 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
             <span className="text-base sm:text-lg font-mono font-bold text-slate-900 dark:text-white tracking-wider truncate">
               {isLoadingSummary ? (
                 <span className="text-slate-400 text-sm font-normal">Loading...</span>
+              ) : rawReferralCode ? (
+                rawReferralCode
               ) : (
-                displayReferralCode
+                <span className="text-slate-400 text-sm font-normal">Referral code pending</span>
               )}
             </span>
 
@@ -438,7 +439,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({ onNavigate, initialS
             <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate max-w-[200px] sm:max-w-[230px]">
               {isLoadingSummary
                 ? 'Loading link...'
-                : referralUrl || 'Referral link unavailable'}
+                : referralUrl || 'Referral link pending'}
             </span>
 
             <div className="flex items-center gap-1.5 flex-shrink-0">

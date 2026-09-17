@@ -18,7 +18,7 @@ import {
   isTotpCodeReplayed,
   markTotpCodeUsed,
 } from './auth';
-import { getProfileById, getProfileByEmail, createProfile, updateProfile, getAllProfiles } from './repositories/profiles';
+import { getProfileById, getProfileByEmail, createProfile, updateProfile, getAllProfiles, ensureUserReferralCodeAsync } from './repositories/profiles';
 import { getDepositsByUserId, getAllDeposits, getDepositById } from './repositories/deposits';
 import { getWithdrawalsByUserId, getAllWithdrawals, getWithdrawalById } from './repositories/withdrawals';
 import { getEarningsByUserId, getAllEarnings, getPaginatedEarningsByUserId, getTotalCreditedEarningsByUserId } from './repositories/earnings';
@@ -427,7 +427,7 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
         createdAt: newUser.createdAt,
         twoFactorEnabled: newUser.twoFactorEnabled,
         profilePictureUrl: newUser.profilePictureUrl,
-        referralCode: null, // New user has not yet deposited; referral credentials locked
+        referralCode: newUser.referralCode || generatedReferralCode,
         walletAddress: newUser.walletAddress || '',
       },
     });
@@ -547,16 +547,10 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
     const token = createSessionToken(user, settings.sessionVersion || 1);
     setSessionCookie(res, token);
 
-    let exposedReferralCode: string | null = null;
-    if (user.role !== 'user') {
-      exposedReferralCode = user.referralCode || null;
-    } else {
-      try {
-        const eligibility = await checkReferralEligibilityAsync(user.id);
-        exposedReferralCode = eligibility.isEligible ? (user.referralCode || null) : null;
-      } catch {
-        exposedReferralCode = null;
-      }
+    // Referral sharing is available to all authenticated users; reward eligibility controls rewards only
+    let exposedReferralCode = user.referralCode || null;
+    if (!exposedReferralCode) {
+      exposedReferralCode = await ensureUserReferralCodeAsync(user);
     }
 
     res.json({
@@ -609,16 +603,10 @@ app.get(['/api/auth/me', '/auth/me'], optionalAuthMiddleware, async (req, res) =
     return res.json({ user: null });
   }
 
-  let exposedReferralCode: string | null = null;
-  if (user.role !== 'user') {
-    exposedReferralCode = user.referralCode || null;
-  } else {
-    try {
-      const eligibility = await checkReferralEligibilityAsync(user.id);
-      exposedReferralCode = eligibility.isEligible ? (user.referralCode || null) : null;
-    } catch {
-      exposedReferralCode = null;
-    }
+  // Referral sharing is available to all authenticated users; reward eligibility controls rewards only
+  let exposedReferralCode = user.referralCode || null;
+  if (!exposedReferralCode) {
+    exposedReferralCode = await ensureUserReferralCodeAsync(user);
   }
 
   res.json({
@@ -1074,6 +1062,7 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
         role: user.role,
         createdAt: user.createdAt,
         profilePictureUrl: user.profilePictureUrl,
+        referralCode: user.referralCode || referralSummary.referralCode,
       },
       balance: balanceSummary,
       todayEarnings: todayEarningsAmount,
@@ -1820,6 +1809,8 @@ app.get(['/api/admin/users', '/admin/users'], authMiddleware, adminMiddleware(),
             fundLockRemainingDays: balance.fundLockRemainingDays,
             accountAgeDays: balance.accountAgeDays,
             canWithdraw: balance.canWithdraw,
+            withdrawalEligibilityStatus: balance.withdrawalEligibilityStatus,
+            withdrawalEligibilityLabel: balance.withdrawalEligibilityLabel,
           },
         };
       })

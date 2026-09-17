@@ -203,8 +203,14 @@ export async function getProfileByEmail(email: string): Promise<User | null> {
   }
 }
 
+export function generateReferralCode(): string {
+  return 'FXJ' + Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
 export async function createProfile(user: Partial<User>): Promise<User> {
   const normEmail = (user.email || '').trim().toLowerCase();
+  const rawCode = user.referralCode ? user.referralCode.trim().toUpperCase() : '';
+  const initialReferralCode = rawCode || generateReferralCode();
 
   if (!isServerSupabaseReady()) {
     seedDevUsers();
@@ -226,7 +232,7 @@ export async function createProfile(user: Partial<User>): Promise<User> {
       twoFactorSecret: user.twoFactorSecret,
       loginAttempts: user.loginAttempts || 0,
       lockUntil: user.lockUntil,
-      referralCode: user.referralCode,
+      referralCode: initialReferralCode,
       referrerId: user.referrerId,
       isFlaggedForReview: Boolean(user.isFlaggedForReview),
       riskScore: user.riskScore || 0,
@@ -258,7 +264,7 @@ export async function createProfile(user: Partial<User>): Promise<User> {
     login_attempts: user.loginAttempts || 0,
     lock_until: user.lockUntil || null,
     is_locked: user.status === 'suspended',
-    referral_code: user.referralCode || null,
+    referral_code: initialReferralCode,
     referrer_id: user.referrerId && !isNaN(Number(user.referrerId)) ? Number(user.referrerId) : null,
     is_flagged_for_review: Boolean(user.isFlaggedForReview),
     risk_score: user.riskScore || 0,
@@ -522,6 +528,38 @@ export async function getProfileByReferralCode(code: string): Promise<User | nul
     console.warn(`[Supabase Exception] getProfileByReferralCode(${code}):`, err?.message);
     return null;
   }
+}
+
+/**
+ * Ensures that a user has a real, persisted unique referral code.
+ * If missing (e.g. from legacy or test records), generates one using the standard FXJ format,
+ * verifies uniqueness against existing codes, and persists it to the database/profile repository.
+ */
+export async function ensureUserReferralCodeAsync(user: User): Promise<string> {
+  if (user.referralCode && user.referralCode.trim()) {
+    return user.referralCode.trim().toUpperCase();
+  }
+
+  let candidate = '';
+  let attempts = 0;
+  while (attempts < 10) {
+    candidate = generateReferralCode();
+    const existing = await getProfileByReferralCode(candidate);
+    if (!existing) break;
+    attempts++;
+  }
+  if (!candidate || attempts >= 10) {
+    candidate = 'FXJ' + Date.now().toString(36).substring(2, 8).toUpperCase();
+  }
+
+  try {
+    await updateProfile(user.id, { referralCode: candidate });
+    user.referralCode = candidate;
+  } catch (err: any) {
+    console.error(`[ensureUserReferralCodeAsync] Failed to persist referral code for user ${user.id}:`, err?.message);
+  }
+
+  return candidate;
 }
 
 export async function getProfilesByWalletAddress(wallet: string): Promise<User[]> {

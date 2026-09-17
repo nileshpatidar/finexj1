@@ -10,7 +10,7 @@ import {
   PaginatedLevel1ReferralsResponse,
   PaginatedLevel2ReferralsResponse,
 } from '../types';
-import { getProfileById, getProfileByReferralCode, updateProfile, getProfilesByIds } from '../repositories/profiles';
+import { getProfileById, getProfileByReferralCode, updateProfile, getProfilesByIds, ensureUserReferralCodeAsync } from '../repositories/profiles';
 import {
   getReferralByReferredId,
   createReferralRelationship,
@@ -546,7 +546,10 @@ export async function getReferralSummaryAsync(userId: string): Promise<{
     throw new Error('User not found');
   }
 
-  const referralCode = user.referralCode || '';
+  let referralCode = user.referralCode ? user.referralCode.trim().toUpperCase() : '';
+  if (!referralCode) {
+    referralCode = await ensureUserReferralCodeAsync(user);
+  }
   const settings = await getSettings();
   const minDeposit = Number(settings.minimumDepositAmount);
 
@@ -725,11 +728,15 @@ export async function getUserReferralSummaryAsync(
     settings: preloaded?.settings,
   });
 
-  // Security rule: If the user is NOT eligible, do not expose active referralCode or referralLink
-  const rawReferralCode = user.referralCode || '';
-  const referralCode = eligibility.isEligible ? rawReferralCode : '';
-  const referralLink = eligibility.isEligible && rawReferralCode
-    ? `/register?ref=${encodeURIComponent(rawReferralCode)}`
+  // Referral code & link: Every authenticated user receives their real persisted referral code & link,
+  // completely decoupled from deposit amount, active principal, or reward eligibility.
+  // Eligibility strictly controls reward payouts, never referral code/link availability.
+  let referralCode = user.referralCode ? user.referralCode.trim().toUpperCase() : '';
+  if (!referralCode) {
+    referralCode = await ensureUserReferralCodeAsync(user);
+  }
+  const referralLink = referralCode
+    ? `/register?ref=${encodeURIComponent(referralCode)}`
     : '';
 
   return {

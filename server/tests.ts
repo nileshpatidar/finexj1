@@ -27,7 +27,7 @@ import { creditReferralRewardAtomic } from './repositories/referrals';
 import { confirmDepositAtomic, createDeposit } from './repositories/deposits';
 import { createWithdrawalAtomic, processWithdrawalStatusAtomic } from './repositories/withdrawals';
 import { getEarningsByUserId, getPaginatedEarningsByUserId } from './repositories/earnings';
-import { checkWithdrawalImpactAsync } from './services/balanceService';
+import { checkWithdrawalImpactAsync, calculateBalanceFromDatasets } from './services/balanceService';
 import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync, isWithinRange, parseDateRange } from './services/accountingService';
 import { DecimalSafe } from './utils/decimalSafe';
 import { isServerSupabaseReady, getServerSupabase } from './supabase';
@@ -4829,7 +4829,7 @@ export async function runAutomatedTestSuite(): Promise<{
     const authoritativeMinDeposit = Number(settings.minimumDepositAmount) || 300;
     const companyCode = settings.companyReferralCode || 'FINEXJ';
 
-    // TEST 1: Ineligible User Referral Summary Masking (No code, no link)
+    // TEST 1: Referral Sharing Available Regardless of Deposit / Eligibility
     const mockIneligibleUser: any = {
       id: 'step29-mock-user-1',
       email: 'ineligible1@finexj.com',
@@ -4837,34 +4837,32 @@ export async function runAutomatedTestSuite(): Promise<{
       role: 'user',
       status: 'active',
     };
-    const ineligibleSummaryResult = {
+    const summaryResult = {
       isEligible: false,
-      referralCode: '',
-      referralLink: '',
+      referralCode: 'FXJ11111',
+      referralLink: '/register?ref=FXJ11111',
       minimumRequiredPrincipal: authoritativeMinDeposit,
     };
     assert(
-      'STEP 29: TEST 01 - Ineligible User Referral Summary Suppresses Code and Link',
-      'Referral Locked-State Security',
-      ineligibleSummaryResult.referralCode === '' && ineligibleSummaryResult.referralLink === '' && !ineligibleSummaryResult.isEligible,
-      'When user is ineligible, referralCode and referralLink are stripped from summary responses.'
+      'STEP 29: TEST 01 - Authenticated User Always Has Real Referral Code and Link Regardless of Eligibility',
+      'Referral Sharing Availability',
+      summaryResult.referralCode === 'FXJ11111' && summaryResult.referralLink === '/register?ref=FXJ11111' && !summaryResult.isEligible,
+      'Referral code and referral link are returned for sharing even when reward eligibility is false.'
     );
 
-    // TEST 2: Ineligible User Auth / Login Masking
-    const simulateAuthUserExpose = (u: any, isEligible: boolean) => {
-      if (u.role !== 'user') return u.referralCode || null;
-      return isEligible ? (u.referralCode || null) : null;
+    // TEST 2: Auth Endpoints Return Real Referral Code for All Authenticated Users
+    const simulateAuthUserExpose = (u: any) => {
+      return u.referralCode || null;
     };
-    const exposedIneligible = simulateAuthUserExpose(mockIneligibleUser, false);
-    const exposedEligible = simulateAuthUserExpose(mockIneligibleUser, true);
+    const exposedIneligible = simulateAuthUserExpose(mockIneligibleUser);
     assert(
-      'STEP 29: TEST 02 - Auth Endpoints Mask referralCode for Ineligible Users',
-      'Referral Credential Privacy',
-      exposedIneligible === null && exposedEligible === 'FXJ11111',
-      'Auth endpoints return null for referralCode when user is ineligible, and real code when eligible.'
+      'STEP 29: TEST 02 - Auth Endpoints Expose Real referralCode for Authenticated Users',
+      'Referral Identity Availability',
+      exposedIneligible === 'FXJ11111',
+      'Auth endpoints return real persisted referralCode regardless of user deposit or reward eligibility.'
     );
 
-    // TEST 3: Admin Exemption from Referral Code Masking in Auth
+    // TEST 3: Admin Roles Retain Referral Code Visibility
     const mockAdminUser: any = {
       id: 'step29-admin-1',
       email: 'admin1@finexj.com',
@@ -4872,21 +4870,21 @@ export async function runAutomatedTestSuite(): Promise<{
       role: 'super_admin',
       status: 'active',
     };
-    const exposedAdmin = simulateAuthUserExpose(mockAdminUser, false);
+    const exposedAdmin = simulateAuthUserExpose(mockAdminUser);
     assert(
-      'STEP 29: TEST 03 - Admin Roles Retain Referral Code Visibility Regardless of Personal Deposit',
+      'STEP 29: TEST 03 - Admin Roles Retain Referral Code Visibility',
       'Admin Privilege Invariant',
       exposedAdmin === 'FXJADMIN',
-      'Admin roles bypass client-facing referral code masking.'
+      'Admin roles retain persisted referralCode.'
     );
 
     // TEST 4: Locked State UI Copy Invariant - Minimum Required Principal Display
-    const lockedPromptMsg = `Maintain at least $${authoritativeMinDeposit} in eligible funds to unlock your referral code and start earning referral rewards.`;
+    const lockedPromptMsg = `Share your referral code anytime. Referral rewards are available when your account meets the qualifying active-principal requirement of $${authoritativeMinDeposit} USDT.`;
     assert(
-      'STEP 29: TEST 04 - Authoritative Dynamic Threshold in Locked-State Message',
-      'Referral Locked-State UX',
+      'STEP 29: TEST 04 - Authoritative Dynamic Threshold in Referral Message',
+      'Referral Reward Requirement UX',
       lockedPromptMsg.includes(`$${authoritativeMinDeposit}`),
-      `Locked UI dynamically references authoritative minimum deposit ($${authoritativeMinDeposit}).`
+      `Referral copy dynamically references authoritative minimum deposit ($${authoritativeMinDeposit}).`
     );
 
     // TEST 5: Registration Validation - Nonexistent Referral Code Fails
@@ -6934,6 +6932,348 @@ export async function runAutomatedTestSuite(): Promise<{
       'Step 59 Database Cleanup & Clean Financial Activity',
       false,
       `Step 59 Test Suite error: ${step59Err.message}`
+    );
+  }
+
+  // =========================================================================
+  // STEP 60: PROFILE PAYOUT ELIGIBILITY & ACCOUNT AGE DECOUPLING
+  // =========================================================================
+  try {
+    const testSettings: any = {
+      accountAgeRequirementDays: 66,
+      depositLockPeriodDays: 30,
+      minimumDepositAmount: 300,
+      withdrawalFeePercentage: 5,
+      bep20DepositAddress: '0x1111111111111111111111111111111111111111',
+      operationalWalletAddress: '0x2222222222222222222222222222222222222222',
+      usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
+      requiredConfirmations: 12,
+      telegramSupportUrl: 'https://t.me/support',
+      compoundingEnabled: true,
+    };
+
+    // State A: User with Account age = 92 days (> 66 policy), Deposit = 0, Earnings = 0, Withdrawable = 0
+    const userZeroDep: User = {
+      id: 'test-zero-dep-user',
+      email: 'zerodep@example.com',
+      fullName: 'Zero Deposit User',
+      role: 'user',
+      status: 'active',
+      createdAt: new Date(Date.now() - 92 * 24 * 60 * 60 * 1000).toISOString(),
+      profilePictureUrl: '',
+    } as any;
+
+    const balanceZeroDep = calculateBalanceFromDatasets(userZeroDep, testSettings, {
+      deposits: [],
+      earnings: [],
+      withdrawals: [],
+      referralRewards: [],
+      ledgerEntries: [],
+    });
+
+    assert(
+      'STEP 60: TEST 1 - Zero-Deposit User with 92 Days Account Age is NOT Payout Eligible',
+      'Profile Payout Eligibility Decoupling',
+      balanceZeroDep.accountAgeDays >= 91 &&
+      balanceZeroDep.is30DaysOld === true &&
+      balanceZeroDep.canWithdraw === false &&
+      balanceZeroDep.withdrawalEligibilityStatus === 'DEPOSIT_REQUIRED' &&
+      balanceZeroDep.withdrawalEligibilityLabel === 'Deposit Required',
+      `Zero-deposit user with account age of 92 days must have status DEPOSIT_REQUIRED ("Deposit Required"), not "Eligible for Payout". Actual: ${balanceZeroDep.withdrawalEligibilityLabel}`
+    );
+
+    // State B: Deposit exists but still locked (e.g. deposited 5 days ago with 30-day lock)
+    const userLockedDep: User = {
+      id: 'test-locked-dep-user',
+      email: 'lockeddep@example.com',
+      fullName: 'Locked Deposit User',
+      role: 'user',
+      status: 'active',
+      createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      profilePictureUrl: '',
+    } as any;
+    const lockedDeposit: Deposit = {
+      id: 'dep-locked-1',
+      userId: 'test-locked-dep-user',
+      amount: 1000,
+      status: 'confirmed',
+      createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      confirmedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      txHash: '0xlocked1',
+      currency: 'USDT',
+    } as any;
+
+    const balanceLockedDep = calculateBalanceFromDatasets(userLockedDep, testSettings, {
+      deposits: [lockedDeposit],
+      earnings: [],
+      withdrawals: [],
+      referralRewards: [],
+      ledgerEntries: [],
+    });
+
+    assert(
+      'STEP 60: TEST 2 - Deposit Exists but Still Locked shows Deposit Locked',
+      'Profile Payout Eligibility Decoupling',
+      balanceLockedDep.canWithdraw === false &&
+      balanceLockedDep.withdrawalEligibilityStatus === 'DEPOSIT_LOCKED' &&
+      balanceLockedDep.withdrawalEligibilityLabel === 'Deposit Locked',
+      `Locked deposit user must show DEPOSIT_LOCKED ("Deposit Locked"). Actual: ${balanceLockedDep.withdrawalEligibilityLabel}`
+    );
+
+    // State C: Deposit matured but no withdrawable amount
+    const userMaturedZero: User = {
+      id: 'test-matured-zero-user',
+      email: 'maturedzero@example.com',
+      fullName: 'Matured Zero User',
+      role: 'user',
+      status: 'active',
+      createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+      profilePictureUrl: '',
+    } as any;
+    const maturedDeposit: Deposit = {
+      id: 'dep-matured-1',
+      userId: 'test-matured-zero-user',
+      amount: 500,
+      status: 'confirmed',
+      createdAt: new Date(Date.now() - 70 * 24 * 60 * 60 * 1000).toISOString(),
+      confirmedAt: new Date(Date.now() - 70 * 24 * 60 * 60 * 1000).toISOString(),
+      txHash: '0xmatured1',
+      currency: 'USDT',
+    } as any;
+    const fullWithdrawal: any = {
+      id: 'wdr-full-1',
+      userId: 'test-matured-zero-user',
+      requestedAmount: 500,
+      feeAmount: 25,
+      feePercentage: 5,
+      netAmount: 475,
+      status: 'paid',
+      createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      destinationAddress: '0xdest1',
+      network: 'BSC',
+      reference: 'REF-FULL-1',
+    };
+
+    const balanceMaturedZero = calculateBalanceFromDatasets(userMaturedZero, testSettings, {
+      deposits: [maturedDeposit],
+      earnings: [],
+      withdrawals: [fullWithdrawal],
+      referralRewards: [],
+      ledgerEntries: [],
+    });
+
+    assert(
+      'STEP 60: TEST 3 - Deposit Matured but No Withdrawable Funds shows No Withdrawable Funds',
+      'Profile Payout Eligibility Decoupling',
+      balanceMaturedZero.availableBalance <= 0 &&
+      balanceMaturedZero.canWithdraw === false &&
+      balanceMaturedZero.withdrawalEligibilityStatus === 'NO_WITHDRAWABLE_FUNDS' &&
+      balanceMaturedZero.withdrawalEligibilityLabel === 'No Withdrawable Funds',
+      `Matured deposit user with 0 remaining funds must show NO_WITHDRAWABLE_FUNDS ("No Withdrawable Funds"). Actual: ${balanceMaturedZero.withdrawalEligibilityLabel}`
+    );
+
+    // State D: Actual withdrawable funds exist
+    const userEligible: User = {
+      id: 'test-eligible-user',
+      email: 'eligible@example.com',
+      fullName: 'Eligible User',
+      role: 'user',
+      status: 'active',
+      createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+      profilePictureUrl: '',
+    } as any;
+    const activeMaturedDeposit: Deposit = {
+      id: 'dep-eligible-1',
+      userId: 'test-eligible-user',
+      amount: 1500,
+      status: 'confirmed',
+      createdAt: new Date(Date.now() - 70 * 24 * 60 * 60 * 1000).toISOString(),
+      confirmedAt: new Date(Date.now() - 70 * 24 * 60 * 60 * 1000).toISOString(),
+      txHash: '0xeligible1',
+      currency: 'USDT',
+    } as any;
+
+    const balanceEligible = calculateBalanceFromDatasets(userEligible, testSettings, {
+      deposits: [activeMaturedDeposit],
+      earnings: [],
+      withdrawals: [],
+      referralRewards: [],
+      ledgerEntries: [],
+    });
+
+    assert(
+      'STEP 60: TEST 4 - Actual Withdrawable Funds Exist shows Eligible for Withdrawal',
+      'Profile Payout Eligibility Decoupling',
+      balanceEligible.canWithdraw === true &&
+      balanceEligible.eligibleForWithdrawal === 1500 &&
+      balanceEligible.withdrawalEligibilityStatus === 'ELIGIBLE_FOR_WITHDRAWAL' &&
+      balanceEligible.withdrawalEligibilityLabel === 'Eligible for Withdrawal',
+      `Eligible user must show ELIGIBLE_FOR_WITHDRAWAL ("Eligible for Withdrawal"). Actual: ${balanceEligible.withdrawalEligibilityLabel}`
+    );
+  } catch (step60Err: any) {
+    assert(
+      'STEP 60: TEST-SUITE-EXCEPTION',
+      'Step 60 Profile Payout Eligibility Decoupling',
+      false,
+      `Step 60 Test Suite error: ${step60Err.message}`
+    );
+  }
+
+  // ==========================================
+  // STEP 61: REFERRAL CODE & SHARE LINK AVAILABILITY
+  // Rule: Referral sharing and referral reward eligibility are two completely separate things.
+  // Every authenticated user can always see/copy/share their real referral code and link,
+  // regardless of deposits or reward eligibility.
+  // ==========================================
+  try {
+    const { ensureUserReferralCodeAsync, createProfile } = await import('./repositories/profiles');
+    const { getUserReferralSummaryAsync } = await import('./services/referralService');
+
+    const step61Settings = {
+      minimumDepositAmount: 300,
+      accountAgeRequirementDays: 30,
+      withdrawalFeePercentage: 5,
+    };
+
+    // TEST A: User with 0 deposits has referral code & link visible, reward eligibility = false
+    const zeroDepUser = await createProfile({
+      id: 'step61-zero-dep-user',
+      fullName: 'Zero Deposit User',
+      email: 'zerodep@finexj.test',
+      role: 'user',
+      status: 'active',
+      referralCode: 'FXJZERO01',
+    });
+
+    const summaryZeroDep = await getUserReferralSummaryAsync(zeroDepUser.id, {
+      user: zeroDepUser,
+      balance: { totalDeposited: 0, totalWithdrawn: 0, referralEarnings: 0 },
+      referralRewards: [],
+      settings: step61Settings,
+    });
+
+    assert(
+      'STEP 61: TEST A - User with 0 deposits has real referral code and link available',
+      'Referral Sharing vs Reward Decoupling',
+      summaryZeroDep.referralCode === 'FXJZERO01' &&
+      summaryZeroDep.referralLink === '/register?ref=FXJZERO01' &&
+      summaryZeroDep.isEligible === false &&
+      summaryZeroDep.totalReferralIncome === 0,
+      `Expected code 'FXJZERO01' and link '/register?ref=FXJZERO01' with isEligible=false. Got code='${summaryZeroDep.referralCode}', link='${summaryZeroDep.referralLink}', isEligible=${summaryZeroDep.isEligible}`
+    );
+
+    // TEST B: User with deposit below minimum required principal has referral code & link, reward eligibility = false
+    const subMinUser = await createProfile({
+      id: 'step61-sub-min-user',
+      fullName: 'Sub Min User',
+      email: 'submin@finexj.test',
+      role: 'user',
+      status: 'active',
+      referralCode: 'FXJSUBMIN',
+    });
+
+    const summarySubMin = await getUserReferralSummaryAsync(subMinUser.id, {
+      user: subMinUser,
+      balance: { totalDeposited: 100, totalWithdrawn: 0, referralEarnings: 0 },
+      referralRewards: [],
+      settings: step61Settings,
+    });
+
+    assert(
+      'STEP 61: TEST B - User below min deposit has code and link visible, reward eligibility false',
+      'Referral Sharing vs Reward Decoupling',
+      summarySubMin.referralCode === 'FXJSUBMIN' &&
+      summarySubMin.referralLink === '/register?ref=FXJSUBMIN' &&
+      summarySubMin.isEligible === false,
+      `Expected code 'FXJSUBMIN', link '/register?ref=FXJSUBMIN', isEligible=false. Got isEligible=${summarySubMin.isEligible}`
+    );
+
+    // TEST C: User with qualifying active principal has referral code & link, reward eligibility = true
+    const qualUser = await createProfile({
+      id: 'step61-qual-user',
+      fullName: 'Qualifying User',
+      email: 'qualifying@finexj.test',
+      role: 'user',
+      status: 'active',
+      referralCode: 'FXJQUAL01',
+    });
+
+    const summaryQual = await getUserReferralSummaryAsync(qualUser.id, {
+      user: qualUser,
+      balance: { totalDeposited: 500, totalWithdrawn: 0, referralEarnings: 0 },
+      referralRewards: [],
+      settings: step61Settings,
+    });
+
+    assert(
+      'STEP 61: TEST C - User with qualifying active principal has code, link, and reward eligibility true',
+      'Referral Sharing vs Reward Decoupling',
+      summaryQual.referralCode === 'FXJQUAL01' &&
+      summaryQual.referralLink === '/register?ref=FXJQUAL01' &&
+      summaryQual.isEligible === true,
+      `Expected isEligible=true. Got isEligible=${summaryQual.isEligible}`
+    );
+
+    // TEST D: User withdraws below qualifying threshold - referral code and link remain visible
+    const withdrawnUser = await createProfile({
+      id: 'step61-withdrawn-user',
+      fullName: 'Withdrawn User',
+      email: 'withdrawn@finexj.test',
+      role: 'user',
+      status: 'active',
+      referralCode: 'FXJWITH01',
+    });
+
+    // Deposited 500, withdrew 350 -> maintained principal = 150 (< 300 min requirement)
+    const summaryWithdrawn = await getUserReferralSummaryAsync(withdrawnUser.id, {
+      user: withdrawnUser,
+      balance: { totalDeposited: 500, totalWithdrawn: 350, referralEarnings: 0 },
+      referralRewards: [],
+      settings: step61Settings,
+    });
+
+    assert(
+      'STEP 61: TEST D - User whose principal dropped below min retains code and link, reward eligibility false',
+      'Referral Sharing vs Reward Decoupling',
+      summaryWithdrawn.referralCode === 'FXJWITH01' &&
+      summaryWithdrawn.referralLink === '/register?ref=FXJWITH01' &&
+      summaryWithdrawn.isEligible === false,
+      `Expected code and link to remain available with isEligible=false. Got isEligible=${summaryWithdrawn.isEligible}`
+    );
+
+    // TEST E: Auto-repair of missing database referral code
+    const unseededUser = await createProfile({
+      id: 'step61-legacy-unseeded',
+      fullName: 'Legacy Unseeded User',
+      email: 'legacyunseeded@finexj.test',
+      role: 'user',
+      status: 'active',
+    });
+
+    const repairedCode = await ensureUserReferralCodeAsync(unseededUser);
+    const summaryRepaired = await getUserReferralSummaryAsync(unseededUser.id, {
+      user: unseededUser,
+      balance: { totalDeposited: 0, totalWithdrawn: 0, referralEarnings: 0 },
+      referralRewards: [],
+      settings: step61Settings,
+    });
+
+    assert(
+      'STEP 61: TEST E - Missing referral code is auto-repaired and persisted with FXJ prefix',
+      'Referral Code Auto-Repair',
+      Boolean(repairedCode) &&
+      repairedCode.startsWith('FXJ') &&
+      repairedCode !== 'FINEXJ' &&
+      summaryRepaired.referralCode === repairedCode &&
+      summaryRepaired.referralLink === `/register?ref=${repairedCode}`,
+      `Repaired code must start with FXJ and be persisted. Got: ${repairedCode}`
+    );
+  } catch (step61Err: any) {
+    assert(
+      'STEP 61: TEST-SUITE-EXCEPTION',
+      'Step 61 Referral Availability Decoupling',
+      false,
+      `Step 61 Test Suite error: ${step61Err.message}`
     );
   }
 
