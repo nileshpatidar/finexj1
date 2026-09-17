@@ -25,7 +25,8 @@ import { getEarningsByUserId, getAllEarnings, getPaginatedEarningsByUserId, getT
 import { getDailyPerformances, isValidDateString } from './repositories/performances';
 import { getLedgerByUserId, getAllLedger, getLedgerCount, createLedgerEntry } from './repositories/ledger';
 import { getSettings, updateSettings } from './repositories/settings';
-import { getAuditLogs, getAuditLogsCount, createAuditLog } from './repositories/auditLogs';
+import { getAuditLogs, getAuditLogsCount, createAuditLog, MEANINGFUL_FINANCIAL_ACTIONS } from './repositories/auditLogs';
+import { executeDatabaseCleanup } from './cleanup';
 import { getSystemLogs } from './repositories/systemLogs';
 import { getAdminMessagesForUser, createAdminMessage, markMessageRead } from './repositories/messages';
 import { getFinancialMessages, createFinancialMessage, markFinancialMessagesRead } from './repositories/financialMessages';
@@ -2855,11 +2856,67 @@ app.post(['/api/admin/performance', '/admin/performance'], authMiddleware, admin
   }
 });
 
-// Admin Audit Logs
+// Admin Audit Logs (with optional financialOnly filter)
 app.get(['/api/admin/audit-logs', '/admin/audit-logs'], authMiddleware, adminMiddleware(), async (req, res, next) => {
   try {
-    const auditLogs = await getAuditLogs({ limit: 200 });
+    const financialOnly = req.query.financialOnly === 'true' || req.query.type === 'financial';
+    const limit = req.query.limit ? Math.min(Number(req.query.limit), 500) : 200;
+    const auditLogs = await getAuditLogs({ limit, financialOnly });
     res.json({ auditLogs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Dedicated Clean Financial Activity Feed
+app.get(['/api/admin/financial-activity', '/admin/financial-activity'], authMiddleware, adminMiddleware(), async (req, res, next) => {
+  try {
+    const limit = req.query.limit ? Math.min(Number(req.query.limit), 500) : 100;
+    const auditLogs = await getAuditLogs({ limit, financialOnly: true });
+    
+    // Categorize events cleanly for UI display
+    const events = auditLogs.map(l => {
+      let category = 'financial';
+      if (l.action.includes('DEPOSIT')) {
+        category = l.action.includes('REJECT') ? 'deposit_rejected' : 'deposit_approved';
+      } else if (l.action.includes('WITHDRAWAL')) {
+        if (l.action.includes('REJECT')) category = 'withdrawal_rejected';
+        else if (l.action.includes('PAID') || l.action.includes('APPROVED')) category = 'withdrawal_approved';
+        else category = 'withdrawal_pending';
+      } else if (l.action.includes('PERFORMANCE') || l.action.includes('EARNINGS')) {
+        category = 'performance_distributed';
+      } else if (l.action.includes('ADJUSTMENT')) {
+        category = 'balance_adjustment';
+      }
+
+      return {
+        ...l,
+        category,
+      };
+    });
+
+    res.json({
+      success: true,
+      events,
+      total: events.length,
+      allowedActions: MEANINGFUL_FINANCIAL_ACTIONS,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Database Cleanup (Inspection Dry-Run & Safe Execution)
+app.post(['/api/admin/database/cleanup', '/admin/database/cleanup'], authMiddleware, adminMiddleware(['super_admin']), async (req, res, next) => {
+  try {
+    const admin: User = (req as any).user;
+    const dryRun = req.body.dryRun !== false; // Default to true for safety
+    const result = await executeDatabaseCleanup(admin.id, dryRun);
+    
+    res.json({
+      success: result.success,
+      report: result,
+    });
   } catch (err) {
     next(err);
   }

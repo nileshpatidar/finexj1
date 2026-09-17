@@ -2,12 +2,31 @@ import { getServerSupabase, isServerSupabaseReady } from '../supabase';
 import { AuditLog } from '../types';
 import { sanitizeLogData } from '../logger';
 
+export const MEANINGFUL_FINANCIAL_ACTIONS = [
+  'DEPOSIT_APPROVED',
+  'DEPOSIT_REJECTED',
+  'DEPOSIT_CONFIRMED',
+  'DEPOSIT_AUTO_CONFIRMED',
+  'WITHDRAWAL_APPROVED',
+  'WITHDRAWAL_REJECTED',
+  'WITHDRAWAL_PAID',
+  'WITHDRAWAL_REQUESTED',
+  'WITHDRAWAL_PROCESSING',
+  'WITHDRAWAL_CANCELLED',
+  'DAILY_PERFORMANCE_DISTRIBUTED',
+  'PERFORMANCE_APPLIED',
+  'EARNINGS_DISTRIBUTED',
+  'ADMIN_BALANCE_ADJUSTMENT',
+  'DATABASE_CLEANUP_COMPLETED',
+];
+
 export async function getAuditLogs(options?: { 
   limit?: number; 
   offset?: number;
   action?: string;
   actorId?: string;
   targetUserId?: string;
+  financialOnly?: boolean;
 }): Promise<AuditLog[]> {
   if (!isServerSupabaseReady()) return [];
 
@@ -19,6 +38,10 @@ export async function getAuditLogs(options?: {
     .from('audit_logs')
     .select('*')
     .order('created_at', { ascending: false });
+
+  if (options?.financialOnly) {
+    query = query.in('action', MEANINGFUL_FINANCIAL_ACTIONS);
+  }
 
   if (options?.action) {
     query = query.ilike('action', `%${options.action}%`);

@@ -444,7 +444,15 @@ export const api = {
     notes?: string;
     overwriteExisting?: boolean;
   }) => request<any>('/api/admin/performance', { method: 'POST', body: JSON.stringify(payload) }),
-  getAdminAuditLogs: () => request<{ auditLogs: any[] }>('/api/admin/audit-logs'),
+  getAdminAuditLogs: (financialOnly?: boolean) => 
+    request<{ auditLogs: any[] }>(`/api/admin/audit-logs${financialOnly ? '?financialOnly=true' : ''}`),
+  getCleanFinancialActivity: () => 
+    request<{ success: boolean; events: any[]; total: number; allowedActions: string[] }>('/api/admin/financial-activity'),
+  runDatabaseCleanup: (dryRun: boolean = true) => 
+    request<{ success: boolean; report: any }>('/api/admin/database/cleanup', {
+      method: 'POST',
+      body: JSON.stringify({ dryRun }),
+    }),
   updateAdminSettings: (payload: Partial<AppSettings> & { reason?: string }) =>
     request<{ success: boolean; settings: AppSettings }>('/api/admin/settings', {
       method: 'POST',

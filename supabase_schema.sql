@@ -1190,5 +1190,281 @@ DROP POLICY IF EXISTS "service_role_all_financial_messages" ON financial_message
 CREATE POLICY "service_role_all_financial_messages" ON financial_messages 
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- ==============================================================================
+-- FINEXJ SUPABASE MIGRATION 028: DETERMINISTIC DATABASE CLEANUP & CLEAN FINANCIAL ACTIVITY FEED
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION execute_database_cleanup_atomic(
+  p_admin_id TEXT DEFAULT 'system_migration',
+  p_dry_run BOOLEAN DEFAULT FALSE
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_now TIMESTAMPTZ := NOW();
+  v_preserved_deposits_count INT := 0;
+  v_preserved_users_count INT := 0;
+  v_preserved_ledger_count INT := 0;
+  v_preserved_earnings_count INT := 0;
+  v_preserved_withdrawals_count INT := 0;
+  v_preserved_rewards_count INT := 0;
+  
+  v_deleted_test_users_count INT := 0;
+  v_deleted_test_deposits_count INT := 0;
+  v_deleted_test_withdrawals_count INT := 0;
+  v_deleted_test_earnings_count INT := 0;
+  v_deleted_test_ledger_count INT := 0;
+  v_deleted_test_referrals_count INT := 0;
+  v_deleted_test_rewards_count INT := 0;
+  v_deleted_test_messages_count INT := 0;
+  v_deleted_noise_audit_logs_count INT := 0;
+  v_deleted_noise_system_logs_count INT := 0;
+
+  v_report JSONB;
+BEGIN
+  CREATE TEMP TABLE IF NOT EXISTS _preserved_users (id INT PRIMARY KEY) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS _preserved_deposits (id INT PRIMARY KEY) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS _test_users (id INT PRIMARY KEY) ON COMMIT DROP;
+  
+  TRUNCATE TABLE _preserved_users;
+  TRUNCATE TABLE _preserved_deposits;
+  TRUNCATE TABLE _test_users;
+
+  INSERT INTO _preserved_deposits (id)
+  SELECT id FROM deposits
+  WHERE status IN ('confirmed', 'pending', 'confirming')
+     OR (tx_hash IS NOT NULL AND tx_hash NOT ILIKE '0xtest%' AND tx_hash NOT ILIKE 'test_%');
+
+  INSERT INTO _preserved_users (id)
+  SELECT DISTINCT user_id FROM deposits WHERE id IN (SELECT id FROM _preserved_deposits)
+  UNION
+  SELECT id FROM users WHERE role IN ('super_admin', 'finance_admin') OR LOWER(email) = 'admin@finexj.com';
+
+  INSERT INTO _test_users (id)
+  SELECT id FROM users
+  WHERE id NOT IN (SELECT id FROM _preserved_users)
+    AND (
+      is_test_user = TRUE
+      OR LOWER(email) LIKE '%test%'
+      OR LOWER(email) LIKE '%demo%'
+      OR LOWER(email) LIKE '%example.com%'
+      OR LOWER(email) LIKE '%cypress%'
+      OR LOWER(full_name) LIKE '%test user%'
+      OR LOWER(full_name) LIKE '%cypress%'
+    );
+
+  SELECT COUNT(*) INTO v_preserved_deposits_count FROM _preserved_deposits;
+  SELECT COUNT(*) INTO v_preserved_users_count FROM _preserved_users;
+  SELECT COUNT(*) INTO v_preserved_ledger_count FROM ledger WHERE user_id IN (SELECT id FROM _preserved_users);
+  SELECT COUNT(*) INTO v_preserved_earnings_count FROM earnings WHERE user_id IN (SELECT id FROM _preserved_users);
+  SELECT COUNT(*) INTO v_preserved_withdrawals_count FROM withdrawals WHERE user_id IN (SELECT id FROM _preserved_users);
+  SELECT COUNT(*) INTO v_preserved_rewards_count FROM referral_rewards WHERE referrer_id IN (SELECT id FROM _preserved_users);
+
+  SELECT COUNT(*) INTO v_deleted_test_users_count FROM _test_users;
+  SELECT COUNT(*) INTO v_deleted_test_deposits_count FROM deposits WHERE user_id IN (SELECT id FROM _test_users);
+  SELECT COUNT(*) INTO v_deleted_test_withdrawals_count FROM withdrawals WHERE user_id IN (SELECT id FROM _test_users);
+  SELECT COUNT(*) INTO v_deleted_test_earnings_count FROM earnings WHERE user_id IN (SELECT id FROM _test_users);
+  SELECT COUNT(*) INTO v_deleted_test_ledger_count FROM ledger WHERE user_id IN (SELECT id FROM _test_users);
+  SELECT COUNT(*) INTO v_deleted_test_referrals_count FROM referrals WHERE referrer_id IN (SELECT id FROM _test_users) OR referred_id IN (SELECT id FROM _test_users);
+  SELECT COUNT(*) INTO v_deleted_test_rewards_count FROM referral_rewards WHERE referrer_id IN (SELECT id FROM _test_users) OR referred_id IN (SELECT id FROM _test_users);
+  SELECT COUNT(*) INTO v_deleted_test_messages_count FROM admin_messages WHERE user_id IN (SELECT id FROM _test_users);
+  
+  SELECT COUNT(*) INTO v_deleted_noise_audit_logs_count FROM audit_logs
+  WHERE target_user_id IN (SELECT id::TEXT FROM _test_users)
+     OR (
+       action NOT IN (
+         'DEPOSIT_APPROVED', 'DEPOSIT_REJECTED', 'DEPOSIT_CONFIRMED', 'DEPOSIT_AUTO_CONFIRMED',
+         'WITHDRAWAL_APPROVED', 'WITHDRAWAL_REJECTED', 'WITHDRAWAL_PAID', 'WITHDRAWAL_REQUESTED', 'WITHDRAWAL_CANCELLED',
+         'DAILY_PERFORMANCE_DISTRIBUTED', 'PERFORMANCE_APPLIED', 'EARNINGS_DISTRIBUTED',
+         'ADMIN_BALANCE_ADJUSTMENT', 'DATABASE_CLEANUP_COMPLETED'
+       )
+       AND created_at < v_now - INTERVAL '7 days'
+     );
+
+  SELECT COUNT(*) INTO v_deleted_noise_system_logs_count FROM system_logs
+  WHERE event ILIKE '%test%' OR level = 'DEBUG' OR created_at < v_now - INTERVAL '14 days';
+
+  IF p_dry_run THEN
+    RETURN jsonb_build_object(
+      'success', true,
+      'dry_run', true,
+      'timestamp', v_now,
+      'preserved_summary', jsonb_build_object(
+        'valid_deposits', v_preserved_deposits_count,
+        'investor_users', v_preserved_users_count,
+        'ledger_entries', v_preserved_ledger_count,
+        'earnings_distributions', v_preserved_earnings_count,
+        'withdrawals', v_preserved_withdrawals_count,
+        'referral_rewards', v_preserved_rewards_count
+      ),
+      'deletion_plan', jsonb_build_object(
+        'test_users', v_deleted_test_users_count,
+        'test_deposits', v_deleted_test_deposits_count,
+        'test_withdrawals', v_deleted_test_withdrawals_count,
+        'test_earnings', v_deleted_test_earnings_count,
+        'test_ledger_entries', v_deleted_test_ledger_count,
+        'test_referral_rewards', v_deleted_test_rewards_count,
+        'test_referral_relationships', v_deleted_test_referrals_count,
+        'test_messages', v_deleted_test_messages_count,
+        'noise_audit_logs', v_deleted_noise_audit_logs_count,
+        'noise_system_logs', v_deleted_noise_system_logs_count
+      )
+    );
+  END IF;
+
+  ALTER TABLE ledger DISABLE TRIGGER trg_immutable_ledger;
+  ALTER TABLE audit_logs DISABLE TRIGGER trg_immutable_audit_logs;
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_immutable_op_ledger') THEN
+    ALTER TABLE finexj_operational_ledger DISABLE TRIGGER trg_immutable_op_ledger;
+  END IF;
+
+  BEGIN
+    DELETE FROM referral_rewards
+    WHERE referrer_id IN (SELECT id FROM _test_users)
+       OR referred_id IN (SELECT id FROM _test_users)
+       OR (deposit_id IS NOT NULL AND deposit_id NOT IN (SELECT id FROM _preserved_deposits));
+
+    DELETE FROM referrals
+    WHERE referrer_id IN (SELECT id FROM _test_users)
+       OR referred_id IN (SELECT id FROM _test_users);
+
+    DELETE FROM ledger WHERE user_id IN (SELECT id FROM _test_users);
+    DELETE FROM earnings WHERE user_id IN (SELECT id FROM _test_users);
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'financial_messages') THEN
+      DELETE FROM financial_messages WHERE user_id IN (SELECT id FROM _test_users);
+    END IF;
+    DELETE FROM admin_messages WHERE user_id IN (SELECT id FROM _test_users);
+    DELETE FROM fraud_signals WHERE user_id IN (SELECT id FROM _test_users);
+    DELETE FROM withdrawals WHERE user_id IN (SELECT id FROM _test_users);
+    DELETE FROM deposits WHERE user_id IN (SELECT id FROM _test_users) AND id NOT IN (SELECT id FROM _preserved_deposits);
+    DELETE FROM users WHERE id IN (SELECT id FROM _test_users);
+
+    DELETE FROM audit_logs
+    WHERE target_user_id IN (SELECT id::TEXT FROM _test_users)
+       OR (
+         action NOT IN (
+           'DEPOSIT_APPROVED', 'DEPOSIT_REJECTED', 'DEPOSIT_CONFIRMED', 'DEPOSIT_AUTO_CONFIRMED',
+           'WITHDRAWAL_APPROVED', 'WITHDRAWAL_REJECTED', 'WITHDRAWAL_PAID', 'WITHDRAWAL_REQUESTED', 'WITHDRAWAL_CANCELLED',
+           'DAILY_PERFORMANCE_DISTRIBUTED', 'PERFORMANCE_APPLIED', 'EARNINGS_DISTRIBUTED',
+           'ADMIN_BALANCE_ADJUSTMENT', 'DATABASE_CLEANUP_COMPLETED'
+         )
+         AND created_at < v_now - INTERVAL '7 days'
+       );
+
+    DELETE FROM system_logs
+    WHERE event ILIKE '%test%' OR level = 'DEBUG' OR created_at < v_now - INTERVAL '14 days';
+
+    ALTER TABLE ledger ENABLE TRIGGER trg_immutable_ledger;
+    ALTER TABLE audit_logs ENABLE TRIGGER trg_immutable_audit_logs;
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_immutable_op_ledger') THEN
+      ALTER TABLE finexj_operational_ledger ENABLE TRIGGER trg_immutable_op_ledger;
+    END IF;
+
+  EXCEPTION WHEN OTHERS THEN
+    ALTER TABLE ledger ENABLE TRIGGER trg_immutable_ledger;
+    ALTER TABLE audit_logs ENABLE TRIGGER trg_immutable_audit_logs;
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_immutable_op_ledger') THEN
+      ALTER TABLE finexj_operational_ledger ENABLE TRIGGER trg_immutable_op_ledger;
+    END IF;
+    RAISE;
+  END;
+
+  INSERT INTO audit_logs (
+    action, actor_id, actor_email, actor_role, reason, details, created_at
+  ) VALUES (
+    'DATABASE_CLEANUP_COMPLETED',
+    p_admin_id,
+    'system_cleanup',
+    'super_admin',
+    'Deterministic database cleanup executed. All valid deposit history, ledger records, earnings, and investor profiles preserved.',
+    format('Preserved: %s deposits, %s users, %s ledger entries. Deleted: %s test users, %s test ledger entries, %s noise audit logs.',
+           v_preserved_deposits_count, v_preserved_users_count, v_preserved_ledger_count,
+           v_deleted_test_users_count, v_deleted_test_ledger_count, v_deleted_noise_audit_logs_count),
+    v_now
+  );
+
+  v_report := jsonb_build_object(
+    'success', true,
+    'dry_run', false,
+    'executed_at', v_now,
+    'executed_by', p_admin_id,
+    'preserved_records', jsonb_build_object(
+      'deposits', v_preserved_deposits_count,
+      'users', v_preserved_users_count,
+      'ledger_entries', v_preserved_ledger_count,
+      'earnings', v_preserved_earnings_count,
+      'withdrawals', v_preserved_withdrawals_count,
+      'referral_rewards', v_preserved_rewards_count
+    ),
+    'deleted_noise_records', jsonb_build_object(
+      'test_users', v_deleted_test_users_count,
+      'test_deposits', v_deleted_test_deposits_count,
+      'test_withdrawals', v_deleted_test_withdrawals_count,
+      'test_earnings', v_deleted_test_earnings_count,
+      'test_ledger_entries', v_deleted_test_ledger_count,
+      'test_referral_rewards', v_deleted_test_rewards_count,
+      'test_referral_relationships', v_deleted_test_referrals_count,
+      'test_messages', v_deleted_test_messages_count,
+      'noise_audit_logs', v_deleted_noise_audit_logs_count,
+      'noise_system_logs', v_deleted_noise_system_logs_count
+    )
+  );
+
+  RETURN v_report;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION execute_database_cleanup_atomic(TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION execute_database_cleanup_atomic(TEXT, BOOLEAN) TO service_role;
+
+CREATE OR REPLACE VIEW view_clean_financial_activity AS
+SELECT
+  id,
+  action,
+  actor_id,
+  actor_email,
+  actor_role,
+  target_user_id,
+  reason,
+  details,
+  before_value,
+  after_value,
+  reference_id,
+  created_at,
+  CASE
+    WHEN action IN ('DEPOSIT_APPROVED', 'DEPOSIT_CONFIRMED', 'DEPOSIT_AUTO_CONFIRMED') THEN 'deposit_approved'
+    WHEN action IN ('DEPOSIT_REJECTED') THEN 'deposit_rejected'
+    WHEN action IN ('WITHDRAWAL_APPROVED', 'WITHDRAWAL_PAID') THEN 'withdrawal_approved'
+    WHEN action IN ('WITHDRAWAL_REJECTED') THEN 'withdrawal_rejected'
+    WHEN action IN ('WITHDRAWAL_REQUESTED', 'WITHDRAWAL_PROCESSING') THEN 'withdrawal_pending'
+    WHEN action IN ('DAILY_PERFORMANCE_DISTRIBUTED', 'PERFORMANCE_APPLIED', 'EARNINGS_DISTRIBUTED') THEN 'performance_distributed'
+    WHEN action IN ('ADMIN_BALANCE_ADJUSTMENT') THEN 'balance_adjustment'
+    ELSE 'other_financial'
+  END AS financial_category
+FROM audit_logs
+WHERE action IN (
+  'DEPOSIT_APPROVED',
+  'DEPOSIT_REJECTED',
+  'DEPOSIT_CONFIRMED',
+  'DEPOSIT_AUTO_CONFIRMED',
+  'WITHDRAWAL_APPROVED',
+  'WITHDRAWAL_REJECTED',
+  'WITHDRAWAL_PAID',
+  'WITHDRAWAL_REQUESTED',
+  'WITHDRAWAL_PROCESSING',
+  'WITHDRAWAL_CANCELLED',
+  'DAILY_PERFORMANCE_DISTRIBUTED',
+  'PERFORMANCE_APPLIED',
+  'EARNINGS_DISTRIBUTED',
+  'ADMIN_BALANCE_ADJUSTMENT'
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_financial_action_created 
+  ON audit_logs(action, created_at DESC);
+
+
 
 

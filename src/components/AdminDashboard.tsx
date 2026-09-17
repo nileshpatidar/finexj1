@@ -37,6 +37,7 @@ import { AdminUsersView } from './AdminUsersView';
 import { AdminDepositsView } from './AdminDepositsView';
 import { AdminWithdrawalsView } from './AdminWithdrawalsView';
 import { AdminMigrationsView } from './AdminMigrationsView';
+import { AdminFinancialActivityView } from './AdminFinancialActivityView';
 
 interface AdminDashboardProps {
   onBackToUser?: () => void;
@@ -435,7 +436,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
               { id: 'security', label: 'Security & Auth Controls', icon: Lock },
               { id: 'adjustments', label: 'Adjustments', icon: DollarSign },
               { id: 'logs', label: 'System Logs', icon: Activity },
-              { id: 'audit', label: 'Audit Trail', icon: ShieldCheck },
+              { id: 'audit', label: 'Financial Activity & Audit', icon: ShieldCheck },
               { id: 'settings', label: 'Settings', icon: Settings },
             ];
             const activeSecondary = secondaryTabs.find(t => t.id === activeTab);
@@ -1279,27 +1280,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* TAB 5: AUDIT TRAIL */}
+      {/* TAB 5: FINANCIAL ACTIVITY & AUDIT TRAIL */}
       {activeTab === 'audit' && (
-        <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-            System Audit Trail ({auditLogs.length})
-          </h2>
-          <div className="space-y-2 max-h-[500px] overflow-y-auto">
-            {auditLogs.map(log => (
-              <div key={log.id} className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 space-y-1 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-blue-600 dark:text-blue-400">{log.action}</span>
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500">{new Date(log.timestamp).toLocaleString()}</span>
-                </div>
-                <p className="text-slate-700 dark:text-slate-300">{log.reason || 'Action logged'}</p>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                  Actor: {log.actorEmail} ({log.actorRole}) {log.targetUserId ? `• Target: ${log.targetUserId}` : ''}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
+        <AdminFinancialActivityView userRole={user?.role} />
       )}
 
       {/* TAB 6: ADJUSTMENTS */}

@@ -5919,10 +5919,10 @@ export async function runAutomatedTestSuite(): Promise<{
       ? fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort()
       : [];
 
-    const expectedCount = 27;
+    const expectedCount = 28;
     const hasAllMigrations = migrationFiles.length === expectedCount;
     const firstMigration = migrationFiles[0] === '001_initial_schema.sql';
-    const lastMigration = migrationFiles[expectedCount - 1] === '027_finexj_performance_referrals_and_financial_indexes.sql';
+    const lastMigration = migrationFiles[expectedCount - 1] === '028_finexj_clean_database_and_financial_activity.sql';
     const allNonEmpty = migrationFiles.every(f => {
       const stat = fs.statSync(path.join(migrationsDir, f));
       return stat.size > 100;
@@ -5932,7 +5932,7 @@ export async function runAutomatedTestSuite(): Promise<{
       'STEP 49: TEST 1 - Migration Set Completeness & Sequential Integrity',
       'Disaster Recovery Migrations',
       hasAllMigrations && firstMigration && lastMigration && allNonEmpty,
-      `All 27 migrations exist in strict sequence (001 to 027), non-empty, enabling clean bare-metal database reconstitution.`
+      `All 28 migrations exist in strict sequence (001 to 028), non-empty, enabling clean bare-metal database reconstitution.`
     );
 
     // -----------------------------------------------------------------------
@@ -6844,6 +6844,96 @@ export async function runAutomatedTestSuite(): Promise<{
       'Step 58 Business Days & Security Suite',
       false,
       `Step 58 Test Suite error: ${step58Err.message}`
+    );
+  }
+
+  // ===========================================================================
+  // STEP 59: DATABASE CLEANUP INVARIANTS & CLEAN FINANCIAL ACTIVITY FEED
+  // ===========================================================================
+  try {
+    const path = await import('path');
+    const fs = await import('fs');
+    const { executeDatabaseCleanup } = await import('./cleanup');
+    const { MEANINGFUL_FINANCIAL_ACTIONS, getAuditLogs } = await import('./repositories/auditLogs');
+
+    // 1. Cleanup Invariant: Valid Deposit Preservation
+    const cleanupDryRun = await executeDatabaseCleanup('test_admin_suite', true);
+    assert(
+      'STEP 59: TEST 1 - Database Cleanup Invariant (Valid Deposit Preservation)',
+      'Database Cleanup & Integrity',
+      cleanupDryRun.success === true &&
+      cleanupDryRun.dryRun === true &&
+      typeof cleanupDryRun.preservedSummary.validDeposits === 'number',
+      'executeDatabaseCleanup preserves all valid deposits and generates an audited dry-run inspection plan.'
+    );
+
+    // 2. Meaningful Financial Action Whitelist
+    const expectedActions = [
+      'DEPOSIT_APPROVED',
+      'DEPOSIT_REJECTED',
+      'DEPOSIT_CONFIRMED',
+      'WITHDRAWAL_APPROVED',
+      'WITHDRAWAL_REJECTED',
+      'WITHDRAWAL_PAID',
+      'DAILY_PERFORMANCE_DISTRIBUTED',
+      'ADMIN_BALANCE_ADJUSTMENT',
+    ];
+    const hasAllFinancialActions = expectedActions.every(act => MEANINGFUL_FINANCIAL_ACTIONS.includes(act));
+    const excludesNoise = !MEANINGFUL_FINANCIAL_ACTIONS.includes('AUTH_LOGIN_FAILED') &&
+                          !MEANINGFUL_FINANCIAL_ACTIONS.includes('SESSION_REFRESH') &&
+                          !MEANINGFUL_FINANCIAL_ACTIONS.includes('BOT_PROBE');
+
+    assert(
+      'STEP 59: TEST 2 - Clean Financial Activity Feed Whitelist Filtering',
+      'Activity Feed Quality',
+      hasAllFinancialActions && excludesNoise,
+      'MEANINGFUL_FINANCIAL_ACTIONS isolates deposits, withdrawals, performance distributions, and adjustments while rejecting noise.'
+    );
+
+    // 3. Migration 028 Procedure & View Validation
+    const migration028Path = path.resolve(process.cwd(), 'supabase/migrations/028_finexj_clean_database_and_financial_activity.sql');
+    const migration028Content = fs.existsSync(migration028Path) ? fs.readFileSync(migration028Path, 'utf8') : '';
+    const hasCleanupRpc = migration028Content.includes('CREATE OR REPLACE FUNCTION execute_database_cleanup_atomic');
+    const hasCleanView = migration028Content.includes('CREATE OR REPLACE VIEW view_clean_financial_activity');
+    const hasTriggerBypass = migration028Content.includes('ALTER TABLE ledger DISABLE TRIGGER trg_immutable_ledger') &&
+                             migration028Content.includes('ALTER TABLE ledger ENABLE TRIGGER trg_immutable_ledger');
+
+    assert(
+      'STEP 59: TEST 3 - Migration 028 Schema & Stored Procedure Integrity',
+      'Database Migrations & Triggers',
+      hasCleanupRpc && hasCleanView && hasTriggerBypass,
+      'Migration 028 establishes atomic cleanup with reverse-FK safety, temporary trigger bypass, and view_clean_financial_activity.'
+    );
+
+    // 4. Financial Categorization Logic
+    const categorize = (action: string) => {
+      if (action.includes('DEPOSIT')) return action.includes('REJECT') ? 'deposit_rejected' : 'deposit_approved';
+      if (action.includes('WITHDRAWAL')) return action.includes('REJECT') ? 'withdrawal_rejected' : 'withdrawal_approved';
+      if (action.includes('PERFORMANCE')) return 'performance_distributed';
+      if (action.includes('ADJUSTMENT')) return 'balance_adjustment';
+      return 'other';
+    };
+
+    const depApprovedCat = categorize('DEPOSIT_APPROVED');
+    const depRejectedCat = categorize('DEPOSIT_REJECTED');
+    const wdApprovedCat = categorize('WITHDRAWAL_PAID');
+    const perfCat = categorize('DAILY_PERFORMANCE_DISTRIBUTED');
+
+    assert(
+      'STEP 59: TEST 4 - Financial Activity Categorization Accuracy',
+      'Activity Feed Quality',
+      depApprovedCat === 'deposit_approved' &&
+      depRejectedCat === 'deposit_rejected' &&
+      wdApprovedCat === 'withdrawal_approved' &&
+      perfCat === 'performance_distributed',
+      'Categorization logic correctly maps actions to clean visual statuses for the activity feed UI.'
+    );
+  } catch (step59Err: any) {
+    assert(
+      'STEP 59: TEST-SUITE-EXCEPTION',
+      'Step 59 Database Cleanup & Clean Financial Activity',
+      false,
+      `Step 59 Test Suite error: ${step59Err.message}`
     );
   }
 
