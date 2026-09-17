@@ -267,17 +267,11 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
 
       if (userConfirmedDeposits.length === 0) continue;
 
-      // 1. Confirmed deposits eligible on or before input.date within independent 55-day maturity
+      // 1. Confirmed deposits eligible on or before input.date
       const eligibleDeposits = userConfirmedDeposits.filter(d => {
         if (!d.amount || d.amount <= 0) return false;
         const dateStr = (d.eligibilityDate || d.confirmedAt || d.createdAt || '').slice(0, 10);
-        if (!dateStr || dateStr > input.date) return false;
-
-        // Independent 55-day maturity check per deposit
-        const dDate = new Date(dateStr + 'T00:00:00Z').getTime();
-        const pDate = new Date(input.date + 'T00:00:00Z').getTime();
-        const diffDays = Math.floor((pDate - dDate) / (24 * 60 * 60 * 1000));
-        return diffDays >= 0 && diffDays < 55;
+        return Boolean(dateStr && dateStr <= input.date);
       });
 
       const userGrossPrincipal = eligibleDeposits.reduce((acc, d) => acc + (d.amount || 0), 0);
@@ -308,8 +302,10 @@ export async function applyDailyPerformanceAsync(input: AdminDailyPerformanceInp
         const yieldPayout = calculated.earningsAmount;
 
         try {
+          const primaryDepositId = eligibleDeposits.length === 1 ? eligibleDeposits[0].id : undefined;
           await createEarning({
             userId: user.id,
+            depositId: primaryDepositId,
             calculationId: performanceRecord.id,
             baseEligibleAmount: userEligiblePrincipal,
             applicableRate: input.applicableRate,

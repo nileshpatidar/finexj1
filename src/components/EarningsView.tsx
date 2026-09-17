@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { EarningItem } from '../types';
+import { formatPerformanceDate, formatBaseAmount } from '../utils/performanceFormatters';
 import { InvestmentPlanSection } from './InvestmentPlanSection';
 import { InvestmentPlanModal } from './InvestmentPlanModal';
 import {
@@ -229,8 +230,13 @@ export const EarningsView: React.FC = () => {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold text-slate-900 dark:text-white text-sm">
-                          {entry.performanceDate}
+                          Daily Performance
                         </span>
+                        {entry.performanceDate && (
+                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            {formatPerformanceDate(entry.performanceDate)}
+                          </span>
+                        )}
                         <span
                           className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
                             isProfit
@@ -247,6 +253,11 @@ export const EarningsView: React.FC = () => {
                             : '0.00% Safe (No Trade)'}
                         </span>
                       </div>
+
+                      {/* Secondary details: rate and base amount */}
+                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mt-1">
+                        {(Number(entry.applicableRate || 0) * 100).toFixed(2)}% on {formatBaseAmount(entry.baseEligibleAmount)} USDT
+                      </p>
 
                       {/* Note description */}
                       {entry.note ? (
@@ -268,7 +279,7 @@ export const EarningsView: React.FC = () => {
                       ) : null}
 
                       <div className="flex items-center space-x-3 text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                        <span>Base Eligible: ${Number(entry.baseEligibleAmount || 0).toFixed(2)} USDT</span>
+                        <span>Base Amount: {formatBaseAmount(entry.baseEligibleAmount)} USDT</span>
                       </div>
                     </div>
                   </div>

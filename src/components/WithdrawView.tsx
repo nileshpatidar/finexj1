@@ -363,9 +363,9 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
             </p>
             <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-1">
               {balance?.isFundLocked
-                ? `Lock active (${balance.fundLockRemainingDays}d ${balance.fundLockRemainingHours}h)`
-                : !balance?.is30DaysOld
-                ? `Maturity (${balance?.accountAgeDays ?? 0}/${maturityDays}d)`
+                ? `Voluntary lock active (${balance.fundLockRemainingDays}d ${balance.fundLockRemainingHours}h)`
+                : balance?.depositMaturityDate
+                ? `Deposit lock (${balance.depositLockRemainingDays ? `${balance.depositLockRemainingDays}d remaining` : `until ${new Date(balance.depositMaturityDate).toLocaleDateString()}`})`
                 : lockedFunds > 0
                 ? `${lockDays}-day deposit lock active`
                 : 'Zero funds locked'}
@@ -394,16 +394,16 @@ export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitte
               <span className="font-bold block">Deposit Lock Active — Withdrawals Blocked</span>
               <p className="leading-relaxed">
                 {balance?.withdrawalRestrictionReason ||
-                  'Your deposited funds are currently locked. Withdrawals are available only after the applicable deposit lock period has ended.'}
+                  'Your deposited funds and associated investment earnings are currently locked until deposit maturity.'}
               </p>
               {balance?.isFundLocked && balance.fundLockUntil && (
                 <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                  Lock ends on {new Date(balance.fundLockUntil).toLocaleDateString()} (in {balance.fundLockRemainingDays} days, {balance.fundLockRemainingHours} hours).
+                  Voluntary lock ends on {new Date(balance.fundLockUntil).toLocaleDateString()} (in {balance.fundLockRemainingDays} days, {balance.fundLockRemainingHours} hours).
                 </p>
               )}
-              {!balance?.is30DaysOld && balance?.withdrawalEligibleDate && (
+              {balance?.depositMaturityDate && (
                 <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                  Account maturity unlocks on {new Date(balance.withdrawalEligibleDate).toLocaleDateString()} ({balance.accountAgeDays} / {maturityDays} days completed).
+                  Earliest deposit maturity unlocks on {new Date(balance.depositMaturityDate).toLocaleDateString()}{balance.depositLockRemainingDays !== undefined ? ` (${balance.depositLockRemainingDays} days remaining)` : ''}.
                 </p>
               )}
             </div>

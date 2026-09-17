@@ -7,7 +7,7 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isOffline: boolean;
-  login: (email: string, pass: string, code?: string) => Promise<any>;
+  login: (email: string, pass: string) => Promise<any>;
   register: (data: any) => Promise<void>;
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
@@ -50,11 +50,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, [refreshUser]);
 
-  const login = async (email: string, pass: string, code?: string) => {
-    const res = await api.login({ email, password: pass, twoFactorCode: code });
-    if (res.require2FA) {
-      return res;
-    }
+  const login = async (email: string, pass: string) => {
+    const res = await api.login({ email, password: pass });
     if (res.user) {
       setUser(res.user);
     }

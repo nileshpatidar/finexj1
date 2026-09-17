@@ -7277,6 +7277,98 @@ export async function runAutomatedTestSuite(): Promise<{
     );
   }
 
+  // ==========================================
+  // STEP 62: LOGIN 2FA RULE & WITHDRAWAL TOTP ENFORCEMENT
+  // Rule: Authenticator/TOTP MUST NOT be required during normal login.
+  // Login flow: Email + Password -> Normal authentication -> User logged in.
+  // TOTP is ONLY required for withdrawal.
+  // If a user has TOTP enabled, they must still be able to log in normally without entering an Authenticator code.
+  // ==========================================
+  try {
+    const { createProfile, getProfileByEmail } = await import('./repositories/profiles');
+    const { hashPassword, verifyPassword, generate2FASecret, encryptTotpSecret } = await import('./auth');
+    const { createWithdrawalRequestAsync } = await import('./services/withdrawalService');
+
+    // TEST A: User with twoFactorEnabled: true can log in normally with only Email + Password
+    const plainPassword = 'UserSecurePassword2026!';
+    const userWith2FA = await createProfile({
+      id: 'step62-user-with-2fa',
+      fullName: 'TOTP Enabled User',
+      email: 'totpenabled@finexj.test',
+      role: 'user',
+      status: 'active',
+      passwordHash: hashPassword(plainPassword),
+      twoFactorEnabled: true,
+      twoFactorSecret: encryptTotpSecret(generate2FASecret('totpenabled@finexj.test').secret),
+      twoFactorEnabledAt: new Date().toISOString(),
+    });
+
+    // Simulate login authentication flow (Email + Password only)
+    const fetchedUser = await getProfileByEmail('totpenabled@finexj.test');
+    const isPassValid = fetchedUser ? verifyPassword(plainPassword, fetchedUser.passwordHash, fetchedUser.passwordSalt) : false;
+
+    assert(
+      'STEP 62: TEST A - User with TOTP enabled authenticates successfully with only Email and Password',
+      'Login 2FA Rule',
+      Boolean(fetchedUser) &&
+      fetchedUser?.twoFactorEnabled === true &&
+      isPassValid === true,
+      'User with twoFactorEnabled: true must authenticate via email + password without a TOTP challenge.'
+    );
+
+    // TEST B: Withdrawal is strictly blocked if user does not have TOTP enabled
+    const userWithout2FA = await createProfile({
+      id: 'step62-user-without-2fa',
+      fullName: 'No TOTP User',
+      email: 'nototp@finexj.test',
+      role: 'user',
+      status: 'active',
+      passwordHash: hashPassword(plainPassword),
+      twoFactorEnabled: false,
+    });
+
+    const withdrawalBlockNoTotp = await createWithdrawalRequestAsync({
+      userId: userWithout2FA.id,
+      requestedAmount: 100,
+      destinationAddress: '0x1234567890123456789012345678901234567890',
+      actorEmail: userWithout2FA.email,
+    });
+
+    assert(
+      'STEP 62: TEST B - Withdrawal is strictly blocked when user does not have TOTP enabled',
+      'Withdrawal TOTP Requirement',
+      withdrawalBlockNoTotp.success === false &&
+      Boolean(withdrawalBlockNoTotp.requiresTotpSetup) &&
+      withdrawalBlockNoTotp.error?.includes('Authenticator verification is required'),
+      'Withdrawals strictly require Authenticator setup and block unverified users.'
+    );
+
+    // TEST C: Withdrawal requires valid 6-digit TOTP code when user has TOTP enabled
+    const withdrawalBlockMissingCode = await createWithdrawalRequestAsync({
+      userId: userWith2FA.id,
+      requestedAmount: 100,
+      destinationAddress: '0x1234567890123456789012345678901234567890',
+      actorEmail: userWith2FA.email,
+      totpCode: '',
+    });
+
+    assert(
+      'STEP 62: TEST C - Withdrawal requires valid 6-digit TOTP code for 2FA-enabled user',
+      'Withdrawal TOTP Requirement',
+      withdrawalBlockMissingCode.success === false &&
+      Boolean(withdrawalBlockMissingCode.requiresTotp) &&
+      withdrawalBlockMissingCode.error?.includes('Authenticator code is required'),
+      'Withdrawals strictly require a 6-digit Authenticator code.'
+    );
+  } catch (step62Err: any) {
+    assert(
+      'STEP 62: TEST-SUITE-EXCEPTION',
+      'Step 62 Login 2FA Rule & Withdrawal TOTP',
+      false,
+      `Step 62 Test Suite error: ${step62Err.message}`
+    );
+  }
+
   const passedTests = results.filter(r => r.passed).length;
   const failedTests = results.filter(r => !r.passed).length;
   const durationMs = Date.now() - startTime;

@@ -46,7 +46,7 @@ import { getFraudSignals, resolveFraudSignal, checkWalletDuplication, checkRapid
 import { getReferralsByReferrerId, getReferralRewardsByReferrerId } from './repositories/referrals';
 import { getOperationalFundSummaryAsync, adjustOperationalFundAsync } from './services/operationalFundService';
 import { getAccountingSummaryAsync, getReferralAccountingSummaryAsync, getAdminLedgerAsync } from './services/accountingService';
-import { getUserTransactionsAsync } from './services/transactionService';
+import { getUserTransactionsAsync, formatPerformanceDate } from './services/transactionService';
 import { applyDailyPerformanceAsync } from './services/performanceService';
 import { lockUserFundVoluntary } from './rules';
 import { getSignedDepositProofUrl } from './storage';
@@ -439,7 +439,7 @@ app.post(['/api/auth/register', '/auth/register'], authRateLimiter, async (req, 
 // User Login
 app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, next) => {
   try {
-    const { email, password, twoFactorCode } = req.body;
+    const { email, password } = req.body;
 
     if (!email || !password) {
       throw Errors.validation('Email and password are required.');
@@ -515,17 +515,9 @@ app.post(['/api/auth/login', '/auth/login'], authRateLimiter, async (req, res, n
       throw Errors.invalidCredentials('Invalid email or password.');
     }
 
-    // 2FA verification if enabled
-    if (user.twoFactorEnabled) {
-      if (!twoFactorCode) {
-        res.json({ require2FA: true, message: 'Please provide your 6-digit 2FA authenticator code.' });
-        return;
-      }
-      const isValidCode = verify2FACode(user.twoFactorSecret || '', twoFactorCode);
-      if (!isValidCode) {
-        throw Errors.validation('Invalid 2FA authenticator code.');
-      }
-    }
+    // LOGIN RULE: Authenticator/TOTP is NOT required during login.
+    // Login flow is strictly Email + Password -> Normal authentication -> User logged in.
+    // TOTP is only required for withdrawals, not for login.
 
     // Lazy migration: Upgrade legacy SHA-512 hashes to bcrypt
     if (user.passwordHash && !user.passwordHash.startsWith('$2a$') && !user.passwordHash.startsWith('$2b$')) {
@@ -1054,6 +1046,50 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
 
     res.setHeader('Server-Timing', `total;dur=${totalTimeMs.toFixed(2)}, bal;dur=${tBalance.toFixed(2)}, ref;dur=${tReferral.toFixed(2)}, led;dur=${tLedger.toFixed(2)}, earn;dur=${tEarnings.toFixed(2)}, wdr;dur=${tWithdrawals.toFixed(2)}`);
 
+    // Enrich and sanitize recentActivity for user-facing display
+    const sanitizedRecentActivity = ledger.map(item => {
+      const isPerf = item.type === 'daily_earnings' || item.type === 'daily_loss' || (item.description && /daily\s+performance/i.test(item.description));
+      if (isPerf) {
+        const matchedEarning = earnings.find(e =>
+          (item.referenceId && (String(e.calculationId) === String(item.referenceId) || String(e.id) === String(item.referenceId))) ||
+          (e.performanceDate && item.description.includes(e.performanceDate))
+        );
+
+        let perfDate = item.performanceDate || matchedEarning?.performanceDate;
+        let ratePct = item.ratePercentage ?? (matchedEarning ? Number((matchedEarning.applicableRate * 100).toFixed(4)) : undefined);
+        let baseAmount = item.baseEligibleAmount ?? matchedEarning?.baseEligibleAmount;
+
+        if (!perfDate) {
+          const dateMatch = item.description.match(/(\d{4}-\d{2}-\d{2})/);
+          if (dateMatch) perfDate = dateMatch[1];
+        }
+        if (ratePct === undefined) {
+          const rateMatch = item.description.match(/@\s*([+\-]?\d+(?:\.\d+)?)\s*%/);
+          if (rateMatch) ratePct = parseFloat(rateMatch[1]);
+        }
+        if (baseAmount === undefined) {
+          const baseMatch = item.description.match(/on\s+([\d.]+)\s*USDT/i);
+          if (baseMatch) baseAmount = parseFloat(baseMatch[1]);
+        }
+
+        return {
+          ...item,
+          performanceDate: perfDate,
+          ratePercentage: ratePct,
+          baseEligibleAmount: baseAmount,
+          description: 'Daily Performance',
+        };
+      }
+      return item;
+    });
+
+    // Chronological sorting respecting performance date for yield records
+    sanitizedRecentActivity.sort((a, b) => {
+      const timeA = a.performanceDate ? new Date(`${a.performanceDate}T23:59:59Z`).getTime() : new Date(a.createdAt).getTime();
+      const timeB = b.performanceDate ? new Date(`${b.performanceDate}T23:59:59Z`).getTime() : new Date(b.createdAt).getTime();
+      return timeB - timeA;
+    });
+
     res.json({
       user: {
         id: user.id,
@@ -1066,7 +1102,7 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
       },
       balance: balanceSummary,
       todayEarnings: todayEarningsAmount,
-      recentActivity: ledger.slice(0, 5),
+      recentActivity: sanitizedRecentActivity.slice(0, 5),
       marketPrices,
       referralSummary,
       activePendingWithdrawal: sanitizedPendingWithdrawal,

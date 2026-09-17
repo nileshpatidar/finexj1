@@ -70,26 +70,127 @@ export function calculateBalanceFromDatasets(
   // Active Compounding Principal: ONLY deposit principal minus withdrawals. Referral income never compounds.
   const activeCompoundingPrincipal = Math.max(0, Number((totalDeposited - totalWithdrawn).toFixed(4)));
 
-  // 6. Deposit Principal Lock (Per-deposit independent lock from confirmed deposit date based on US business days)
+  // 6. True Per-Deposit Maturity & Lock Tracking
   const lockDays = typeof settings.depositLockPeriodDays === 'number' && !isNaN(settings.depositLockPeriodDays) && settings.depositLockPeriodDays >= 0
     ? settings.depositLockPeriodDays
     : 66;
-  let depositLockedAmount = 0;
 
-  for (const dep of confirmedDeposits) {
+  // Sort confirmed deposits chronologically (oldest first for deterministic FIFO attribution)
+  const sortedConfirmedDeposits = [...confirmedDeposits].sort((a, b) => {
+    const timeA = new Date(a.confirmedAt || a.createdAt).getTime();
+    const timeB = new Date(b.confirmedAt || b.createdAt).getTime();
+    return timeA - timeB;
+  });
+
+  interface DepositTrack {
+    deposit: Deposit;
+    depositDate: number;
+    lockExpiry: number;
+    isMatured: boolean;
+    remainingPrincipal: number;
+    creditedEarnings: number;
+    remainingEarnings: number;
+  }
+
+  let earliestLockedExpiry: number | null = null;
+  const depositTracks: DepositTrack[] = sortedConfirmedDeposits.map(dep => {
     const depositDate = dep.confirmedAt ? new Date(dep.confirmedAt).getTime() : new Date(dep.createdAt).getTime();
     const lockExpiry = dep.depositLockEndDate 
       ? new Date(dep.depositLockEndDate).getTime() 
       : new Date(calculateDepositLockEndDate(depositDate, lockDays)).getTime();
-    if (now.getTime() < lockExpiry) {
-      depositLockedAmount += dep.amount;
+    const isMatured = now.getTime() >= lockExpiry;
+    if (!isMatured) {
+      if (earliestLockedExpiry === null || lockExpiry < earliestLockedExpiry) {
+        earliestLockedExpiry = lockExpiry;
+      }
+    }
+    return {
+      deposit: dep,
+      depositDate,
+      lockExpiry,
+      isMatured,
+      remainingPrincipal: dep.amount,
+      creditedEarnings: 0,
+      remainingEarnings: 0,
+    };
+  });
+
+  // Attribute credited investment earnings to individual deposits
+  for (const e of creditedEarnings) {
+    if (depositTracks.length === 0) break;
+    let matchedTrack: DepositTrack | undefined = undefined;
+    if (e.depositId !== undefined && e.depositId !== null) {
+      matchedTrack = depositTracks.find(t => String(t.deposit.id) === String(e.depositId));
+    }
+    if (!matchedTrack) {
+      if (depositTracks.length === 1) {
+        matchedTrack = depositTracks[0];
+      } else {
+        const earningTime = new Date(e.performanceDate || e.createdAt).getTime();
+        const eligibleTracks = depositTracks.filter(t => t.depositDate <= earningTime);
+        matchedTrack = eligibleTracks.length > 0 ? eligibleTracks[0] : depositTracks[0];
+      }
+    }
+    if (matchedTrack) {
+      matchedTrack.creditedEarnings += e.earningsAmount;
+      matchedTrack.remainingEarnings += e.earningsAmount;
     }
   }
 
-  // Active locked principal cannot exceed remaining active compounding principal
-  const depositLockedPrincipal = Math.max(0, Math.min(activeCompoundingPrincipal, depositLockedAmount));
+  // FIFO Outflow Allocation (Withdrawals)
+  const totalOutflows = totalWithdrawn + totalPendingWithdrawals;
+  let remainingOutflows = totalOutflows;
 
-  // 7. Check user-level 30-Day Fund Lock
+  // Step A: Referral earnings absorb withdrawals first (segregated income)
+  const usedReferral = Math.min(remainingOutflows, referralEarnings);
+  remainingOutflows -= usedReferral;
+  const withdrawableReferral = Math.max(0, Number((referralEarnings - usedReferral).toFixed(4)));
+
+  // Step B: Remaining outflows absorb matured deposits in FIFO order (oldest matured first)
+  const maturedTracks = depositTracks.filter(t => t.isMatured);
+  const lockedTracks = depositTracks.filter(t => !t.isMatured);
+
+  for (const track of maturedTracks) {
+    if (remainingOutflows <= 0) break;
+    const depositTotal = track.remainingPrincipal + track.remainingEarnings;
+    const draw = Math.min(remainingOutflows, depositTotal);
+    remainingOutflows -= draw;
+    const principalDraw = Math.min(draw, track.remainingPrincipal);
+    track.remainingPrincipal = Math.max(0, Number((track.remainingPrincipal - principalDraw).toFixed(4)));
+    const earningsDraw = draw - principalDraw;
+    track.remainingEarnings = Math.max(0, Number((track.remainingEarnings - earningsDraw).toFixed(4)));
+  }
+
+  // Step C: If historical withdrawals exceeded matured deposits, draw from locked deposits FIFO
+  for (const track of lockedTracks) {
+    if (remainingOutflows <= 0) break;
+    const depositTotal = track.remainingPrincipal + track.remainingEarnings;
+    const draw = Math.min(remainingOutflows, depositTotal);
+    remainingOutflows -= draw;
+    const principalDraw = Math.min(draw, track.remainingPrincipal);
+    track.remainingPrincipal = Math.max(0, Number((track.remainingPrincipal - principalDraw).toFixed(4)));
+    const earningsDraw = draw - principalDraw;
+    track.remainingEarnings = Math.max(0, Number((track.remainingEarnings - earningsDraw).toFixed(4)));
+  }
+
+  // Calculate remaining balances per category
+  const maturedRemainingPrincipal = maturedTracks.reduce((sum, t) => sum + t.remainingPrincipal, 0);
+  const maturedRemainingEarnings = maturedTracks.reduce((sum, t) => sum + t.remainingEarnings, 0);
+  const totalMaturedEligible = Number((maturedRemainingPrincipal + maturedRemainingEarnings).toFixed(4));
+
+  const lockedRemainingPrincipal = lockedTracks.reduce((sum, t) => sum + t.remainingPrincipal, 0);
+  const lockedRemainingEarnings = lockedTracks.reduce((sum, t) => sum + t.remainingEarnings, 0);
+  const totalLockedInvestment = Number((lockedRemainingPrincipal + lockedRemainingEarnings).toFixed(4));
+
+  const depositLockedPrincipal = Number(Math.max(0, Math.min(activeCompoundingPrincipal, lockedRemainingPrincipal)).toFixed(2));
+  const depositMaturityDate: string | undefined = earliestLockedExpiry ? new Date(earliestLockedExpiry).toISOString() : undefined;
+  let depositLockRemainingDays: number | undefined = undefined;
+  if (earliestLockedExpiry) {
+    const remMs = Math.max(0, earliestLockedExpiry - now.getTime());
+    depositLockRemainingDays = Math.ceil(remMs / (24 * 60 * 60 * 1000));
+  }
+
+  // 7. Check user-level 30-Day Fund Lock (Voluntary security feature)
   let isFundLocked = false;
   let fundLockRemainingDays = 0;
   let fundLockRemainingHours = 0;
@@ -106,7 +207,7 @@ export function calculateBalanceFromDatasets(
     }
   }
 
-  // 8. Check 30-day account age rule (Separate business rule from per-deposit locks)
+  // 8. Informational Account Age (Account age is strictly informational and does NOT control investment maturity)
   const createdAtTime = new Date(user.createdAt).getTime();
   const accountAgeMs = now.getTime() - createdAtTime;
   const ageDays = typeof settings.accountAgeRequirementDays === 'number' && !isNaN(settings.accountAgeRequirementDays)
@@ -115,12 +216,22 @@ export function calculateBalanceFromDatasets(
   const requiredAgeMs = ageDays * 24 * 60 * 60 * 1000;
   const is30DaysOld = accountAgeMs >= requiredAgeMs;
   const accountAgeDays = Number((accountAgeMs / (24 * 60 * 60 * 1000)).toFixed(2));
-  const withdrawalEligibleDate = new Date(createdAtTime + requiredAgeMs).toISOString();
+  const withdrawalEligibleDate = depositMaturityDate || new Date(createdAtTime + requiredAgeMs).toISOString();
 
-  let lockedBalance = depositLockedPrincipal;
-  let eligibleForWithdrawal = 0;
+  let lockedBalance: number;
+  let eligibleForWithdrawal: number;
   let canWithdraw = true;
   let withdrawalRestrictionReason: string | undefined = undefined;
+
+  if (isFundLocked) {
+    // Voluntary fund lock locks non-referral balance
+    lockedBalance = Math.max(0, Number((availableBalance - withdrawableReferral).toFixed(4)));
+    eligibleForWithdrawal = Math.min(availableBalance, withdrawableReferral);
+  } else {
+    // Per-deposit lock: only locked deposits and their associated earnings are locked
+    lockedBalance = Math.min(availableBalance, totalLockedInvestment);
+    eligibleForWithdrawal = Math.max(0, Number((availableBalance - lockedBalance).toFixed(4)));
+  }
 
   if (user.status !== 'active') {
     canWithdraw = false;
@@ -128,32 +239,14 @@ export function calculateBalanceFromDatasets(
   } else if (availableBalance <= 0) {
     canWithdraw = false;
     withdrawalRestrictionReason = 'Insufficient available balance.';
-  } else if (!is30DaysOld) {
-    // Account maturity rule: account must reach 30 days before principal/earnings unlock. Referral earnings can always be withdrawn.
-    lockedBalance = Math.min(availableBalance, Math.max(depositLockedPrincipal, availableBalance - referralEarnings));
-    eligibleForWithdrawal = Math.max(0, Number((availableBalance - lockedBalance).toFixed(4)));
-    if (eligibleForWithdrawal <= 0) {
-      canWithdraw = false;
-      const remainingMs = Math.max(0, requiredAgeMs - accountAgeMs);
-      const remDays = Math.floor(remainingMs / (24 * 60 * 60 * 1000));
-      const remHours = Math.floor((remainingMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-      withdrawalRestrictionReason = `Account must complete ${ageDays} full days before principal withdrawal. Remaining: ${remDays}d ${remHours}h.`;
-    }
-  } else if (isFundLocked) {
-    // Voluntary fund lock active: non-referral balance locked
-    lockedBalance = Math.max(0, availableBalance - referralEarnings);
-    eligibleForWithdrawal = Math.max(0, Number((availableBalance - lockedBalance).toFixed(4)));
-    if (eligibleForWithdrawal <= 0) {
-      canWithdraw = false;
+  } else if (eligibleForWithdrawal <= 0) {
+    canWithdraw = false;
+    if (isFundLocked) {
       withdrawalRestrictionReason = `30-Day Fund Lock active. Unlocks on ${new Date(user.fundLockUntil!).toLocaleDateString()} (${fundLockRemainingDays}d ${fundLockRemainingHours}h remaining).`;
-    }
-  } else {
-    // Mature account: per-deposit locking rule (30 days from each deposit date)
-    lockedBalance = Math.min(availableBalance, depositLockedPrincipal);
-    eligibleForWithdrawal = Math.max(0, Number((availableBalance - lockedBalance).toFixed(4)));
-    if (eligibleForWithdrawal <= 0) {
-      canWithdraw = false;
-      withdrawalRestrictionReason = 'Your deposited funds are currently locked. Withdrawals are available only after the applicable deposit lock period has ended.';
+    } else if (lockedBalance > 0) {
+      withdrawalRestrictionReason = `Your deposited funds and associated investment earnings are currently locked until maturity (${depositMaturityDate ? new Date(depositMaturityDate).toLocaleDateString() : lockDays + '-day lock period'}).`;
+    } else {
+      withdrawalRestrictionReason = 'No funds currently eligible for withdrawal.';
     }
   }
 
@@ -166,7 +259,7 @@ export function calculateBalanceFromDatasets(
   } else if (totalDeposited <= 0 && activeCompoundingPrincipal <= 0) {
     withdrawalEligibilityStatus = 'DEPOSIT_REQUIRED';
     withdrawalEligibilityLabel = 'Deposit Required';
-  } else if (depositLockedPrincipal > 0 || isFundLocked) {
+  } else if (lockedBalance > 0 || isFundLocked) {
     withdrawalEligibilityStatus = 'DEPOSIT_LOCKED';
     withdrawalEligibilityLabel = 'Deposit Locked';
   } else {
@@ -180,7 +273,7 @@ export function calculateBalanceFromDatasets(
     totalEarnings: Number(totalEarnings.toFixed(4)),
     referralEarnings: Number(referralEarnings.toFixed(4)),
     activeCompoundingPrincipal,
-    depositLockedPrincipal: Number(depositLockedPrincipal.toFixed(2)),
+    depositLockedPrincipal,
     totalWithdrawn: Number(totalWithdrawn.toFixed(2)),
     totalFeesPaid: Number(totalFeesPaid.toFixed(2)),
     totalPendingWithdrawals: Number(totalPendingWithdrawals.toFixed(2)),
@@ -199,6 +292,8 @@ export function calculateBalanceFromDatasets(
     fundLockReason,
     withdrawalEligibilityStatus,
     withdrawalEligibilityLabel,
+    depositMaturityDate,
+    depositLockRemainingDays,
   };
 }
 
@@ -456,10 +551,8 @@ export async function checkWithdrawalImpactAsync(
   }
 
   if (requestedAmount > balance.eligibleForWithdrawal) {
-    let lockError = 'Your deposited funds are currently locked. Withdrawals are available only after the applicable deposit lock period has ended.';
-    if (!balance.is30DaysOld && requestedAmount > balance.referralEarnings) {
-      lockError = balance.withdrawalRestrictionReason || 'Account must complete 30 full days before principal withdrawal.';
-    } else if (balance.isFundLocked && requestedAmount > balance.referralEarnings) {
+    let lockError = balance.withdrawalRestrictionReason || 'Your deposited funds are currently locked. Withdrawals are available only after the applicable deposit lock period has ended.';
+    if (balance.isFundLocked && requestedAmount > (balance.referralEarnings || 0)) {
       lockError = balance.withdrawalRestrictionReason || 'Your funds are currently locked under an active 30-day fund lock.';
     }
     return {

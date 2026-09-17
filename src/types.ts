@@ -144,6 +144,8 @@ export interface UserBalanceSummary {
   withdrawalFeePercentage?: number;
   withdrawalEligibilityStatus?: WithdrawalEligibilityStatus;
   withdrawalEligibilityLabel?: string;
+  depositMaturityDate?: string;
+  depositLockRemainingDays?: number;
 }
 
 export interface WithdrawalImpactResult {

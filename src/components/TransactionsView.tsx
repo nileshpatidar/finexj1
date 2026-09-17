@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { UserTransaction, UserBalanceSummary, TransactionsPagination, TransactionsSummary, mapToUserDepositStatus } from '../types';
+import { parsePerformanceItem, formatPerformanceDate, formatBaseAmount } from '../utils/performanceFormatters';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -427,6 +428,8 @@ export const TransactionsView: React.FC = () => {
             let iconColor = 'text-slate-500';
             let typeTitle = 'Adjustment';
 
+            const perf = (isEarning || isLoss) ? parsePerformanceItem(item) : null;
+
             if (isDeposit) {
               badgeBg = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
               iconColor = 'text-emerald-600 dark:text-emerald-400';
@@ -438,7 +441,7 @@ export const TransactionsView: React.FC = () => {
             } else if (isEarning || isLoss) {
               badgeBg = 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
               iconColor = 'text-blue-600 dark:text-blue-400';
-              typeTitle = 'Daily Yield Distribution';
+              typeTitle = perf?.displayTitle || 'Daily Performance';
             } else if (isReferralL1) {
               badgeBg = 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20';
               iconColor = 'text-purple-600 dark:text-purple-400';
@@ -504,6 +507,11 @@ export const TransactionsView: React.FC = () => {
                         <span className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">
                           {typeTitle}
                         </span>
+                        {perf?.formattedDate && (
+                          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                            {perf.formattedDate}
+                          </span>
+                        )}
                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${statusBadge}`}>
                           {statusLabel}
                         </span>
@@ -520,20 +528,23 @@ export const TransactionsView: React.FC = () => {
                       </div>
 
                       {isEarning || isLoss ? (
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
-                          <span className="flex items-center space-x-1 font-medium text-slate-700 dark:text-slate-300">
-                            <Clock className="w-3.5 h-3.5 text-blue-500" />
-                            <span>Yield Date: {item.performanceDate || item.date || item.createdAt.slice(0, 10)}</span>
-                          </span>
-                          <span>•</span>
-                          <span className="font-semibold text-blue-600 dark:text-blue-400">
-                            Yield Rate: {(item.ratePercentage !== undefined ? item.ratePercentage : (Number(item.percentage) || 0)) >= 0 ? '+' : ''}
-                            {(item.ratePercentage !== undefined ? item.ratePercentage : (Number(item.percentage) || 0)).toFixed(2)}%
-                          </span>
-                          <span>•</span>
-                          <span className="font-medium text-slate-700 dark:text-slate-200">
-                            Base Eligible: ${(item.baseEligibleAmount ?? 0).toFixed(2)} USDT
-                          </span>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+                          {perf?.secondaryText ? (
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              {perf.secondaryText}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="font-semibold text-blue-600 dark:text-blue-400">
+                                Yield Rate: {(item.ratePercentage !== undefined ? item.ratePercentage : (Number(item.percentage) || 0)) >= 0 ? '+' : ''}
+                                {(item.ratePercentage !== undefined ? item.ratePercentage : (Number(item.percentage) || 0)).toFixed(2)}%
+                              </span>
+                              <span>•</span>
+                              <span className="font-medium text-slate-700 dark:text-slate-200">
+                                Base: {formatBaseAmount(item.baseEligibleAmount)} USDT
+                              </span>
+                            </>
+                          )}
                         </div>
                       ) : (
                         <>
@@ -681,7 +692,7 @@ export const TransactionsView: React.FC = () => {
                   </h3>
                   {selectedTx.type === 'daily_earnings' || selectedTx.type === 'daily_loss' ? (
                     <p className="text-[11px] text-slate-500 font-medium">
-                      Yield Date: {selectedTx.performanceDate || selectedTx.date || selectedTx.createdAt.slice(0, 10)}
+                      Performance Date: {formatPerformanceDate(selectedTx.performanceDate || selectedTx.date || selectedTx.createdAt.slice(0, 10))}
                     </p>
                   ) : (
                     <p className="text-[11px] text-slate-500 font-mono">
@@ -704,7 +715,9 @@ export const TransactionsView: React.FC = () => {
               <div className="flex justify-between items-center text-xs">
                 <span className="text-slate-500 dark:text-slate-400 font-medium">Type</span>
                 <span className="font-bold capitalize text-slate-900 dark:text-white">
-                  {selectedTx.type.replace(/_/g, ' ')}
+                  {selectedTx.type === 'daily_earnings' || selectedTx.type === 'daily_loss'
+                    ? 'Daily Performance'
+                    : selectedTx.type.replace(/_/g, ' ')}
                 </span>
               </div>
 
@@ -725,12 +738,15 @@ export const TransactionsView: React.FC = () => {
                 </span>
               </div>
 
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 dark:text-slate-400 font-medium">Recorded Date</span>
-                <span className="font-medium text-slate-800 dark:text-slate-200">
-                  {new Date(selectedTx.createdAt).toLocaleString()}
-                </span>
-              </div>
+              {/* Recorded Date ONLY shown for non-performance items */}
+              {selectedTx.type !== 'daily_earnings' && selectedTx.type !== 'daily_loss' && (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Recorded Date</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">
+                    {new Date(selectedTx.createdAt).toLocaleString()}
+                  </span>
+                </div>
+              )}
 
               {/* Authoritative Withdrawal Financial Breakdown */}
               {selectedTx.type === 'withdrawal' && (
@@ -752,19 +768,19 @@ export const TransactionsView: React.FC = () => {
                 </>
               )}
 
-              {/* Daily Performance Yield Breakdown - Display only: Yield Date, Yield rate, Base Eligible Amount, Earnings amount, Status */}
+              {/* Daily Performance Yield Breakdown */}
               {(selectedTx.type === 'daily_earnings' || selectedTx.type === 'daily_loss') && (
                 <div className="border-t border-slate-200 dark:border-slate-800 pt-2 mt-2 space-y-1.5 text-xs">
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                    <span>Performance / Yield Date</span>
+                    <span>Performance Date</span>
                     <span className="font-bold text-slate-900 dark:text-white">
-                      {selectedTx.performanceDate || selectedTx.date || selectedTx.createdAt.slice(0, 10)}
+                      {formatPerformanceDate(selectedTx.performanceDate || selectedTx.date || selectedTx.createdAt.slice(0, 10))}
                     </span>
                   </div>
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                    <span>Base Eligible Amount</span>
+                    <span>Base Amount</span>
                     <span className="font-bold text-slate-900 dark:text-white">
-                      ${(selectedTx.baseEligibleAmount ?? 0).toFixed(2)} USDT
+                      {formatBaseAmount(selectedTx.baseEligibleAmount)} USDT
                     </span>
                   </div>
                   <div className="flex justify-between text-blue-600 dark:text-blue-400">
@@ -775,9 +791,9 @@ export const TransactionsView: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex justify-between font-extrabold text-sm text-emerald-600 dark:text-emerald-400 pt-1 border-t border-slate-200 dark:border-slate-800">
-                    <span>Earnings Amount</span>
+                    <span>Credited Earnings</span>
                     <span>
-                      {selectedTx.amount >= 0 ? '+' : ''}${selectedTx.amount.toFixed(4)} USDT
+                      {selectedTx.amount >= 0 ? '+' : ''}${selectedTx.amount.toFixed(2)} USDT
                     </span>
                   </div>
                 </div>

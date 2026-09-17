@@ -33,8 +33,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
   const [referralCode, setReferralCode] = useState('');
   const [referrerVerifiedName, setReferrerVerifiedName] = useState<string | null>(null);
   const [referralValidationMessage, setReferralValidationMessage] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [twoFactorCode, setTwoFactorCode] = useState('');
-  const [require2FA, setRequire2FA] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -78,10 +76,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
 
     try {
       if (mode === 'login') {
-        const res = await login(email, password, twoFactorCode);
-        if (res?.require2FA) {
-          setRequire2FA(true);
-        }
+        await login(email, password);
       } else {
         if (referralValidationMessage?.type === 'error') {
           setError(referralValidationMessage.message);
@@ -136,7 +131,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
             onClick={() => {
               setMode('login');
               setError(null);
-              setRequire2FA(false);
             }}
             className={`py-2.5 rounded-lg font-bold text-xs transition cursor-pointer ${
               mode === 'login'
@@ -338,20 +332,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen }) => {
                 )}
               </div>
             </>
-          )}
-
-          {require2FA && (
-            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
-              <label className="block text-blue-900 dark:text-blue-200 font-bold mb-1">6-Digit 2FA Authenticator Code</label>
-              <input
-                type="text"
-                maxLength={6}
-                value={twoFactorCode}
-                onChange={e => setTwoFactorCode(e.target.value)}
-                placeholder="123456"
-                className="w-full py-2 px-3 rounded-lg bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-600 text-slate-900 dark:text-white text-xs font-mono tracking-widest text-center font-bold focus:outline-none focus:border-blue-600"
-              />
-            </div>
           )}
 
           <button

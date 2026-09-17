@@ -107,8 +107,8 @@ export const api = {
     body: JSON.stringify(payload),
   }),
 
-  login: (payload: { email: string; password: string; twoFactorCode?: string }) =>
-    request<{ success?: boolean; require2FA?: boolean; user?: UserProfile; message?: string }>('/api/auth/login', {
+  login: (payload: { email: string; password: string }) =>
+    request<{ success?: boolean; user?: UserProfile; message?: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

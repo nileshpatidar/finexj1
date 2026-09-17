@@ -265,6 +265,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
             }`}>
               {withdrawalEligibility.label}
             </p>
+            {withdrawalEligibility.status === 'DEPOSIT_LOCKED' && dashboardBalance?.depositMaturityDate && (
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                Matures {new Date(dashboardBalance.depositMaturityDate).toLocaleDateString()}
+                {dashboardBalance.depositLockRemainingDays !== undefined ? ` (${dashboardBalance.depositLockRemainingDays}d)` : ''}
+              </span>
+            )}
           </div>
         </div>
       </div>

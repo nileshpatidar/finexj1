@@ -165,6 +165,9 @@ export interface LedgerEntry {
   description: string;
   createdAt: string;
   performedBy?: string;
+  performanceDate?: string;
+  ratePercentage?: number;
+  baseEligibleAmount?: number;
 }
 
 export type WithdrawalEligibilityStatus =
@@ -198,6 +201,8 @@ export interface UserBalanceSummary {
   fundLockReason?: string;
   withdrawalEligibilityStatus?: WithdrawalEligibilityStatus;
   withdrawalEligibilityLabel?: string;
+  depositMaturityDate?: string;
+  depositLockRemainingDays?: number;
 }
 
 export interface AuditLog {

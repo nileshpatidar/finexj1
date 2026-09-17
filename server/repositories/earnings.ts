@@ -10,6 +10,7 @@ export function mapDbEarningToEarning(e: any): EarningEntry {
   return {
     id: String(e.id),
     userId: String(e.user_id),
+    depositId: e.deposit_id !== undefined && e.deposit_id !== null ? String(e.deposit_id) : undefined,
     calculationId: String(e.daily_performance_id || e.calculation_id || '0'),
     baseEligibleAmount: Number(e.active_principal || e.base_eligible_amount || 0),
     applicableRate: Number(e.rate_percentage || e.applicable_rate || 0),
@@ -117,7 +118,7 @@ export async function getPaginatedEarningsByUserId(
   }
 
   const supabase = getServerSupabase();
-  const selectColumns = 'id, user_id, daily_performance_id, calculation_id, active_principal, base_eligible_amount, rate_percentage, applicable_rate, payout_amount, earnings_amount, date, performance_date, created_at, status, market_condition, note';
+  const selectColumns = 'id, user_id, deposit_id, daily_performance_id, calculation_id, active_principal, base_eligible_amount, rate_percentage, applicable_rate, payout_amount, earnings_amount, date, performance_date, created_at, status, market_condition, note';
 
   let query = supabase
     .from('earnings')
@@ -220,6 +221,7 @@ export async function createEarning(entry: Partial<EarningEntry>): Promise<Earni
     const created: EarningEntry = {
       id: String(Date.now()),
       userId: String(entry.userId || '0'),
+      depositId: entry.depositId !== undefined && entry.depositId !== null ? String(entry.depositId) : undefined,
       calculationId: String(entry.calculationId || '0'),
       baseEligibleAmount: entry.baseEligibleAmount || 0,
       applicableRate: entry.applicableRate || 0,
@@ -255,6 +257,10 @@ export async function createEarning(entry: Partial<EarningEntry>): Promise<Earni
     market_condition: entry.marketCondition || ((entry.applicableRate || 0) >= 0 ? 'profit' : 'loss'),
     created_at: entry.createdAt || new Date().toISOString(),
   };
+
+  if (entry.depositId !== undefined && entry.depositId !== null) {
+    payload.deposit_id = !isNaN(Number(entry.depositId)) ? Number(entry.depositId) : entry.depositId;
+  }
 
   if (perfIdNum !== null) {
     payload.daily_performance_id = perfIdNum;

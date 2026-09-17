@@ -4,6 +4,7 @@ import { InvestmentPlanSection } from './InvestmentPlanSection';
 import { InvestmentPlanModal } from './InvestmentPlanModal';
 import { CopyTradingAnnouncementModal } from './CopyTradingAnnouncementModal';
 import { api } from '../services/api';
+import { parsePerformanceItem } from '../utils/performanceFormatters';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import {
@@ -585,7 +586,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
         ) : (
           <div className="space-y-2">
             {recent.slice(0, 4).map(item => {
-              const isEarning = item.type === 'daily_earnings';
+              const perf = parsePerformanceItem(item);
+              const isEarning = item.type === 'daily_earnings' || perf.isPerformance;
               const isLoss = item.type === 'daily_loss';
               const isDeposit = item.type === 'deposit';
               const isPaidWithdrawal = item.type === 'withdrawal_paid';
@@ -604,9 +606,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   key={item.id}
                   className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs shadow-xs"
                 >
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 mr-3">
                     <div
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold ${
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold flex-shrink-0 ${
                         isDeposit
                           ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           : isEarning
@@ -626,13 +628,35 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       {isWithdrawal && <ArrowUpFromLine className="w-3.5 h-3.5" />}
                       {item.type === 'admin_adjustment' && <Wallet className="w-3.5 h-3.5" />}
                     </div>
-                    <div>
-                      <p className="font-semibold text-slate-900 dark:text-white">
-                        {item.description}
-                      </p>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                        {new Date(item.createdAt).toLocaleDateString()}
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      {perf.isPerformance ? (
+                        <div className="space-y-0.5">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="font-semibold text-slate-900 dark:text-white">
+                              Daily Performance
+                            </span>
+                            {perf.formattedDate && (
+                              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                {perf.formattedDate}
+                              </span>
+                            )}
+                          </div>
+                          {perf.secondaryText && (
+                            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                              {perf.secondaryText}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="font-semibold text-slate-900 dark:text-white truncate">
+                            {item.description}
+                          </p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {new Date(item.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
 

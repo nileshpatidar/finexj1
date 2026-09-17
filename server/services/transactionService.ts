@@ -96,6 +96,27 @@ export interface UserTransactionsResult {
   };
 }
 
+export function formatPerformanceDate(dateStr?: string | null): string {
+  if (!dateStr) return '';
+  const cleanStr = String(dateStr).trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(cleanStr)) {
+    return cleanStr;
+  }
+  const datePart = cleanStr.split('T')[0];
+  const parts = datePart.split('-');
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
+    if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+      const dd = String(day).padStart(2, '0');
+      const mm = String(month).padStart(2, '0');
+      return `${dd}/${mm}/${year}`;
+    }
+  }
+  return cleanStr;
+}
+
 /**
  * Authoritative user transactions fetcher.
  * Merges deposits, withdrawals, daily earnings, and referral rewards strictly for the authenticated user.
@@ -234,7 +255,8 @@ export async function getUserTransactionsAsync(
 
     const isYieldPositive = e.earningsAmount >= 0;
     const ratePct = Number((e.applicableRate * 100).toFixed(4));
-    const desc = `Daily performance yield for ${e.performanceDate} @ ${ratePct >= 0 ? '+' : ''}${ratePct.toFixed(2)}% on ${e.baseEligibleAmount} USDT base`;
+    const formattedPerfDate = formatPerformanceDate(e.performanceDate);
+    const desc = formattedPerfDate ? `Daily Performance — ${formattedPerfDate}` : 'Daily Performance';
 
     allItems.push({
       id: rawId,
@@ -303,8 +325,12 @@ export async function getUserTransactionsAsync(
     }
   }
 
-  // 6. Chronological Sorting (Newest first)
-  allItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // 6. Chronological Sorting (Newest first, respecting performance date for yield records)
+  allItems.sort((a, b) => {
+    const timeA = a.performanceDate ? new Date(`${a.performanceDate}T23:59:59Z`).getTime() : new Date(a.createdAt).getTime();
+    const timeB = b.performanceDate ? new Date(`${b.performanceDate}T23:59:59Z`).getTime() : new Date(b.createdAt).getTime();
+    return timeB - timeA;
+  });
 
   // 7. Calculate Aggregated Summary
   const summary = {
