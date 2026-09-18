@@ -16,6 +16,7 @@ import {
   Users,
   ChevronRight,
   Lock,
+  Wallet,
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -120,6 +121,68 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
   const [twoFactorMessage, setTwoFactorMessage] = useState<string | null>(null);
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
   const [copiedSecret, setCopiedSecret] = useState(false);
+
+  // Withdrawal Wallet Address Management
+  const [walletAddressInput, setWalletAddressInput] = useState(user?.walletAddress || '');
+  const [walletSecurityCode, setWalletSecurityCode] = useState('');
+  const [isEditingWallet, setIsEditingWallet] = useState(false);
+  const [isUpdatingWallet, setIsUpdatingWallet] = useState(false);
+  const [walletMessage, setWalletMessage] = useState<string | null>(null);
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [copiedWallet, setCopiedWallet] = useState(false);
+
+  useEffect(() => {
+    if (user?.walletAddress) {
+      setWalletAddressInput(user.walletAddress);
+    }
+  }, [user?.walletAddress]);
+
+  const handleSaveWalletAddress = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setWalletError(null);
+    setWalletMessage(null);
+
+    const clean = walletAddressInput.trim();
+    if (!clean) {
+      setWalletError('Please enter a valid BEP-20 wallet address.');
+      return;
+    }
+
+    if (!/^0x[a-fA-F0-9]{40}$/.test(clean)) {
+      setWalletError('Invalid BEP-20 address format. Must be a 0x-prefixed 40-hex-character BNB Smart Chain address.');
+      return;
+    }
+
+    if (user?.twoFactorEnabled) {
+      if (!walletSecurityCode.trim()) {
+        setWalletError('Please enter your 6-digit Authenticator 2FA code to authorize this change.');
+        return;
+      }
+    } else {
+      if (!walletSecurityCode) {
+        setWalletError('Please enter your account password to authorize this change.');
+        return;
+      }
+    }
+
+    setIsUpdatingWallet(true);
+    try {
+      const res = await api.updateWalletAddress({
+        walletAddress: clean,
+        twoFactorCode: user?.twoFactorEnabled ? walletSecurityCode.trim() : undefined,
+        password: !user?.twoFactorEnabled ? walletSecurityCode : undefined,
+      });
+
+      setWalletMessage(res.message || 'Withdrawal wallet address successfully updated.');
+      setWalletSecurityCode('');
+      setIsEditingWallet(false);
+      await refreshUser();
+    } catch (err: any) {
+      setWalletError(err?.message || 'Failed to update withdrawal wallet address.');
+    } finally {
+      setIsUpdatingWallet(false);
+    }
+  };
 
   const handleStart2FA = async () => {
     try {
@@ -334,6 +397,182 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance })
         <p className="text-[11px] text-slate-500 dark:text-slate-400">
           Share your referral code with friends. Referral rewards are credited when a referred user makes a qualifying deposit and your account meets the active deposit requirement.
         </p>
+      </div>
+
+      {/* Withdrawal Wallet Management (BEP-20) */}
+      <div id="profile-withdrawal-wallet" className="rounded-3xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 p-6 sm:p-7 shadow-xl shadow-slate-200/50 dark:shadow-none space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center space-x-2">
+            <Wallet className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+              Withdrawal Wallet
+            </h2>
+          </div>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+            BEP-20 (BNB Smart Chain)
+          </span>
+        </div>
+
+        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
+          Your registered BEP-20 wallet address for receiving withdrawals, daily yield allocations, and referral rewards. Payouts are dispatched in USDT on BNB Smart Chain.
+        </p>
+
+        {/* Success / Error Messages */}
+        {walletMessage && (
+          <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-start space-x-2 text-xs">
+            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+            <span className="leading-snug">{walletMessage}</span>
+          </div>
+        )}
+
+        {walletError && (
+          <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-start space-x-2 text-xs">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span className="leading-snug">{walletError}</span>
+          </div>
+        )}
+
+        {/* Current Address Display or Update Form */}
+        {!isEditingWallet && user?.walletAddress ? (
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase">
+                Active Destination Address
+              </span>
+              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <Check className="w-3 h-3" />
+                <span>Verified BEP-20</span>
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-xs sm:text-sm font-semibold text-slate-900 dark:text-white break-all select-all">
+                  {user.walletAddress}
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(user.walletAddress || '');
+                    setCopiedWallet(true);
+                    setTimeout(() => setCopiedWallet(false), 2000);
+                  }}
+                  className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition cursor-pointer"
+                  title="Copy wallet address"
+                >
+                  {copiedWallet ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedWallet ? 'Copied' : 'Copy'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWalletAddressInput(user.walletAddress || '');
+                    setWalletSecurityCode('');
+                    setWalletError(null);
+                    setWalletMessage(null);
+                    setIsEditingWallet(true);
+                  }}
+                  className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition cursor-pointer"
+                >
+                  <span>Update Address</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSaveWalletAddress} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 uppercase mb-1.5">
+                BEP-20 Wallet Address
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={walletAddressInput}
+                  onChange={(e) => setWalletAddressInput(e.target.value)}
+                  placeholder="0x..."
+                  disabled={isUpdatingWallet}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder-slate-400 dark:placeholder-slate-500"
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                Must be a valid 0x-prefixed 40-hex-character BNB Smart Chain (BSC) address.
+              </p>
+            </div>
+
+            {/* Security Challenge (2FA or Password) */}
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 uppercase">
+                {user?.twoFactorEnabled ? 'Authenticator App Code (2FA)' : 'Current Account Password'}
+              </label>
+              <input
+                type={user?.twoFactorEnabled ? 'text' : 'password'}
+                value={walletSecurityCode}
+                onChange={(e) => setWalletSecurityCode(e.target.value)}
+                placeholder={user?.twoFactorEnabled ? 'Enter 6-digit TOTP code' : 'Enter account password'}
+                maxLength={user?.twoFactorEnabled ? 6 : undefined}
+                disabled={isUpdatingWallet}
+                className={`w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none ${
+                  user?.twoFactorEnabled ? 'font-mono tracking-widest text-center text-sm' : ''
+                }`}
+              />
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                {user?.twoFactorEnabled
+                  ? 'Verification required: Open your Google Authenticator app and enter the current 6-digit code.'
+                  : 'Verification required: Enter your current login password to authorize updating your withdrawal address.'}
+              </p>
+            </div>
+
+            {/* Security Immutability Notice */}
+            <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/10 text-[11px] text-slate-600 dark:text-slate-400 flex items-start space-x-2">
+              <Shield className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+              <span>
+                <strong>Immutable Audit Trail:</strong> Updating this address will be applied to future withdrawal requests. Previously submitted, pending, or completed withdrawals remain securely locked to their original destination.
+              </span>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end space-x-2 pt-1">
+              {user?.walletAddress && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingWallet(false);
+                    setWalletAddressInput(user.walletAddress || '');
+                    setWalletSecurityCode('');
+                    setWalletError(null);
+                  }}
+                  disabled={isUpdatingWallet}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+              )}
+
+              <button
+                type="submit"
+                disabled={isUpdatingWallet}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUpdatingWallet ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save Wallet Address</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* Authenticator App Security (TOTP) */}

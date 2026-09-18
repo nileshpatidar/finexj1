@@ -225,7 +225,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const compoundingActive = maintainsMinimumPrincipal && settings?.compoundingEnabled !== false;
 
   return (
-    <div id="user-dashboard-accounting" className="space-y-4 sm:space-y-5 max-w-4xl mx-auto pb-24 text-xs">
+    <div id="user-dashboard-accounting" className="space-y-4 sm:space-y-5 w-full max-w-5xl xl:max-w-6xl mx-auto text-xs">
       {/* 1. Header Bar: Compact greeting + Quick actions */}
       <div id="dashboard-header-bar" className="flex items-center justify-between gap-2">
         <div>

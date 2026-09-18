@@ -20,7 +20,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, onNavigate })
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800/80 py-1.5 px-3 shadow-lg transition-colors duration-200">
+    <nav
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800/80 pt-1.5 px-3 shadow-lg transition-colors duration-200"
+      style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0.5rem))' }}
+    >
       <div className="max-w-md mx-auto grid grid-cols-4 gap-1">
         {navItems.map(item => {
           const Icon = item.icon;

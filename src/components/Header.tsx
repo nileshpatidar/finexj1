@@ -77,6 +77,33 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
+          {/* Desktop Navigation Links for authenticated non-admin users */}
+          {!isAdmin && user && (
+            <nav className="hidden md:flex items-center space-x-1 ml-4 lg:ml-6">
+              {[
+                { id: 'home', label: 'Home' },
+                { id: 'earnings', label: 'Earnings' },
+                { id: 'referrals', label: 'Referrals' },
+                { id: 'profile', label: 'Profile' },
+              ].map(item => {
+                const isActive = currentView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onNavigate(item.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+
           {/* Real-time Dynamic Market Ticker */}
           <div
             id="header-market-ticker"
@@ -87,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
                   }`
                 : 'Live institutional market reference'
             }
-            className="hidden md:flex items-center space-x-3.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs select-none"
+            className="hidden lg:flex items-center space-x-3.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs select-none"
           >
             {isLoading && !ticker ? (
               // Loading Skeleton State (Requirement 7)

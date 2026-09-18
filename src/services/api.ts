@@ -125,6 +125,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  updateWalletAddress: (payload: { walletAddress: string; twoFactorCode?: string; password?: string }) =>
+    request<{ success: boolean; walletAddress: string; message: string; user: UserProfile }>('/api/user/wallet', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   changePassword: (payload: { currentPassword: string; newPassword: string; confirmNewPassword: string }) =>
     request<{ success: boolean; message: string }>('/api/auth/change-password', {
       method: 'POST',
