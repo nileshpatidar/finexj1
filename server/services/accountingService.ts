@@ -397,7 +397,26 @@ export async function getAccountingSummaryAsync(options?: {
   const opOutflowDecimal = DecimalSafe.from(opSummary.totalOutflow);
   const opBalanceDecimal = DecimalSafe.from(opSummary.currentBalance);
 
+  // Reconciliation must include every all-time user credit already represented in the ledger.
+  // Earnings can be positive or negative; referral rewards are credited user funds.
+  let allTimeCreditedEarningsDecimal = DecimalSafe.zero();
+  for (const e of earnings) {
+    if (e.status === 'credited') {
+      allTimeCreditedEarningsDecimal = allTimeCreditedEarningsDecimal.add(e.earningsAmount || 0);
+    }
+  }
+
+  let allTimeCreditedRewardsDecimal = DecimalSafe.zero();
+  for (const r of rewards) {
+    if (r.status === 'credited') {
+      allTimeCreditedRewardsDecimal = allTimeCreditedRewardsDecimal.add(r.amount || 0);
+    }
+  }
+
+  // This is an internal ledger reconciliation, not a claim about external custody/trading assets.
   const netSystemCapitalDecimal = allTimeDepositedDecimal
+    .add(allTimeCreditedEarningsDecimal)
+    .add(allTimeCreditedRewardsDecimal)
     .add(opInflowDecimal)
     .sub(allTimeNetWdDecimal)
     .sub(opOutflowDecimal);
