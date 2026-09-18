@@ -33,9 +33,8 @@ interface WithdrawViewProps {
 export const WithdrawView: React.FC<WithdrawViewProps> = ({ onWithdrawalSubmitted, onNavigate }) => {
   const { user, token, isLoading: isAuthLoading } = useAuth();
   const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
-  const { withdrawalFeePercentage, accountAgeRequirementDays, minimumDepositAmount, depositLockPeriodDays } = useSettings();
+  const { withdrawalFeePercentage, minimumDepositAmount, depositLockPeriodDays } = useSettings();
   const lockDays = depositLockPeriodDays || 66;
-  const maturityDays = accountAgeRequirementDays || 30;
 
   // Financial data state
   const [balance, setBalance] = useState<UserBalanceSummary | null>(null);

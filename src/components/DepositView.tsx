@@ -37,7 +37,7 @@ interface DepositViewProps {
 export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) => {
   const { user, token, isLoading: isAuthLoading } = useAuth();
   const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
-  const { settings, isLoading: isLoadingSettings } = useSettings();
+  const { settings, depositLockPeriodDays, isLoading: isLoadingSettings } = useSettings();
   const [deposits, setDeposits] = useState<DepositItem[]>([]);
   const [isLoadingDeposits, setIsLoadingDeposits] = useState(false);
   const depositReqIdRef = useRef(0);
@@ -981,7 +981,7 @@ export const DepositView: React.FC<DepositViewProps> = ({ onDepositConfirmed }) 
           <span>Managed Fund Risk Disclosure</span>
         </div>
         <p className="text-[11px] leading-relaxed">
-          <strong>DISCLAIMER:</strong> Deposited funds are pooled and deployed into active algorithmic trading and digital asset liquidity strategies. Cryptocurrency trading involves market volatility and capital risk. Past returns and historical daily performance do not guarantee future earnings. Daily yield rates are variable based on net fund performance and are non-guaranteed. Newly deposited principal is subject to a 30-day liquidity stabilization lock. By submitting a deposit, you confirm acceptance of all governance rules.
+          <strong>DISCLAIMER:</strong> Deposited funds are pooled and deployed into active algorithmic trading and digital asset liquidity strategies. Cryptocurrency trading involves market volatility and capital risk. Past returns and historical daily performance do not guarantee future earnings. Daily yield rates are variable based on net fund performance and are non-guaranteed. Each confirmed deposit is subject to an independent per-deposit liquidity stabilization lock ({depositLockPeriodDays || 66} US business days) until its specific maturity date. By submitting a deposit, you confirm acceptance of all governance rules.
         </p>
       </div>
     </div>

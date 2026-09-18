@@ -1181,9 +1181,11 @@ export const AdminWithdrawalsView: React.FC<AdminWithdrawalsViewProps> = ({ onRe
 
                             <div className="space-y-1.5 text-slate-600 dark:text-slate-300 text-[11px]">
                               <div className="flex items-center justify-between">
-                                <span>30-Day Account Maturity:</span>
-                                <span className={withdrawalDetail.financialImpact.is30DaysOld ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
-                                  {withdrawalDetail.financialImpact.is30DaysOld ? 'Matured (≥ 30 Days)' : 'Within Initial 30-Day Window'}
+                                <span>Deposit Maturity Status:</span>
+                                <span className={withdrawalDetail.financialImpact.depositLockedPrincipal > 0 ? 'text-amber-500 font-bold' : 'text-emerald-500 font-bold'}>
+                                  {withdrawalDetail.financialImpact.depositLockedPrincipal > 0
+                                    ? `Active Lock ($${withdrawalDetail.financialImpact.depositLockedPrincipal.toFixed(2)})`
+                                    : 'Matured / Unlocked'}
                                 </span>
                               </div>
 

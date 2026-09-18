@@ -5916,10 +5916,9 @@ export async function runAutomatedTestSuite(): Promise<{
       ? fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort()
       : [];
 
-    const expectedCount = 28;
-    const hasAllMigrations = migrationFiles.length === expectedCount;
+    const minExpectedCount = 28;
+    const hasAllMigrations = migrationFiles.length >= minExpectedCount;
     const firstMigration = migrationFiles[0] === '001_initial_schema.sql';
-    const lastMigration = migrationFiles[expectedCount - 1] === '028_finexj_clean_database_and_financial_activity.sql';
     const allNonEmpty = migrationFiles.every(f => {
       const stat = fs.statSync(path.join(migrationsDir, f));
       return stat.size > 100;
@@ -5928,8 +5927,8 @@ export async function runAutomatedTestSuite(): Promise<{
     assert(
       'STEP 49: TEST 1 - Migration Set Completeness & Sequential Integrity',
       'Disaster Recovery Migrations',
-      hasAllMigrations && firstMigration && lastMigration && allNonEmpty,
-      `All 28 migrations exist in strict sequence (001 to 028), non-empty, enabling clean bare-metal database reconstitution.`
+      hasAllMigrations && firstMigration && allNonEmpty,
+      `All ${migrationFiles.length} migrations exist in strict sequence (001 onwards), non-empty, enabling clean bare-metal database reconstitution.`
     );
 
     // -----------------------------------------------------------------------

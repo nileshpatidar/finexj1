@@ -22,7 +22,7 @@ interface InvestmentPlanSectionProps {
 export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
   onOpenDetailedModal,
 }) => {
-  const { withdrawalFeePercentage, minimumDepositAmount, depositLockPeriodDays, accountAgeRequirementDays } = useSettings();
+  const { withdrawalFeePercentage, minimumDepositAmount, depositLockPeriodDays } = useSettings();
   const feePct = withdrawalFeePercentage;
   return (
     <div className="space-y-4">
@@ -170,7 +170,7 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
           </div>
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
-            <span><strong className="text-slate-900 dark:text-white font-bold">{accountAgeRequirementDays}-Day Maturity:</strong> Account age rule</span>
+            <span><strong className="text-slate-900 dark:text-white font-bold">Independent Maturity:</strong> Per-deposit schedule</span>
           </div>
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
             <Scale className="w-4 h-4 text-indigo-500 flex-shrink-0" />
@@ -185,7 +185,7 @@ export const InvestmentPlanSection: React.FC<InvestmentPlanSectionProps> = ({
             <span>Risk Disclaimer & Performance Disclosure</span>
           </div>
           <p className="text-[11px] leading-relaxed">
-            <strong>IMPORTANT NOTICE:</strong> All fund deposits are actively allocated into digital asset markets and quantitative trading strategies. Cryptocurrency trading and managed digital funds entail substantial market volatility and risk of capital loss. Past fund performance, historical daily returns, or projections do not guarantee or predict future returns. Daily return rates are variable and strictly based on actual trading outcomes; returns are never guaranteed or fixed. Investors should exercise prudence and only allocate risk capital they can afford to risk. By participating, you acknowledge and agree to platform rules, including the {depositLockPeriodDays}-day deposit lock, {accountAgeRequirementDays}-day account maturity requirement, and the {feePct}% standard withdrawal processing fee.
+            <strong>IMPORTANT NOTICE:</strong> All fund deposits are actively allocated into digital asset markets and quantitative trading strategies. Cryptocurrency trading and managed digital funds entail substantial market volatility and risk of capital loss. Past fund performance, historical daily returns, or projections do not guarantee or predict future returns. Daily return rates are variable and strictly based on actual trading outcomes; returns are never guaranteed or fixed. Investors should exercise prudence and only allocate risk capital they can afford to risk. By participating, you acknowledge and agree to platform rules, including the {depositLockPeriodDays}-day per-deposit maturity schedule and the {feePct}% standard withdrawal processing fee.
           </p>
         </div>
       </div>

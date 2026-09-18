@@ -216,7 +216,8 @@ export function calculateBalanceFromDatasets(
   const requiredAgeMs = ageDays * 24 * 60 * 60 * 1000;
   const is30DaysOld = accountAgeMs >= requiredAgeMs;
   const accountAgeDays = Number((accountAgeMs / (24 * 60 * 60 * 1000)).toFixed(2));
-  const withdrawalEligibleDate = depositMaturityDate || new Date(createdAtTime + requiredAgeMs).toISOString();
+  // Authoritative Rule: Investment maturity is deposit-specific. Account creation date has NO role in withdrawal eligibility.
+  const withdrawalEligibleDate = depositMaturityDate || (isFundLocked && user.fundLockUntil ? user.fundLockUntil : now.toISOString());
 
   let lockedBalance: number;
   let eligibleForWithdrawal: number;

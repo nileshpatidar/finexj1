@@ -900,13 +900,15 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ onRefreshParentS
                             <span className="font-semibold">{userDetail.balance?.accountAgeDays ?? 0} days</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">30-Day Age Check:</span>
-                            <span className={userDetail.balance?.is30DaysOld ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
-                              {userDetail.balance?.is30DaysOld ? 'Eligible (>30d)' : 'In 30-Day Holding Period'}
+                            <span className="text-slate-400">Deposit Maturity:</span>
+                            <span className={userDetail.balance?.depositLockRemainingDays && userDetail.balance.depositLockRemainingDays > 0 ? 'text-amber-600 font-bold' : 'text-emerald-600 font-bold'}>
+                              {userDetail.balance?.depositMaturityDate
+                                ? `${new Date(userDetail.balance.depositMaturityDate).toLocaleDateString()} (${userDetail.balance.depositLockRemainingDays ?? 0}d left)`
+                                : 'All deposits matured'}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">30-Day Fund Lock:</span>
+                            <span className="text-slate-400">Account Fund Lock:</span>
                             <span className={userDetail.balance?.isFundLocked ? 'text-amber-600 font-bold' : 'text-slate-400'}>
                               {userDetail.balance?.isFundLocked
                                 ? `Active (${userDetail.balance.fundLockRemainingDays}d remaining)`

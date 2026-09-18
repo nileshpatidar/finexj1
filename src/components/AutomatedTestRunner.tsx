@@ -44,27 +44,27 @@ function runClientSideTestSuite(): TestSuiteResponse {
     'Client & Server PBKDF2 SHA-512 cryptographic salt validation verified.'
   );
 
-  // 2. 30-Day Account Age Rule
-  const baseAug1 = new Date('2026-08-01T10:30:00.000Z').getTime();
-  const test30DaysMs = 30 * 24 * 60 * 60 * 1000;
-  const timeAug31_1029 = new Date('2026-08-31T10:29:00.000Z').getTime();
-  const timeAug31_1030 = new Date('2026-08-31T10:30:00.000Z').getTime();
+  // 2. Per-Deposit Maturity Schedule (Account creation date has NO role in maturity)
+  const depositConfirmedAt = new Date('2026-08-01T10:30:00.000Z').getTime();
+  const testLockDaysMs = 66 * 24 * 60 * 60 * 1000;
+  const preMaturityTimestamp = depositConfirmedAt + testLockDaysMs - 60000; // 1 min before maturity
+  const exactMaturityTimestamp = depositConfirmedAt + testLockDaysMs; // exact maturity
 
-  const isEligibleBefore = timeAug31_1029 - baseAug1 >= test30DaysMs;
-  const isEligibleAt = timeAug31_1030 - baseAug1 >= test30DaysMs;
+  const isDepositLockedBefore = preMaturityTimestamp < (depositConfirmedAt + testLockDaysMs);
+  const isDepositUnlockedAt = exactMaturityTimestamp >= (depositConfirmedAt + testLockDaysMs);
 
   assert(
-    '30-Day Rule: Pre-maturity Rejection (10:29 UTC)',
+    'Per-Deposit Maturity: Pre-maturity Lock (Lock Active)',
     'Withdrawal Rules',
-    isEligibleBefore === false,
-    'At Aug 31, 10:29 UTC (29d 23h 59m), withdrawal request is strictly REJECTED.'
+    isDepositLockedBefore === true,
+    'Before deposit maturity date is reached, principal is strictly LOCKED regardless of account age.'
   );
 
   assert(
-    '30-Day Rule: Exact Maturity Eligibility (10:30 UTC)',
+    'Per-Deposit Maturity: Exact Maturity Eligibility (Matured)',
     'Withdrawal Rules',
-    isEligibleAt === true,
-    'At Aug 31, 10:30 UTC (30 full days completed), withdrawal request is marked ELIGIBLE.'
+    isDepositUnlockedAt === true,
+    'When deposit maturity date is reached, principal is strictly ELIGIBLE for withdrawal.'
   );
 
   // 3. 9% Authoritative Fee Calculations

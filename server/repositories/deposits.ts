@@ -460,10 +460,16 @@ export async function confirmDepositAtomic(input: ConfirmDepositAtomicInput): Pr
   }
 
   const now = new Date().toISOString();
+  const lockDays = typeof settings?.depositLockPeriodDays === 'number' && !isNaN(settings.depositLockPeriodDays) && settings.depositLockPeriodDays >= 0
+    ? settings.depositLockPeriodDays
+    : 66;
+  const lockEndDate = existing.depositLockEndDate || calculateDepositLockEndDate(existing.confirmedAt || existing.createdAt || now, lockDays);
+
   const confirmedDeposit = await updateDeposit(String(numericDepId), {
     status: 'confirmed',
     confirmedAt: now,
     verifiedAt: now,
+    depositLockEndDate: lockEndDate,
     adminNotes: input.adminNotes || existing.adminNotes,
     reviewedBy: input.adminId,
     reviewedAt: now,

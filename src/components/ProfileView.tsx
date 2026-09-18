@@ -80,9 +80,8 @@ export function getProfileWithdrawalEligibility(balance: UserBalanceSummary | nu
 export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigate, balance }) => {
   const { user, token, isLoading: isAuthLoading, logout, logoutAll, refreshUser } = useAuth();
   const isAuthenticatedUser = Boolean(token && user && user.role === 'user');
-  const { minimumDepositAmount, referralRewardL1Percentage, referralRewardL2Percentage, accountAgeRequirementDays: configuredAgeDays } = useSettings();
+  const { minimumDepositAmount, referralRewardL1Percentage, referralRewardL2Percentage } = useSettings();
   const minDeposit = minimumDepositAmount || 300;
-  const accountAgeRequirementDays = configuredAgeDays || 30;
   const [dashboardBalance, setDashboardBalance] = useState<UserBalanceSummary | null>(balance || null);
   const [copiedProfileRef, setCopiedProfileRef] = useState(false);
 
