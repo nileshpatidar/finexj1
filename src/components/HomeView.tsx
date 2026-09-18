@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { DashboardResponse, UserReferralSummary, WithdrawalItem } from '../types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { DashboardResponse, UserReferralSummary, WithdrawalItem, LedgerItem } from '../types';
 import { InvestmentPlanSection } from './InvestmentPlanSection';
 import { InvestmentPlanModal } from './InvestmentPlanModal';
 import { CopyTradingAnnouncementModal } from './CopyTradingAnnouncementModal';
@@ -54,6 +54,37 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [showCopyTradingBanner, setShowCopyTradingBanner] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Independent recent activity state (decoupled from core Dashboard API)
+  const [recentActivity, setRecentActivity] = useState<LedgerItem[]>([]);
+  const [isActivityLoading, setIsActivityLoading] = useState<boolean>(true);
+  const [activityError, setActivityError] = useState<string | null>(null);
+
+  const fetchRecentActivity = useCallback(async () => {
+    if (!isAuthenticatedUser) {
+      setIsActivityLoading(false);
+      return;
+    }
+    setIsActivityLoading(true);
+    setActivityError(null);
+    try {
+      const res = await api.getRecentActivity();
+      if (res && res.success && Array.isArray(res.recentActivity)) {
+        setRecentActivity(res.recentActivity);
+      } else {
+        setRecentActivity([]);
+      }
+    } catch (err: any) {
+      console.warn('Recent activity fetch issue:', err);
+      setActivityError('Unable to load recent activity');
+    } finally {
+      setIsActivityLoading(false);
+    }
+  }, [isAuthenticatedUser]);
+
+  useEffect(() => {
+    fetchRecentActivity();
+  }, [fetchRecentActivity]);
+
   // Fallback state if referralSummary or activePendingWithdrawal not embedded in data
   const [localReferralSummary, setLocalReferralSummary] = useState<UserReferralSummary | null>(null);
   const [localPendingWithdrawal, setLocalPendingWithdrawal] = useState<WithdrawalItem | null>(null);
@@ -61,7 +92,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const balance = data?.balance;
   const user = data?.user;
-  const recent = data?.recentActivity || [];
   const settings = data?.settings;
 
   // First-time login detection for Institutional Copy Trading announcement
@@ -141,7 +171,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
     setIsRefreshing(true);
     try {
       if (onRefresh) {
-        await onRefresh();
+        await Promise.allSettled([onRefresh(), fetchRecentActivity()]);
+      } else {
+        await fetchRecentActivity();
       }
       // Only execute secondary fallback if strictly authenticated as a standard user
       if (isAuthenticatedUser && data && (!data.referralSummary || data.activePendingWithdrawal === undefined)) {
@@ -579,13 +611,45 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </button>
         </div>
 
-        {recent.length === 0 ? (
+        {isActivityLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => (
+              <div
+                key={i}
+                className="p-3.5 rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs animate-pulse"
+              >
+                <div className="flex items-center space-x-3 min-w-0 flex-1 mr-3">
+                  <div className="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-800 flex-shrink-0" />
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <div className="h-3.5 bg-slate-200 dark:bg-slate-800 rounded w-28" />
+                    <div className="h-2.5 bg-slate-200 dark:bg-slate-800 rounded w-40" />
+                  </div>
+                </div>
+                <div className="space-y-1.5 text-right flex-shrink-0">
+                  <div className="h-3.5 bg-slate-200 dark:bg-slate-800 rounded w-16 ml-auto" />
+                  <div className="h-2 bg-slate-200 dark:bg-slate-800 rounded w-8 ml-auto" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : activityError ? (
+          <div className="p-4 text-center rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 text-xs">
+            <p className="text-slate-600 dark:text-slate-400 mb-2">{activityError}</p>
+            <button
+              onClick={() => fetchRecentActivity()}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Retry</span>
+            </button>
+          </div>
+        ) : recentActivity.length === 0 ? (
           <div className="p-6 text-center rounded-2xl bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs">
             No recent transactions recorded yet.
           </div>
         ) : (
           <div className="space-y-2">
-            {recent.slice(0, 4).map(item => {
+            {recentActivity.slice(0, 5).map(item => {
               const perf = parsePerformanceItem(item);
               const isEarning = item.type === 'daily_earnings' || perf.isPerformance;
               const isLoss = item.type === 'daily_loss';

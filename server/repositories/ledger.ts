@@ -18,9 +18,11 @@ export function mapDbLedgerToLedger(l: any): LedgerEntry {
   };
 }
 
-export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> {
+export async function getLedgerByUserId(userId: string, limit?: number): Promise<LedgerEntry[]> {
   if (!isServerSupabaseReady()) {
-    return devLedgerEntries.filter(l => String(l.userId) === String(userId));
+    const list = devLedgerEntries.filter(l => String(l.userId) === String(userId));
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return limit && limit > 0 ? list.slice(0, limit) : list;
   }
 
   const supabase = getServerSupabase();
@@ -31,7 +33,12 @@ export async function getLedgerByUserId(userId: string): Promise<LedgerEntry[]> 
     query = query.eq('user_id', userId);
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+  query = query.order('created_at', { ascending: false });
+  if (limit && limit > 0) {
+    query = query.limit(limit);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error(`[Supabase Error] getLedgerByUserId(${userId}):`, error.message);

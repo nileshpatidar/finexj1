@@ -579,12 +579,16 @@ export interface DashboardResponse {
   user: UserProfile;
   balance: UserBalanceSummary;
   todayEarnings: number;
-  recentActivity: LedgerItem[];
   marketPrices: MarketPrice;
   settings?: AppSettings;
   referralSummary?: UserReferralSummary;
   activePendingWithdrawal?: WithdrawalItem | null;
   serverTime: string;
+}
+
+export interface RecentActivityResponse {
+  success: boolean;
+  recentActivity: LedgerItem[];
 }
 
 export interface TestResultItem {

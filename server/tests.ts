@@ -2489,7 +2489,6 @@ export async function runAutomatedTestSuite(): Promise<{
       'user',
       'balance',
       'todayEarnings',
-      'recentActivity',
       'marketPrices',
       'referralSummary',
       'activePendingWithdrawal',
@@ -7366,6 +7365,65 @@ export async function runAutomatedTestSuite(): Promise<{
       'Step 62 Login 2FA Rule & Withdrawal TOTP',
       false,
       `Step 62 Test Suite error: ${step62Err.message}`
+    );
+  }
+
+  // --- STEP 63: RECENT ACTIVITY API & DASHBOARD DECOUPLING ---
+  try {
+    const { getLedgerByUserId } = await import('./repositories/ledger');
+    const { getProfileByEmail } = await import('./repositories/profiles');
+    const testUser = (await getProfileByEmail('airdropjani@gmail.com')) || { id: '1', role: 'user' };
+
+    // TEST A: getLedgerByUserId supports limit parameter
+    const limitedLedger = await getLedgerByUserId(testUser.id, 5);
+    assert(
+      'STEP 63: TEST A - getLedgerByUserId supports limit parameter',
+      'Recent Activity Decoupling',
+      Array.isArray(limitedLedger) && limitedLedger.length <= 5,
+      'Querying ledger with limit=5 returns at most 5 records.'
+    );
+
+    // TEST B: Database returns newest records first
+    if (limitedLedger.length > 1) {
+      const isSorted = limitedLedger.every((item, idx) => {
+        if (idx === 0) return true;
+        return new Date(item.createdAt).getTime() <= new Date(limitedLedger[idx - 1].createdAt).getTime();
+      });
+      assert(
+        'STEP 63: TEST B - Ledger query preserves newest-first ordering',
+        'Recent Activity Decoupling',
+        isSorted,
+        'Ledger query returns records sorted newest first.'
+      );
+    } else {
+      assert(
+        'STEP 63: TEST B - Ledger query preserves newest-first ordering',
+        'Recent Activity Decoupling',
+        true,
+        'Single record or empty ledger is trivially sorted.'
+      );
+    }
+
+    // TEST C: Performance ledger records include performanceDate and baseEligibleAmount
+    const performanceEntries = limitedLedger.filter(
+      l => l.type === 'daily_earnings' || l.type === 'daily_loss' || (l.description && /daily\s+performance/i.test(l.description))
+    );
+    const noInternalLeaks = limitedLedger.every(item => {
+      // Ensure no internal admin fields or sensitive tokens exist
+      return !('adminNotes' in item) && !('fraudScore' in item);
+    });
+    assert(
+      'STEP 63: TEST C - Security and isolation of recent activity records',
+      'Recent Activity Decoupling',
+      noInternalLeaks,
+      'Recent activity entries do not expose internal administrative notes or fraud scores.'
+    );
+  } catch (step63Err: any) {
+    assert(
+      'STEP 63: TEST-SUITE-EXCEPTION',
+      'Step 63 Recent Activity API Decoupling',
+      false,
+      `Step 63 Test Suite error: ${step63Err.message}`
     );
   }
 

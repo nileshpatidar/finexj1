@@ -1,5 +1,6 @@
 import {
   DashboardResponse,
+  RecentActivityResponse,
   DepositItem,
   AdminDepositDetailResponse,
   WithdrawalItem,
@@ -160,6 +161,8 @@ export const api = {
 
   // User Financial
   getDashboard: () => request<DashboardResponse>('/api/user/dashboard'),
+
+  getRecentActivity: () => request<RecentActivityResponse>('/api/user/recent-activity'),
 
   getDeposits: () => request<{ deposits: DepositItem[] }>('/api/user/deposits'),
 

@@ -990,7 +990,6 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
       earnings,
       withdrawals,
       referralRewards,
-      ledgerEntries: ledger,
     } = balanceData;
 
     const sRef = performance.now();
@@ -1028,12 +1027,11 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
     const totalTimeMs = performance.now() - reqStart;
     const postProcessingMs = performance.now() - postStart;
 
-    logger.info('DASHBOARD_PROFILE', `[Dashboard Profile] user=${user.id} total=${totalTimeMs.toFixed(2)}ms balance=${tBalance.toFixed(2)}ms referral=${tReferral.toFixed(2)}ms ledger=${tLedger.toFixed(2)}ms earnings=${tEarnings.toFixed(2)}ms withdrawals=${tWithdrawals.toFixed(2)}ms`, {
+    logger.info('DASHBOARD_PROFILE', `[Dashboard Profile] user=${user.id} total=${totalTimeMs.toFixed(2)}ms balance=${tBalance.toFixed(2)}ms referral=${tReferral.toFixed(2)}ms earnings=${tEarnings.toFixed(2)}ms withdrawals=${tWithdrawals.toFixed(2)}ms`, {
       userId: user.id,
       durationMs: Math.round(totalTimeMs),
       metadata: {
         balanceCalcMs: Number(tBalance.toFixed(2)),
-        ledgerMs: Number(tLedger.toFixed(2)),
         earningsMs: Number(tEarnings.toFixed(2)),
         marketPricesMs: Number(tMarket.toFixed(2)),
         settingsMs: Number(tSettings.toFixed(2)),
@@ -1044,10 +1042,58 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
       },
     });
 
-    res.setHeader('Server-Timing', `total;dur=${totalTimeMs.toFixed(2)}, bal;dur=${tBalance.toFixed(2)}, ref;dur=${tReferral.toFixed(2)}, led;dur=${tLedger.toFixed(2)}, earn;dur=${tEarnings.toFixed(2)}, wdr;dur=${tWithdrawals.toFixed(2)}`);
+    res.setHeader('Server-Timing', `total;dur=${totalTimeMs.toFixed(2)}, bal;dur=${tBalance.toFixed(2)}, ref;dur=${tReferral.toFixed(2)}, earn;dur=${tEarnings.toFixed(2)}, wdr;dur=${tWithdrawals.toFixed(2)}`);
 
-    // Enrich and sanitize recentActivity for user-facing display
-    const sanitizedRecentActivity = ledger.map(item => {
+    res.json({
+      user: {
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+        profilePictureUrl: user.profilePictureUrl,
+        referralCode: user.referralCode || referralSummary.referralCode,
+      },
+      balance: balanceSummary,
+      todayEarnings: todayEarningsAmount,
+      marketPrices,
+      referralSummary,
+      activePendingWithdrawal: sanitizedPendingWithdrawal,
+      settings: {
+        bep20DepositAddress: settings.bep20DepositAddress,
+        usdtContractAddress: settings.usdtContractAddress,
+        requiredConfirmations: settings.requiredConfirmations,
+        minimumDepositAmount: settings.minimumDepositAmount,
+        withdrawalFeePercentage: settings.withdrawalFeePercentage,
+        accountAgeRequirementDays: settings.accountAgeRequirementDays,
+        depositLockPeriodDays: settings.depositLockPeriodDays,
+        telegramSupportUrl: settings.telegramSupportUrl,
+        operationalWalletAddress: settings.operationalWalletAddress,
+        compoundingEnabled: settings.compoundingEnabled !== false,
+      },
+      serverTime: new Date().toISOString(),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Separate lightweight Recent Activity API (Returns only latest 5 records without burdening Dashboard)
+app.get(['/api/user/recent-activity', '/user/recent-activity'], authMiddleware, async (req, res, next) => {
+  try {
+    const user: User = (req as any).user;
+
+    // 1. Efficiently query database for strictly the latest 5 records of the authenticated user
+    const recentLedger = await getLedgerByUserId(user.id, 5);
+
+    // 2. Correlate with user's earnings only if performance items exist to ensure accurate performance date
+    const hasEarnings = recentLedger.some(
+      item => item.type === 'daily_earnings' || item.type === 'daily_loss' || (item.description && /daily\s+performance/i.test(item.description))
+    );
+    const earnings = hasEarnings ? await getEarningsByUserId(user.id) : [];
+
+    // 3. User security: Sanitize ledger items for user-facing display (no internal notes, admin references, or internal IDs)
+    const sanitizedActivity = recentLedger.map(item => {
       const isPerf = item.type === 'daily_earnings' || item.type === 'daily_loss' || (item.description && /daily\s+performance/i.test(item.description));
       if (isPerf) {
         const matchedEarning = earnings.find(e =>
@@ -1073,52 +1119,40 @@ app.get(['/api/user/dashboard', '/user/dashboard'], authMiddleware, async (req, 
         }
 
         return {
-          ...item,
+          id: item.id,
+          userId: user.id,
+          type: item.type,
+          amount: item.amount,
+          balanceAfter: item.balanceAfter,
           performanceDate: perfDate,
           ratePercentage: ratePct,
           baseEligibleAmount: baseAmount,
           description: 'Daily Performance',
+          createdAt: item.createdAt,
         };
       }
-      return item;
+
+      return {
+        id: item.id,
+        userId: user.id,
+        type: item.type,
+        amount: item.amount,
+        balanceAfter: item.balanceAfter,
+        description: item.description,
+        createdAt: item.createdAt,
+      };
     });
 
-    // Chronological sorting respecting performance date for yield records
-    sanitizedRecentActivity.sort((a, b) => {
+    // Sort newest first by performanceDate or createdAt
+    sanitizedActivity.sort((a, b) => {
       const timeA = a.performanceDate ? new Date(`${a.performanceDate}T23:59:59Z`).getTime() : new Date(a.createdAt).getTime();
       const timeB = b.performanceDate ? new Date(`${b.performanceDate}T23:59:59Z`).getTime() : new Date(b.createdAt).getTime();
       return timeB - timeA;
     });
 
     res.json({
-      user: {
-        id: user.id,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        createdAt: user.createdAt,
-        profilePictureUrl: user.profilePictureUrl,
-        referralCode: user.referralCode || referralSummary.referralCode,
-      },
-      balance: balanceSummary,
-      todayEarnings: todayEarningsAmount,
-      recentActivity: sanitizedRecentActivity.slice(0, 5),
-      marketPrices,
-      referralSummary,
-      activePendingWithdrawal: sanitizedPendingWithdrawal,
-      settings: {
-        bep20DepositAddress: settings.bep20DepositAddress,
-        usdtContractAddress: settings.usdtContractAddress,
-        requiredConfirmations: settings.requiredConfirmations,
-        minimumDepositAmount: settings.minimumDepositAmount,
-        withdrawalFeePercentage: settings.withdrawalFeePercentage,
-        accountAgeRequirementDays: settings.accountAgeRequirementDays,
-        depositLockPeriodDays: settings.depositLockPeriodDays,
-        telegramSupportUrl: settings.telegramSupportUrl,
-        operationalWalletAddress: settings.operationalWalletAddress,
-        compoundingEnabled: settings.compoundingEnabled !== false,
-      },
-      serverTime: new Date().toISOString(),
+      success: true,
+      recentActivity: sanitizedActivity.slice(0, 5),
     });
   } catch (err) {
     next(err);
